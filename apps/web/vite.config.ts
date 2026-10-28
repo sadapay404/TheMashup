@@ -10,6 +10,7 @@ export default defineConfig({
     port: 8080,
     strictPort: true,
     allowedHosts: true, // accept the sandbox preview hostname
+    cors: false, // let the gateway own CORS (desktop Tauri preflights included)
     proxy: {
       // Browser uses relative /api URLs; Vite forwards to the Express gateway.
       "/api": { target: "http://127.0.0.1:4000", changeOrigin: false },

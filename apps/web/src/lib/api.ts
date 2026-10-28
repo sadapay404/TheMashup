@@ -14,6 +14,26 @@ import type {
   Track,
 } from "@themashup/shared";
 
+/**
+ * Gateway origin. Empty on the web (same-origin → Vite proxy); absolute inside
+ * the Tauri shell where the page runs on the tauri: scheme and must reach the
+ * local gateway directly. VITE_API_BASE overrides both (e.g. remote gateway).
+ */
+export const API_BASE: string = (() => {
+  if (typeof window === "undefined") return "";
+  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
+  if (env?.VITE_API_BASE) return env.VITE_API_BASE.replace(/\/$/, "");
+  const loc = window.location;
+  if (loc.protocol === "tauri:" || loc.hostname === "tauri.localhost") {
+    return "http://127.0.0.1:4000";
+  }
+  return "";
+})();
+
+/** Prefix a root-relative gateway path with the active API base. */
+export const apiUrl = (path: string): string =>
+  path.startsWith("/api") ? API_BASE + path : path;
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -44,7 +64,7 @@ function authHeaders(): Record<string, string> {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, {
+    res = await fetch(apiUrl(path), {
       ...init,
       headers: {
         ...(init?.body ? { "content-type": "application/json" } : {}),
@@ -83,11 +103,15 @@ export const api = {
   radio: (body: { seed_video_id?: string; query?: string; limit?: number }) =>
     request<RadioResponse>("/api/radio", { method: "POST", body: JSON.stringify(body) }),
 
-  resolveStreams: (videoId: string) =>
-    request<StreamResponse>("/api/streams", {
+  resolveStreams: async (videoId: string) => {
+    const res = await request<StreamResponse>("/api/streams", {
       method: "POST",
       body: JSON.stringify({ video_id: videoId }),
-    }),
+    });
+    // play_url is root-relative from the gateway — absolute it in the desktop shell.
+    res.candidates = (res.candidates ?? []).map((c) => ({ ...c, play_url: apiUrl(c.play_url) }));
+    return res;
+  },
 
   track: (id: string) => request<Track & { related: Track[] }>(`/api/track/${id}`),
 
@@ -119,7 +143,7 @@ export const api = {
     if (mode === "demo" && user?.id) q.set("dev_user", user.id.replace(/^dev:/, ""));
     if (mode === "supabase" && accessToken) q.set("access_token", accessToken);
     const qs = q.toString();
-    return `/api/downloads/${jobId}/file${qs ? `?${qs}` : ""}`;
+    return apiUrl(`/api/downloads/${jobId}/file${qs ? `?${qs}` : ""}`);
   },
 
   downloads: {
@@ -140,7 +164,7 @@ export const api = {
       const ctrl = new AbortController();
       void (async () => {
         try {
-          const res = await fetch("/api/downloads/stream", {
+          const res = await fetch(apiUrl("/api/downloads/stream"), {
             headers: authHeaders(),
             signal: ctrl.signal,
           });

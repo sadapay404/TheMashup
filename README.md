@@ -51,6 +51,8 @@ pnpm --filter @themashup/web dev
 pnpm test          # shared + api + web + resolver suites
 pnpm typecheck     # 3 TypeScript packages
 pnpm build         # production web bundle
+pnpm desktop:dev   # Tauri dev window (needs Rust — see docs/DESKTOP.md)
+pnpm desktop:build # package the Windows app
 ```
 
 ## Repo map
@@ -59,9 +61,10 @@ pnpm build         # production web bundle
 packages/shared     types, constants, ranking/lyrics/radio/recommend utils + tests
 apps/api            Express gateway :4000 (auth, library, downloads, SSE, proxies)
 apps/web            React app (Vite) :8080
+desktop/src-tauri   Tauri shell (Phase 7) — media keys, tray, native save dialogs
 services/resolver   FastAPI :8000 (search/stream/lyrics/downloads, yt-dlp + ffmpeg)
 supabase/migrations Postgres schema (auth, library, embeddings, RLS)
-docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md
+docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md
 ```
 
 ## Phases
@@ -74,7 +77,7 @@ docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md
 | 4 | Auth + library + smart search | ✅ |
 | 5 | Downloads + recommendations | ✅ |
 | 6 | Animations, visualizer, stress tests, PWA, live preview | ✅ |
-| 7 | Tauri desktop shell | ⏳ |
+| 7 | Tauri desktop shell (media keys, tray, native saves) | ✅ |
 | 8 | Capacitor Android APKs | ⏳ |
 
 > Personal-use build. Streams resolve from YouTube via yt-dlp (ToS risk accepted by

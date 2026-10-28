@@ -553,6 +553,33 @@ test("discover shelf carries personalization flag", async () => {
   assert.ok(shelf.body.tracks.length >= 1);
 });
 
+test("CORS: Tauri desktop origins pass preflight and read filenames", async () => {
+  const pre = await fetch(`${base}/api/downloads`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: "tauri://localhost",
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "content-type,x-dev-user",
+    },
+  });
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers.get("access-control-allow-origin"), "tauri://localhost");
+  assert.ok(pre.headers.get("access-control-allow-headers")?.toLowerCase().includes("x-dev-user"));
+  assert.ok(pre.headers.get("access-control-allow-methods")?.includes("DELETE"));
+
+  const pre2 = await fetch(`${base}/api/health`, {
+    method: "OPTIONS",
+    headers: { Origin: "http://tauri.localhost", "Access-Control-Request-Method": "GET" },
+  });
+  assert.equal(pre2.headers.get("access-control-allow-origin"), "http://tauri.localhost");
+
+  const res = await fetch(`${base}/api/downloads`, {
+    headers: { Origin: "tauri://localhost" },
+  });
+  assert.equal(res.headers.get("access-control-allow-origin"), "tauri://localhost");
+  assert.equal(res.headers.get("access-control-expose-headers")?.toLowerCase(), "content-disposition");
+});
+
 test("real resolver client module exports a health probe", () => {
   assert.equal(typeof httpResolver.health, "function");
   assert.equal(typeof httpResolver.streams, "function");

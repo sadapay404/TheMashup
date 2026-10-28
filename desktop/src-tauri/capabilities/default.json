@@ -1,0 +1,20 @@
+{
+  "identifier": "default",
+  "description": "Capabilities for the main player window. fs scope covers the paths the native Save dialog writes to.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "global-shortcut:default",
+    "dialog:default",
+    "fs:allow-write-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$TEMP/**" }
+      ]
+    }
+  ]
+}

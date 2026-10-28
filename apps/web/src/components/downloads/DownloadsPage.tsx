@@ -20,6 +20,7 @@ import {
 import type { DownloadJob } from "@themashup/shared";
 import { formatBytes, formatSpeed, formatTimeLeft } from "@themashup/shared";
 import { api } from "../../lib/api";
+import { isDesktop, saveJobFile } from "../../lib/desktop";
 import { useUIStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useDownloadsStore, activeJobs, doneJobs } from "../../stores/downloadsStore";
@@ -113,9 +114,20 @@ function FinishedRow({ job }: { job: DownloadJob }) {
           target="_blank"
           rel="noreferrer"
           download
+          title={isDesktop() ? "Save to a folder of your choice" : "Open file"}
+          onClick={(e) => {
+            if (!isDesktop()) return;
+            // Desktop: native Save dialog instead of the browser download shelf.
+            e.preventDefault();
+            void saveJobFile(job).then((outcome) => {
+              if (outcome === "unavailable") {
+                window.open(api.fileUrl(job.id), "_blank");
+              }
+            });
+          }}
           className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-fg transition hover:opacity-90"
         >
-          <Download size={13} /> Open
+          <Download size={13} /> {isDesktop() ? "Save" : "Open"}
         </a>
       )}
     </div>

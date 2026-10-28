@@ -31,8 +31,13 @@ export const config = {
       : !process.env.SUPABASE_URL,
   /** Local JSON library store path (fallback when Supabase is absent). */
   libraryDbPath: process.env.LIBRARY_DB_PATH || "data/library.json",
-  corsOrigins:
-    process.env.CORS_ORIGIN?.split(",").map((s) => s.trim()).filter(Boolean) ?? ["*"],
+  corsOrigins: (() => {
+    // Desktop (Tauri) origins are always allowed so the bundled shell can call
+    // the gateway directly on 127.0.0.1 — even when CORS_ORIGIN is explicit.
+    const desktop = ["tauri://localhost", "http://tauri.localhost"];
+    const list = process.env.CORS_ORIGIN?.split(",").map((s) => s.trim()).filter(Boolean);
+    return list ? [...list, ...desktop] : ["*"];
+  })(),
   version: "0.1.0",
 } as const;
 

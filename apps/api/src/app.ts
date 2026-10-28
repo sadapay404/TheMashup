@@ -21,6 +21,8 @@ export function createApp(deps: AppDeps = {}): Express {
   app.use(
     cors({
       origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,
+      // Let the desktop shell read attachment filenames off cross-origin files.
+      exposedHeaders: ["Content-Disposition"],
     }),
   );
   app.use(express.json({ limit: "256kb" }));
