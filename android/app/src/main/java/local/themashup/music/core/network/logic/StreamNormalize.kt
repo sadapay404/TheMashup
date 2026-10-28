@@ -124,4 +124,47 @@ object StreamNormalize {
         bitrateBps = bitrateBps,
         sizeValue = size,
     )
+
+    /** mp4 mime → "mp4", webm → "webm", else "video" (video container ext). */
+    fun videoExtFromMime(mime: String): String = when {
+        "mp4" in mime -> "mp4"
+        "webm" in mime -> "webm"
+        else -> "video"
+    }
+
+    /**
+     * Video stream candidate (N7 downloads). [height] may be null — the
+     * quality label ("1080p60") is kept and parsed downstream.
+     * [videoOnly] marks adaptive streams that need an audio merge.
+     */
+    fun videoCandidate(
+        source: String,
+        url: String?,
+        mime: String,
+        quality: String?,
+        width: Int?,
+        height: Int?,
+        videoOnly: Boolean,
+        sizeValue: String?,
+    ): StreamCandidate? {
+        if (url.isNullOrBlank()) return null
+        val ext = videoExtFromMime(mime)
+        return StreamCandidate(
+            id = "${source}:${url.hashCode()}",
+            source = source,
+            url = url,
+            mime = mime,
+            ext = ext,
+            quality = quality?.takeIf { it.isNotBlank() }
+                ?: height?.let { "${it}p" }
+                ?: ext,
+            width = width?.takeIf { it > 0 },
+            height = height?.takeIf { it > 0 },
+            hasVideo = true,
+            videoOnly = videoOnly,
+            sizeBytes = sizeFrom(sizeValue),
+            expiresAt = expiresIso(url),
+            httpHeaders = YOUTUBE_HEADERS,
+        )
+    }
 }

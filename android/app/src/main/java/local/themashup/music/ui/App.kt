@@ -63,9 +63,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import local.themashup.music.core.data.AppContainer
+import local.themashup.music.core.domain.Track
+import local.themashup.music.core.download.FfmpegState
 import local.themashup.music.core.player.PlayerSnapshot
 import local.themashup.music.ui.art.rememberArtAccents
+import local.themashup.music.ui.components.FfmpegSheet
 import local.themashup.music.ui.components.MiniPlayer
+import local.themashup.music.ui.components.QualityPicker
 import local.themashup.music.ui.components.ThemeSwatchPicker
 import local.themashup.music.ui.logic.DEFAULT_THEME_ID
 import local.themashup.music.ui.logic.themeFromKey
@@ -123,6 +127,9 @@ private fun MashupShell(container: AppContainer) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var queueOpen by rememberSaveable { mutableStateOf(false) }
     var playerTab by rememberSaveable { mutableStateOf("lyrics") }
+    // N7: track queued for the quality picker (web uiStore.downloadTrack).
+    var pendingDownload by remember { mutableStateOf<Track?>(null) }
+    var ffmpegManualOpen by remember { mutableStateOf(false) }
     val themeKeyState by container.settings.themeKey.collectAsState(initial = DEFAULT_THEME_ID.storageKey)
 
     val artwork = playerState.current?.artworkBest ?: playerState.current?.artwork
@@ -199,15 +206,24 @@ private fun MashupShell(container: AppContainer) {
                                 engine = container.player,
                                 library = container.library,
                                 playerState = playerState,
+                                onDownload = { pendingDownload = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
                             "library" -> LibraryScreen(
                                 engine = container.player,
                                 library = container.library,
                                 playerState = playerState,
+                                onDownload = { pendingDownload = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            else -> DownloadsScreen(modifier = Modifier.fillMaxSize())
+                            else -> DownloadsScreen(
+                                downloads = container.downloads,
+                                engine = container.downloadEngine,
+                                ffmpegManager = container.ffmpeg,
+                                onFindSomething = { page = "search" },
+                                onOpenSetup = { ffmpegManualOpen = true },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                 }
@@ -255,6 +271,42 @@ private fun MashupShell(container: AppContainer) {
                     onTabChange = { playerTab = it },
                     onCollapse = { expanded = false },
                     modifier = Modifier.fillMaxSize(),
+                    onDownload = { pendingDownload = it },
+                )
+            }
+
+            /* ── N7 overlays: quality picker + first-run ffmpeg sheet ── */
+            pendingDownload?.let { track ->
+                QualityPicker(
+                    track = track,
+                    extraction = container.extraction,
+                    onDismiss = { pendingDownload = null },
+                    onStart = { t, quality, containerKey ->
+                        container.downloadEngine.enqueue(t, quality, containerKey)
+                        pendingDownload = null
+                    },
+                )
+            }
+
+            val ffmpegState by container.ffmpeg.status.collectAsState()
+            val ffmpegConsent by container.downloadEngine.consent.collectAsState()
+            val ffmpegVisible = ffmpegConsent != null ||
+                ffmpegState is FfmpegState.Downloading ||
+                ffmpegState is FfmpegState.Extracting ||
+                ffmpegManualOpen
+            if (ffmpegVisible) {
+                FfmpegSheet(
+                    status = ffmpegState,
+                    pending = ffmpegConsent != null,
+                    onAccept = {
+                        ffmpegManualOpen = false
+                        container.downloadEngine.acceptSetup()
+                    },
+                    onDecline = {
+                        ffmpegManualOpen = false
+                        container.downloadEngine.declineSetup()
+                    },
+                    onDismiss = { ffmpegManualOpen = false },
                 )
             }
         }

@@ -82,6 +82,7 @@ fun SearchScreen(
     engine: PlaybackEngine,
     library: LibraryRepository,
     playerState: PlayerSnapshot,
+    onDownload: (Track) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
@@ -371,6 +372,7 @@ fun SearchScreen(
                             isCurrent = playerState.current?.id == track.id,
                             onClick = { playTrack(track, tracks) },
                             modifier = Modifier.padding(vertical = 3.dp),
+                            onDownload = onDownload,
                         )
                     }
                     is HybridRow.LyricRow -> {

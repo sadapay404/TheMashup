@@ -16,6 +16,7 @@ media3 = "1.5.1"
 palette = "1.0.0"
 datastore = "1.1.1"
 newpipe = "v0.26.5"
+xz = "1.9"
 junit = "4.13.2"
 androidxJunit = "1.2.1"
 espresso = "3.6.1"
@@ -46,6 +47,7 @@ media3-common = { group = "androidx.media3", name = "media3-common", version.ref
 palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 newpipe-extractor = { group = "com.github.TeamNewPipe", name = "NewPipeExtractor", version.ref = "newpipe" }
+xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
 desugar-jdk-libs-nio = { group = "com.android.tools", name = "desugar_jdk_libs_nio", version.ref = "desugar" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }

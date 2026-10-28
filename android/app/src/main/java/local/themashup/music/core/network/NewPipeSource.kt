@@ -37,24 +37,40 @@ class NewPipeSource(
 
     override fun streams(videoId: String): SourceStreams {
         val info = StreamInfo.getInfo(ServiceList.YouTube, VideoIds.watchUrl(videoId))
-        val candidates = StreamNormalize.sortCandidates(
-            info.audioStreams
-                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
-                .mapNotNull { a ->
-                    val url = a.url ?: return@mapNotNull null
-                    val base = StreamNormalize.candidate(
-                        source = "newpipe",
-                        url = url,
-                        mime = a.format?.mimeType ?: "audio/mp4",
-                        quality = a.quality,
-                        bitrateBps = null,
-                        sizeValue = null,
-                    ) ?: return@mapNotNull null
-                    base.copy(
-                        bitrateKbps = StreamNormalize.kbpsFromNewPipe(a.quality, a.averageBitrate),
-                    )
-                },
-        )
+        val audio = info.audioStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+            .mapNotNull { a ->
+                val url = a.url ?: return@mapNotNull null
+                val base = StreamNormalize.candidate(
+                    source = "newpipe",
+                    url = url,
+                    mime = a.format?.mimeType ?: "audio/mp4",
+                    quality = a.quality,
+                    bitrateBps = null,
+                    sizeValue = null,
+                ) ?: return@mapNotNull null
+                base.copy(
+                    bitrateKbps = StreamNormalize.kbpsFromNewPipe(a.quality, a.averageBitrate),
+                )
+            }
+        // N7 downloads: muxed (audio attached) + adaptive (video-only) video
+        // streams — StreamInfo keeps them in separate lists.
+        val video = (info.videoStreams.map { s -> s to false } +
+            info.videoOnlyStreams.map { s -> s to true }).mapNotNull { (v, videoOnly) ->
+            if (v.deliveryMethod != DeliveryMethod.PROGRESSIVE_HTTP) return@mapNotNull null
+            val url = v.url ?: return@mapNotNull null
+            StreamNormalize.videoCandidate(
+                source = "newpipe",
+                url = url,
+                mime = v.format?.mimeType ?: "video/mp4",
+                quality = v.resolution?.takeIf { it.isNotBlank() } ?: v.quality,
+                width = v.width,
+                height = v.height,
+                videoOnly = videoOnly,
+                sizeValue = null,
+            )
+        }
+        val candidates = StreamNormalize.sortCandidates(audio) + video
         val related = info.relatedItems.mapNotNull { infoItemToTrack(it, category = "video") }
         return SourceStreams(candidates, related)
     }

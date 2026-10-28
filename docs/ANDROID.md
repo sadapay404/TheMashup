@@ -19,8 +19,11 @@
    library (likes/playlists/history), persistent themes, background/lock-screen
    playback, polished animations.
 4. **Downloads encoder = first-run download**: the APK stays slim; on first
-   download the app fetches a pinned static ffmpeg build once (~128 MB,
-   from GitHub `BtbN/FFmpeg-Builds`, `ffmpeg-n9.0-latest-linuxarm64-gpl-9.0.tar.xz`)
+   download the app fetches a pinned static ffmpeg build once (~122 MB,
+   from GitHub `BtbN/FFmpeg-Builds`,
+   `ffmpeg-n8.1-latest-linuxarm64-gpl-8.1.tar.xz` — the planned n9.0 arm64
+   asset was not on the live release feed at N7 build time; swap the single
+   `FfmpegManager.FFMPEG_URL` constant if it reappears)
    into app storage and caches it. No transcoder code bundled in the APK.
 5. **PC/server code untouched** — Tauri desktop + Express gateway + Python
    resolver remain as they are.
@@ -233,6 +236,61 @@ notification/UI update.
   remove always visible; failover note counts the current track only;
   `Modifier.blur` no-ops below API 31; Compose layer still Gradle-compile-only
   (sandbox covers `ui/logic` + player + domain logic).
+
+### N7 notes (delivered)
+
+- **Pipeline** (`core/download/`): `logic/DownloadLogic.kt` (pure) owns the
+  quality→height matrix, audio/video candidate selection (muxed-first, strict
+  ≤target cap, adaptive split + best audio pair), resolver-exact ffmpeg argv
+  (`libmp3lame` 128k/320k · `flac` · `libopus` 160k · mp4 copy→x264+aac
+  fallback, split `-map 0:v:0 -map 1:a:0`), filename sanitize/dedupe, MIME
+  map, progress percent (0..98, 99 = processing) and ETA math;
+  `logic/TarArchive.kt` streams the single `bin/ffmpeg` member to disk.
+  `FfmpegManager` pins the BtbN asset → `filesDir/ffmpeg/bin/ffmpeg`
+  (xz via `org.tukaani:xz:1.9`, chmod + `ffmpeg -version` probe, StateFlow
+  Missing/Downloading/Extracting/Ready/Failed). `MediaStoreWriter` inserts
+  into `MediaStore.Downloads` (`RELATIVE_PATH Download/TheMashup`,
+  IS_PENDING handshake, display-name dedupe) on Q+; below Q it tries the
+  public dir then falls back to app-external Downloads with a job warning
+  (no runtime storage prompt). `DownloadEngine`: 2-worker semaphore, OkHttp
+  fetch (candidate headers, EMA speed + ETA via repo Flow), PROCESSING at 99,
+  300 s transcode timeout with primary+fallback argv, OkHttp Call tracked for
+  instant cancel (row removal = web `cancel`), in-place Retry, start-time
+  reconcile (`interrupted by restart`), and a consent cycle so the first-run
+  sheet parks jobs until Accept/Decline.
+- **Extraction video**: NewPipe `videoStreams` (muxed) + `videoOnlyStreams`
+  (fields contract-verified against v0.26.5 source), Piped `videoStreams`
+  DTO, Invidious video adaptive entries → `StreamCandidate` gains additive
+  `videoOnly`. Playback filters `videoOnly` candidates (they are silent) —
+  `ExtractionService.streams()` unchanged, so `/formats`-equivalent data for
+  the QualityPicker comes from the same call.
+- **UI**: `DownloadsScreen` (subtitle swap, ffmpeg pill = ready/transcoding
+  limited + tap-to-open setup, always-live pill, In progress / Finished
+  sections, verbatim empty state → Find something = search page),
+  `QualityPicker` dialog (artwork header, “Loading available formats…”, 2×2
+  chips verbatim, “not available” beyond manifest max height + “· up to Nh”
+  / “· no video formats”, ≈size from candidate bytes, error line, footnote),
+  `FfmpegSheet` (consent + byte progress/Unpacking/Try again), download icons
+  on search/library rows + expanded-player header.
+- **Deviations (deliberate)**: finished rows have no Save/Open button — the
+  engine already wrote the file into system Downloads at completion (the web
+  button exists because the gateway hosts the file); 4K chip targets 2160
+  (web `parseInt("4k")`→0 never disables it — treated as a web bug); ffmpeg
+  pin is n8.1 (live feed had no n9.0 arm64 asset); API 26-28 files land in
+  app-external Downloads with a warning instead of a storage-permission
+  prompt; the “live” SSE pill is always on (jobs stream in-process); the
+  sign-in gate is skipped (local profile always identified).
+- **Risks**: the BtbN `linuxarm64` build is a static glibc binary — expected
+  to exec on Android (static, no glibc loader), and the `-version` probe
+  reports Failed honestly if a device refuses it (fix-forward: swap
+  `FFMPEG_URL` to an Android-built static asset, one constant);
+  kotlinx-serialization fixtures were not extended for video payloads
+  (parse paths syntax-gated + `StreamNormalizeVideoTest` covers mapping);
+  Gradle compile + on-device transcode pending your build — same fix-forward
+  posture as N3-N6.
+- **Gates**: sandbox **175/175** (+`DownloadLogicTest`, `TarArchiveTest`,
+  `StreamNormalizeVideoTest`, dedupe case), syntax green (103 kt / 5 xml /
+  1 toml), web matrix 124/124, `pnpm typecheck` 0.
 
 ## Build (your machine)
 

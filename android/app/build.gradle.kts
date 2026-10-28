@@ -88,6 +88,7 @@ dependencies {
 
     // YouTube extraction (Phase N3)
     implementation(libs.newpipe.extractor)
+    implementation(libs.xz) // N7: pure-Java xz for the first-run ffmpeg tar.xz
     coreLibraryDesugaring(libs.desugar.jdk.libs.nio)
 
     // Tests

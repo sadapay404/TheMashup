@@ -167,7 +167,9 @@ class PlaybackEngine(
             if (_state.value.current?.id != track.id) return@launch
             val (s, e) = sm.onCandidatesResolved(
                 _state.value,
-                result.candidates,
+                // Adaptive video streams are silent — playback only walks
+                // audio + muxed candidates (N7 download plan uses the full list).
+                result.candidates.filter { !it.videoOnly },
                 startAtMs = effect.startAtMs,
                 isRefresh = effect.isRefresh,
             )

@@ -71,6 +71,9 @@ NETWORK_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/networ
 # N5 pure UI logic (ThemeCatalog + art fallbacks — no Compose imports)
 UI_LOGIC="$ROOT/android/app/src/main/java/local/themashup/music/ui/logic"
 UI_LOGIC_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/ui/logic"
+# N7 pure download logic (Process/MediaStore/OkHttp shells stay Gradle-only)
+DOWNLOAD_LOGIC="$ROOT/android/app/src/main/java/local/themashup/music/core/download/logic"
+DOWNLOAD_LOGIC_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/download/logic"
 SANDBOX="$ROOT/android/sandbox"
 
 log "compiling domain + tests + sandbox stubs..."
@@ -85,6 +88,8 @@ rm -f "$OUT_JAR"
   "$PLAYER_TESTS"/*.kt \
   "$UI_LOGIC"/*.kt \
   "$UI_LOGIC_TESTS"/*.kt \
+  "$DOWNLOAD_LOGIC"/*.kt \
+  "$DOWNLOAD_LOGIC_TESTS"/*.kt \
   "$SANDBOX"/*.kt \
   "$SANDBOX"/org/junit/*.kt \
   "$SANDBOX"/kotlinx/serialization/*.kt \
@@ -115,4 +120,7 @@ log "running..."
   local.themashup.music.core.network.logic.ExtractionLogicTest \
   local.themashup.music.core.network.logic.ExtractionWalkTest \
   local.themashup.music.core.player.StreamFailoverTest \
-  local.themashup.music.core.player.PlaybackStateMachineTest
+  local.themashup.music.core.player.PlaybackStateMachineTest \
+  local.themashup.music.core.download.logic.DownloadLogicTest \
+  local.themashup.music.core.download.logic.TarArchiveTest \
+  local.themashup.music.core.network.logic.StreamNormalizeVideoTest

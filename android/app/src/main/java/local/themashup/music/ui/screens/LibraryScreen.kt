@@ -79,6 +79,7 @@ fun LibraryScreen(
     engine: PlaybackEngine,
     library: LibraryRepository,
     playerState: PlayerSnapshot,
+    onDownload: (Track) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
@@ -278,6 +279,7 @@ fun LibraryScreen(
                         isCurrent = playerState.current?.id == t.id,
                         onClick = { playContext(t, libState.likes, "library") },
                         modifier = Modifier.padding(vertical = 2.dp),
+                        onDownload = onDownload,
                         trailing = { AddToPlaylistButton(track = t, library = library) },
                     )
                 }
@@ -394,6 +396,7 @@ fun LibraryScreen(
                         isCurrent = playerState.current?.id == h.track.id,
                         onClick = { playContext(h.track, histTracks, "history") },
                         modifier = Modifier.padding(vertical = 2.dp),
+                        onDownload = onDownload,
                         trailing = {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -559,6 +562,7 @@ private fun ReorderableTrackList(
                     isCurrent = playerState.current?.id == track.id,
                     onClick = { onPlay(track) },
                     modifier = Modifier.padding(vertical = 2.dp),
+                    onDownload = onDownload,
                     trailing = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

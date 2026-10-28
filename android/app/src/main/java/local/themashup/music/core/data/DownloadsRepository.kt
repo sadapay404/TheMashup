@@ -41,7 +41,7 @@ class DownloadsRepository(
      * (e.g. `quality 'mp3_320' invalid for mp3 (allowed: 128k, 320k)`).
      */
     suspend fun enqueue(track: Track, quality: String, container: String): DownloadJob {
-        validateDownloadQuality(quality, container)
+        validateDownloadQuality(container, quality)?.let { throw IllegalArgumentException(it) }
         val now = System.currentTimeMillis()
         val job = DownloadJob(
             id = UUID.randomUUID().toString(),
@@ -62,10 +62,16 @@ class DownloadsRepository(
             job.copy(status = status, error = error ?: job.error, updatedAt = System.currentTimeMillis())
         }
 
-    suspend fun updateProgress(jobId: String, percent: Int, speedBps: Long? = null) = mutateJob(jobId) { job ->
+    suspend fun updateProgress(
+        jobId: String,
+        percent: Int,
+        speedBps: Long? = null,
+        etaSec: Long? = null,
+    ) = mutateJob(jobId) { job ->
         job.copy(
             progress = percent.coerceIn(0, 100),
             speedBps = speedBps,
+            etaSec = etaSec,
             status = if (percent in 1..99 && job.status == DownloadStatus.QUEUED) {
                 DownloadStatus.DOWNLOADING
             } else {
@@ -73,6 +79,11 @@ class DownloadsRepository(
             },
             updatedAt = System.currentTimeMillis(),
         )
+    }
+
+    /** Downgrade note (e.g. remux skipped) kept alongside a job. */
+    suspend fun setWarning(jobId: String, warning: String?) = mutateJob(jobId) { job ->
+        job.copy(warning = warning, updatedAt = System.currentTimeMillis())
     }
 
     suspend fun markCompleted(jobId: String, filename: String, filesize: Long) = mutateJob(jobId) { job ->
@@ -92,8 +103,13 @@ class DownloadsRepository(
 
     fun job(jobId: String): DownloadJob? = _state.value.jobs.firstOrNull { it.id == jobId }
 
+    /** In-flight rows (restart reconciliation + progress sections). */
     fun activeJobs(): List<DownloadJob> =
-        _state.value.jobs.filter { it.status == DownloadStatus.QUEUED || it.status == DownloadStatus.DOWNLOADING }
+        _state.value.jobs.filter {
+            it.status == DownloadStatus.QUEUED ||
+                it.status == DownloadStatus.DOWNLOADING ||
+                it.status == DownloadStatus.PROCESSING
+        }
 
     private suspend fun mutateJob(jobId: String, fn: (DownloadJob) -> DownloadJob) {
         _state.value = store.update { data ->

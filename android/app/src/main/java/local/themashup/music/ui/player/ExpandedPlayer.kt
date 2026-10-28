@@ -31,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material3.Icon
@@ -86,6 +87,7 @@ fun ExpandedPlayer(
     onTabChange: (String) -> Unit,
     onCollapse: () -> Unit,
     modifier: Modifier = Modifier,
+    onDownload: ((local.themashup.music.core.domain.Track) -> Unit)? = null,
 ) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
@@ -189,7 +191,24 @@ fun ExpandedPlayer(
                     }
                 }
                 if (current != null) {
-                    LikeButton(track = current, library = library, size = 26.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (onDownload != null) {
+                            Icon(
+                                Icons.Outlined.Download,
+                                contentDescription = "Download",
+                                tint = tokens.textDim,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .clickable { onDownload(current) }
+                                    .padding(7.dp),
+                            )
+                        }
+                        LikeButton(track = current, library = library, size = 26.dp)
+                    }
                 } else {
                     Box(modifier = Modifier.size(46.dp))
                 }

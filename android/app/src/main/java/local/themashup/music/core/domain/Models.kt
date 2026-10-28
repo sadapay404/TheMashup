@@ -52,6 +52,8 @@ data class StreamCandidate(
     val width: Int? = null,
     val height: Int? = null,
     val hasVideo: Boolean = false,
+    /** Video stream without audio (adaptive) — needs a merge with an audio candidate. */
+    val videoOnly: Boolean = false,
     val sizeBytes: Long? = null,
     val expiresAt: String? = null,
     val httpHeaders: Map<String, String> = emptyMap(),

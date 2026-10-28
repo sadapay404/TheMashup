@@ -61,6 +61,18 @@ fun parseLrc(lrc: String): List<LyricLine> {
     return lines.sortedBy { it.time }
 }
 
+private val HEIGHT_IN_LABEL = Regex("""(\d{3,4})p?""")
+
+/**
+ * Quality label → pixel height: "1080p60" / "720p" / "hd720" → 1080 / 720 /
+ * 720; blank or unparseable → null. (Downloads manifest + video selection.)
+ */
+fun heightFromLabel(label: String?): Int? {
+    if (label.isNullOrBlank()) return null
+    HEIGHT_IN_LABEL.find(label)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
+    return label.filter { it.isDigit() }.takeIf { it.length in 3..4 }?.toIntOrNull()
+}
+
 /** ETA line for download rows: "42s left", "3m 12s left", "1h 5m left". */
 fun formatTimeLeft(seconds: Double?): String {
     if (seconds == null || seconds.isNaN() || seconds < 0) return ""

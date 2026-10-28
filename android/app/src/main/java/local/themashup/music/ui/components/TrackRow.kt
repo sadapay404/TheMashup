@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ fun TrackRow(
     isCurrent: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onDownload: ((Track) -> Unit)? = null,
     trailing: @Composable () -> Unit = {},
 ) {
     val tokens = LocalMashupTokens.current
@@ -79,7 +81,21 @@ fun TrackRow(
             text = formatDuration(track.durationSec),
             style = MaterialTheme.typography.labelMedium,
             color = tokens.textFaint,
+            modifier = Modifier.padding(start = 4.dp, end = 6.dp),
         )
+        if (onDownload != null) {
+            androidx.compose.material3.IconButton(
+                onClick = { onDownload(track) },
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.Download,
+                    contentDescription = "Download",
+                    tint = tokens.textDim,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
         trailing()
     }
 }

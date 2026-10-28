@@ -49,8 +49,22 @@ data class PipedAudioStream(
 )
 
 @Serializable
+data class PipedVideoStream(
+    val url: String? = null,
+    val mimeType: String? = null,
+    val quality: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    /** false = muxed (video+audio in one file); true = adaptive video-only. */
+    val videoOnly: Boolean? = null,
+    val bitrate: Long? = null,
+    val contentLength: JsonElement? = null,
+)
+
+@Serializable
 data class PipedStreamsResponse(
     val audioStreams: List<PipedAudioStream> = emptyList(),
+    val videoStreams: List<PipedVideoStream> = emptyList(),
     val relatedStreams: List<PipedSearchItem> = emptyList(),
 )
 
@@ -73,6 +87,9 @@ data class InvidiousFormat(
     val url: String? = null,
     val bitrate: Long? = null,
     val audioQuality: String? = null,
+    /** e.g. "1080p" / "720p60" on video entries. */
+    val qualityLabel: String? = null,
+    val quality: String? = null,
     val contentLength: JsonElement? = null,
     val size: JsonElement? = null,
 )
@@ -169,17 +186,28 @@ object PipedParsing {
 
     fun streams(body: String): Pair<List<StreamCandidate>, List<Track>> {
         val resp = json.decodeFromString(PipedStreamsResponse.serializer(), body)
-        val candidates = StreamNormalize.sortCandidates(
-            resp.audioStreams.mapNotNull { a ->
-                StreamNormalize.fromPipedAudio(
-                    url = a.url,
-                    mimeType = a.mimeType,
-                    quality = a.quality,
-                    bitrateBps = a.bitrate,
-                    sizeValue = a.contentLength.decimalText(),
-                )
-            },
-        )
+        val audio = resp.audioStreams.mapNotNull { a ->
+            StreamNormalize.fromPipedAudio(
+                url = a.url,
+                mimeType = a.mimeType,
+                quality = a.quality,
+                bitrateBps = a.bitrate,
+                sizeValue = a.contentLength.decimalText(),
+            )
+        }
+        val video = resp.videoStreams.mapNotNull { v ->
+            StreamNormalize.videoCandidate(
+                source = "piped",
+                url = v.url,
+                mime = v.mimeType ?: "video/mp4",
+                quality = v.quality,
+                width = v.width,
+                height = v.height,
+                videoOnly = v.videoOnly ?: true,
+                sizeValue = v.contentLength.decimalText(),
+            )
+        }
+        val candidates = StreamNormalize.sortCandidates(audio) + video
         val related = resp.relatedStreams.mapNotNull { pipedItemToTrack(it, category = "video") }
         return candidates to related
     }
@@ -207,19 +235,34 @@ object InvidiousParsing {
 
     fun streams(body: String): Pair<List<StreamCandidate>, List<Track>> {
         val resp = json.decodeFromString(InvidiousVideoResponse.serializer(), body)
-        val candidates = StreamNormalize.sortCandidates(
-            resp.adaptiveFormats
-                .filter { f -> f.type?.startsWith("audio") == true }
-                .mapNotNull { f ->
-                    StreamNormalize.fromInvidiousAudio(
-                        url = f.url,
-                        type = f.type,
-                        audioQuality = f.audioQuality,
-                        bitrateBps = f.bitrate,
-                        size = f.contentLength.decimalText() ?: f.size.decimalText(),
-                    )
-                },
-        )
+        val audio = resp.adaptiveFormats
+            .filter { f -> f.type?.startsWith("audio") == true }
+            .mapNotNull { f ->
+                StreamNormalize.fromInvidiousAudio(
+                    url = f.url,
+                    type = f.type,
+                    audioQuality = f.audioQuality,
+                    bitrateBps = f.bitrate,
+                    size = f.contentLength.decimalText() ?: f.size.decimalText(),
+                )
+            }
+        // Adaptive formats are video-only by definition (N7 downloads).
+        val video = resp.adaptiveFormats
+            .filter { f -> f.type?.startsWith("video") == true }
+            .mapNotNull { f ->
+                val label = f.qualityLabel ?: f.quality
+                StreamNormalize.videoCandidate(
+                    source = "invidious",
+                    url = f.url,
+                    mime = f.type ?: "video/mp4",
+                    quality = label,
+                    width = null,
+                    height = local.themashup.music.core.domain.heightFromLabel(label),
+                    videoOnly = true,
+                    sizeValue = f.contentLength.decimalText() ?: f.size.decimalText(),
+                )
+            }
+        val candidates = StreamNormalize.sortCandidates(audio) + video
         val relatedItems = resp.recommendedVideos.ifEmpty { resp.recommendations }
         val related = relatedItems.mapNotNull { invidiousItemToTrack(it, category = "video") }
         return candidates to related

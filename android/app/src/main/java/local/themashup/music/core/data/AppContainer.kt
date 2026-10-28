@@ -40,9 +40,30 @@ class AppContainer(private val context: Context) {
         local.themashup.music.core.player.PlaybackEngine(context) { extraction }
     }
 
+    /** N7 first-run ffmpeg fetch (slim APK → pinned GitHub asset, cached). */
+    val ffmpeg: local.themashup.music.core.download.FfmpegManager by lazy {
+        local.themashup.music.core.download.FfmpegManager(
+            local.themashup.music.core.network.newNetworkClient(),
+            context.filesDir,
+        )
+    }
+
+    /** N7 download runner: streams → ffmpeg Process → MediaStore.Downloads. */
+    val downloadEngine: local.themashup.music.core.download.DownloadEngine by lazy {
+        local.themashup.music.core.download.DownloadEngine(
+            repository = downloads,
+            extraction = extraction,
+            ffmpeg = ffmpeg,
+            client = local.themashup.music.core.network.newNetworkClient(),
+            context = context,
+            workDir = File(context.cacheDir, "downloads"),
+        )
+    }
+
     /** Hydrate persistent state (call from Application.onCreate). */
     fun start() {
         library.startLoad()
         downloads.startLoad()
+        downloadEngine.reconcileOnStart()
     }
 }
