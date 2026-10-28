@@ -64,6 +64,9 @@ DOMAIN="$ROOT/android/app/src/main/java/local/themashup/music/core/domain"
 TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/domain"
 # N3 pure-logic layer (network clients + JSON parsing stay Gradle-only)
 NETWORK_LOGIC="$ROOT/android/app/src/main/java/local/themashup/music/core/network/logic"
+# N4 pure player core (engine/service shells stay Gradle-only)
+PLAYER="$ROOT/android/app/src/main/java/local/themashup/music/core/player"
+PLAYER_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/player"
 NETWORK_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/network/logic"
 SANDBOX="$ROOT/android/sandbox"
 
@@ -74,6 +77,9 @@ rm -f "$OUT_JAR"
   "$TESTS"/*.kt \
   "$NETWORK_LOGIC"/*.kt \
   "$NETWORK_TESTS"/*.kt \
+  "$PLAYER"/StreamFailover.kt \
+  "$PLAYER"/PlaybackStateMachine.kt \
+  "$PLAYER_TESTS"/*.kt \
   "$SANDBOX"/*.kt \
   "$SANDBOX"/org/junit/*.kt \
   "$SANDBOX"/kotlinx/serialization/*.kt \
@@ -97,4 +103,6 @@ log "running..."
   local.themashup.music.core.network.logic.TrackNormalizeTest \
   local.themashup.music.core.network.logic.StreamNormalizeTest \
   local.themashup.music.core.network.logic.LyricsLogicTest \
-  local.themashup.music.core.network.logic.ExtractionLogicTest
+  local.themashup.music.core.network.logic.ExtractionLogicTest \
+  local.themashup.music.core.player.StreamFailoverTest \
+  local.themashup.music.core.player.PlaybackStateMachineTest

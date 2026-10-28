@@ -14,7 +14,7 @@ import local.themashup.music.core.domain.LibraryData
  * against [JsonFileStore]; Android-only pieces (DataStore, downloads executor,
  * playback service) are layered on top as phases land.
  */
-class AppContainer(context: Context) {
+class AppContainer(private val context: Context) {
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -33,6 +33,11 @@ class AppContainer(context: Context) {
     /** N3 extraction facade (NewPipe primary + Piped/Invidious + LRCLIB). */
     val extraction: local.themashup.music.core.network.ExtractionService by lazy {
         local.themashup.music.core.network.ExtractionService()
+    }
+
+    /** N4 player: pure state machine + ExoPlayer shell (service attaches player). */
+    val player: local.themashup.music.core.player.PlaybackEngine by lazy {
+        local.themashup.music.core.player.PlaybackEngine(context) { extraction }
     }
 
     /** Hydrate persistent state (call from Application.onCreate). */

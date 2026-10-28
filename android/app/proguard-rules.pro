@@ -11,6 +11,10 @@
 # NewPipe Extractor ships service JSON parsers accessed reflectively in spots.
 -keep class org.schabi.newpipe.** { *; }
 -dontwarn org.schabi.newpipe.**
+# NewPipeExtractor README (needed by its JavaScript engine used for signatures).
+-keep class org.mozilla.javascript.** { *; }
+-keep class org.mozilla.classfile.ClassFileWriter
+-dontwarn org.mozilla.javascript.tools.**
 
 # OkHttp platform
 -dontwarn okhttp3.**
