@@ -348,4 +348,28 @@ class PlaybackStateMachineTest {
         Assert.assertEquals(PlayerSnapshot(), s)
         Assert.assertTrue(e is PlayerEffect.Stop)
     }
+
+    @Test
+    fun playQueueCarriesContextLabel() {
+        val radio = PlaybackStateMachine.playQueue(
+            PlayerSnapshot(),
+            listOf(track("a")),
+            0,
+            context = "radio",
+        )
+        Assert.assertEquals("radio", radio.first.contextLabel)
+        val swapped = PlaybackStateMachine.playQueue(
+            radio.first,
+            listOf(track("b")),
+            0,
+            context = "home",
+        )
+        Assert.assertEquals("home", swapped.first.contextLabel)
+        val none = PlaybackStateMachine.playQueue(PlayerSnapshot(), listOf(track("a")), 0)
+        Assert.assertNull(none.first.contextLabel)
+        // Empty queue leaves the snapshot (and its label) untouched.
+        val untouched = PlaybackStateMachine.playQueue(radio.first, emptyList(), 0)
+        Assert.assertEquals("radio", untouched.first.contextLabel)
+    }
+
 }

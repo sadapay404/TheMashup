@@ -186,6 +186,54 @@ notification/UI update.
   (Gradle) — sandbox covers `ui/logic` + domain + network logic; Material3/
   Coil/Palette APIs pinned via BOM versions in `libs.versions.toml`.
 
+### N6 notes (delivered)
+
+- **Library** (`ui/screens/LibraryScreen.kt`): web `LibraryPage` — Liked /
+  Playlists / Recently played tabs with counts, empty states, inline creation
+  (120-char cap; creating opens the new playlist), playlist detail (cover =
+  first-track artwork — the local `Playlist` has no `cover_url`, Play all,
+  Delete) and **long-press drag reorder** committing one move per gesture
+  (framer `Reorder.Group` port; see deviations), remove-from-playlist rows;
+  history rows carry `relativeTime` stamps + add-to-playlist. SignInGate is
+  omitted — the local profile is always identified.
+- **Follows**: web `ArtistChip` in Search — tap toggles follow (accent +
+  check, artwork avatar); keyed by artist **name** in the local repo (web uses
+  `channel_id ?? name`).
+- **Expanded player** (`ui/player/ExpandedPlayer.kt`): blurred artwork
+  background (API 31+ `Modifier.blur`; scrim-only below) at the per-theme
+  `--art-opacity` (new `MashupTokens.artOpacity` — .32/.14/.30/.34/.26),
+  radial art-1 overlay at 30%/20%, Collapse pill, **`contextLabel`** (new
+  additive `PlayerSnapshot` field threaded `sm.playQueue → engine.playQueue`:
+  `endless radio` / raw label / `now playing`), failover sparkle note
+  (`activeIndex + refreshesUsed`, current-track scope vs web session count),
+  LikeButton, decorative vinyl disc shown ≥600dp (web `sm:` breakpoint) that
+  spins only while playing, title/artist, SeekBar (preview-scrub semantics),
+  large PlayerControls (spinner while LOADING), Lyrics/Queue tab panel.
+  Visualizer → N8; Download button → N7.
+- **Lyrics/karaoke** (`ui/lyrics/LyricsPanel.kt`): LRCLIB fetch per track on
+  IO, active line via pure `activeLineIndex` (+0.05, web-exact), center
+  auto-scroll only on line change (`scrollOffset = viewport/2 − 26dp`
+  approximation of `scrollIntoView({block:"center"})`), tap-to-seek, web
+  alpha/scale/glow (art-1 text shadow 55%), loading/empty/plain/instrumental
+  states verbatim; `relativeTime` port in `ui/logic/LyricClock.kt`.
+- **Queue**: `QueueList` shared by the expanded tab + the right slide-in
+  drawer (scrim, header count, clear, close); tap = `playQueue(startIndex,
+  context="queue")` + history record; remove buttons stay visible on touch
+  (web hides them behind desktop hover). MiniPlayer gained the web mobile
+  cluster: queue button (accent while open) + expand chevron, meta tap
+  expands.
+- **Controls**: `PlayerControls` (shuffle·prev·play·next·repeat + active
+  underline dots) and `SeekBar` (side times, accent track, drag preview +
+  commit) are faithful ports; `AddToPlaylistButton` popover → anchored
+  `DropdownMenu` with web copy incl. “Create playlist & add” → `My Playlist`.
+- **Gates**: sandbox **151/151** (+`LyricClockTest`, contextLabel test,
+  ExtractionWalk naming fix), syntax green, web matrix 124/124, tsc 0.
+  Deviations/risks: drag-reorder commits on release (no live row shuffling
+  like framer); history timestamp sits inline (web absolute overlay); queue
+  remove always visible; failover note counts the current track only;
+  `Modifier.blur` no-ops below API 31; Compose layer still Gradle-compile-only
+  (sandbox covers `ui/logic` + player + domain logic).
+
 ## Build (your machine)
 
 ```bash

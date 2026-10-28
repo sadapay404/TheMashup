@@ -138,7 +138,7 @@ fun HomeScreen(
                 modifier = Modifier.padding(top = if (i == 0 && charts.isEmpty() && error == null) 20.dp else 26.dp),
                 onCardPlay = { track, queue ->
                     val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    engine.playQueue(queue, startIndex = index)
+                    engine.playQueue(queue, startIndex = index, context = "home")
                     scope.launch { library.recordPlay(track, context = "home") }
                 },
                 onCardQueue = { track -> engine.addToEnd(track) },
@@ -149,7 +149,7 @@ fun HomeScreen(
                     } else {
                         queue
                     }
-                    engine.playQueue(radio, startIndex = 0)
+                    engine.playQueue(radio, startIndex = 0, context = "radio")
                     scope.launch { library.recordPlay(track, context = "radio") }
                 },
             )

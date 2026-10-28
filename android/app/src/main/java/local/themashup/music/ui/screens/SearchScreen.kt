@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.MusicNote
@@ -29,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +73,7 @@ import kotlin.math.roundToInt
  * so pasting a half-remembered lyric line switches the results to lyric hits
  * automatically. Filter chips: Everything / Songs / Lyrics / Artists.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
     query: String,
@@ -131,6 +135,7 @@ fun SearchScreen(
         loading = false
     }
 
+    val libState by library.state.collectAsState()
     val rows = remember(tracks, matches, query) { mergeHybrid(tracks, matches, query) }
     val artists = remember(tracks) {
         tracks.flatMap { it.artists }
@@ -146,10 +151,10 @@ fun SearchScreen(
     }
     val showArtists = filter == "all" || filter == "artists"
 
-    fun playTrack(track: Track, queue: List<Track>) {
+    fun playTrack(track: Track, queue: List<Track>, context: String = "search") {
         val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-        engine.playQueue(queue, startIndex = index)
-        scope.launch { library.recordPlay(track, context = "search") }
+        engine.playQueue(queue, startIndex = index, context = context)
+        scope.launch { library.recordPlay(track, context = context) }
     }
 
     Column(
@@ -261,17 +266,52 @@ fun SearchScreen(
                     color = scheme.onBackground,
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    artists.take(6).forEach { artist ->
-                        Box(
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    artists.forEach { artist ->
+                        // Web ArtistChip: tap = follow (accent when following).
+                        val following = libState.follows.contains(artist.name)
+                        Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
-                                .background(scheme.surface)
-                                .border(1.dp, tokens.border, RoundedCornerShape(999.dp))
-                                .clickable { onQueryChange(artist.name) }
+                                .background(
+                                    if (following) tokens.accent.copy(alpha = 0.15f) else scheme.surface,
+                                )
+                                .border(
+                                    1.dp,
+                                    if (following) tokens.accent.copy(alpha = 0.6f) else tokens.border,
+                                    RoundedCornerShape(999.dp),
+                                )
+                                .clickable {
+                                    scope.launch { library.toggleFollow(artist.name) }
+                                }
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
                         ) {
-                            Text(artist.name, color = tokens.textDim, fontSize = 12.sp, maxLines = 1)
+                            Artwork(
+                                src = artist.image,
+                                label = artist.name,
+                                corner = 999.dp,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                text = artist.name,
+                                color = if (following) tokens.accent else tokens.textDim,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                modifier = Modifier.widthIn(max = 140.dp),
+                            )
+                            if (following) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = "Following",
+                                    tint = tokens.accent,
+                                    modifier = Modifier.size(13.dp),
+                                )
+                            }
                         }
                     }
                 }

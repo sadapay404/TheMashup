@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -20,21 +19,9 @@ import androidx.compose.ui.unit.dp
 import local.themashup.music.ui.theme.LocalMashupTokens
 
 /**
- * Honest placeholders — Library lands in N6 (likes/playlists/history +
- * lyrics/karaoke surfaces), Downloads in N7 (ffmpeg first-run + quality
- * jobs). Same page blurbs as the web so the shell already reads right.
+ * Honest placeholder — Downloads lands in N7 (ffmpeg first-run + quality
+ * jobs). Library has its real N6 screen; web blurb kept verbatim.
  */
-@Composable
-fun LibraryScreen(modifier: Modifier = Modifier) = PhasePlaceholder(
-    title = "Library",
-    blurb = "Likes, playlists & history",
-    phase = "N6",
-    body = "Liked tracks, playlists, listening history and the full lyrics/karaoke " +
-        "experience land here in the next phase — data layer is already wired.",
-    icon = { Icon(Icons.Outlined.FavoriteBorder, contentDescription = null) },
-    modifier = modifier,
-)
-
 @Composable
 fun DownloadsScreen(modifier: Modifier = Modifier) = PhasePlaceholder(
     title = "Downloads",

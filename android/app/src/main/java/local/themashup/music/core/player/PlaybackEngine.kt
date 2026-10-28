@@ -67,9 +67,14 @@ class PlaybackEngine(
 
     /* ── UI / session commands ───────────────────────────────────────────── */
 
-    fun playQueue(tracks: List<local.themashup.music.core.domain.Track>, startIndex: Int = 0, startAtMs: Long = 0) {
+    fun playQueue(
+        tracks: List<local.themashup.music.core.domain.Track>,
+        startIndex: Int = 0,
+        startAtMs: Long = 0,
+        context: String? = null,
+    ) {
         ensureServiceStarted()
-        dispatch { sm.playQueue(it, tracks, startIndex, startAtMs) }
+        dispatch { sm.playQueue(it, tracks, startIndex, startAtMs, context) }
     }
 
     fun togglePlay() = dispatch(sm::toggle)

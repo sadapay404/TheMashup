@@ -23,6 +23,8 @@ data class MashupTokens(
     val accentContrast: Color,
     val textDim: Color,
     val textFaint: Color,
+    /** Web `--art-opacity` (blurred artwork background strength). */
+    val artOpacity: Float,
 )
 
 private fun hex(value: Long): Color = Color(value.toInt())
@@ -41,6 +43,7 @@ private data class WebTheme(
     val accent2: Long,
     val contrast: Long,
     val border: Long,
+    val artOpacity: Float,
 )
 
 /** `[data-theme=…]` sheets from `apps/web/src/styles/index.css`, exact. */
@@ -50,35 +53,35 @@ private val WEB_THEMES: Map<ThemeId, WebTheme> = mapOf(
         surface = 0x0BFFFFFF, surface2 = 0x14FFFFFF, surfaceSolid = 0xFF15151F,
         text = 0xFFF4F4F8, dim = 0xFFA3A3B5, faint = 0xFF6B6B80,
         accent = 0xFF8B6CFF, accent2 = 0xFF4DD0FF, contrast = 0xFF0B0B12,
-        border = 0x17FFFFFF,
+        border = 0x17FFFFFF, artOpacity = 0.32f,
     ),
     ThemeId.PAPER_INK to WebTheme(
         bg = 0xFFF4EFE4, bgSoft = 0xFFECE5D6,
         surface = 0xC7FFFDF7, surface2 = 0xF3FFFDF7, surfaceSolid = 0xFFFFFDF7,
         text = 0xFF211C14, dim = 0xFF6C6353, faint = 0xFF9A907C,
         accent = 0xFFB3441F, accent2 = 0xFF2F5D50, contrast = 0xFFFFFDF7,
-        border = 0x24211C14,
+        border = 0x24211C14, artOpacity = 0.14f,
     ),
     ThemeId.NEON to WebTheme(
         bg = 0xFF04060B, bgSoft = 0xFF080C14,
         surface = 0x0D00FFC8, surface2 = 0x1A00FFC8, surfaceSolid = 0xFF070B12,
         text = 0xFFE8FEFF, dim = 0xFF7FC9C4, faint = 0xFF46787A,
         accent = 0xFF00FFC8, accent2 = 0xFFFF3EC8, contrast = 0xFF02120E,
-        border = 0x3800FFC8,
+        border = 0x3800FFC8, artOpacity = 0.30f,
     ),
     ThemeId.AURORA to WebTheme(
         bg = 0xFF0A1022, bgSoft = 0xFF0E1730,
         surface = 0x1292B2FF, surface2 = 0x2192B2FF, surfaceSolid = 0xFF101A36,
         text = 0xFFEEF2FF, dim = 0xFF9FB0D8, faint = 0xFF62739C,
         accent = 0xFF6EE7FF, accent2 = 0xFFB490FF, contrast = 0xFF06121A,
-        border = 0x2E92B2FF,
+        border = 0x2E92B2FF, artOpacity = 0.34f,
     ),
     ThemeId.VINYL to WebTheme(
         bg = 0xFF16110D, bgSoft = 0xFF1D1712,
         surface = 0x0EF3E9DC, surface2 = 0x1AF3E9DC, surfaceSolid = 0xFF221A14,
         text = 0xFFF3E9DC, dim = 0xFFBFAE99, faint = 0xFF7D6F5F,
         accent = 0xFFE8A33D, accent2 = 0xFFA03B3B, contrast = 0xFF1A1109,
-        border = 0x21F3E9DC,
+        border = 0x21F3E9DC, artOpacity = 0.26f,
     ),
 )
 
@@ -94,6 +97,7 @@ fun tokensFor(id: ThemeId): MashupTokens {
         accentContrast = hex(t.contrast),
         textDim = hex(t.dim),
         textFaint = hex(t.faint),
+        artOpacity = t.artOpacity,
     )
 }
 

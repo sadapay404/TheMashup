@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,6 +43,9 @@ fun MiniPlayer(
     onPrev: () -> Unit,
     onToggle: () -> Unit,
     onNext: () -> Unit,
+    onQueue: () -> Unit,
+    onExpand: () -> Unit,
+    queueOpen: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val current = state.current ?: return
@@ -85,6 +90,7 @@ fun MiniPlayer(
             Column(
                 modifier = Modifier
                     .weight(1f)
+                    .clickable(onClick = onExpand)
                     .padding(horizontal = 12.dp),
             ) {
                 Text(
@@ -124,6 +130,20 @@ fun MiniPlayer(
             }
             TransportButton(onClick = onNext, label = "Next") {
                 Icon(Icons.Filled.SkipNext, contentDescription = null, tint = scheme.onBackground)
+            }
+            TransportButton(onClick = onQueue, label = "Queue") {
+                Icon(
+                    Icons.Outlined.PlaylistPlay,
+                    contentDescription = null,
+                    tint = if (queueOpen) tokens.accent else scheme.onBackground,
+                )
+            }
+            TransportButton(onClick = onExpand, label = "Expand player") {
+                Icon(
+                    Icons.Filled.KeyboardArrowUp,
+                    contentDescription = null,
+                    tint = scheme.onBackground,
+                )
             }
         }
     }

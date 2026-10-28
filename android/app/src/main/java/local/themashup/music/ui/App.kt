@@ -1,10 +1,14 @@
 package local.themashup.music.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,20 +19,24 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -47,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +69,8 @@ import local.themashup.music.ui.components.MiniPlayer
 import local.themashup.music.ui.components.ThemeSwatchPicker
 import local.themashup.music.ui.logic.DEFAULT_THEME_ID
 import local.themashup.music.ui.logic.themeFromKey
+import local.themashup.music.ui.player.ExpandedPlayer
+import local.themashup.music.ui.player.QueueList
 import local.themashup.music.ui.screens.DownloadsScreen
 import local.themashup.music.ui.screens.HomeScreen
 import local.themashup.music.ui.screens.LibraryScreen
@@ -88,7 +99,8 @@ private val NAV_ITEMS = listOf(
 /**
  * Root UI: persisted theme (DataStore) + scaffold shell — top bar with the
  * 5-swatch switcher, page content (Crossfade like the web AnimatePresence
- * route swap), mini player + 4-tab bottom nav. Art accents sample the
+ * route swap), mini player + 4-tab bottom nav, plus N6 overlays: expanded
+ * fullscreen player and the slide-in queue drawer. Art accents sample the
  * current artwork app-wide (`--art-1` / `--art-2`).
  */
 @Composable
@@ -108,6 +120,9 @@ private fun MashupShell(container: AppContainer) {
 
     var page by rememberSaveable { mutableStateOf("home") }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var queueOpen by rememberSaveable { mutableStateOf(false) }
+    var playerTab by rememberSaveable { mutableStateOf("lyrics") }
     val themeKeyState by container.settings.themeKey.collectAsState(initial = DEFAULT_THEME_ID.storageKey)
 
     val artwork = playerState.current?.artworkBest ?: playerState.current?.artwork
@@ -116,77 +131,209 @@ private fun MashupShell(container: AppContainer) {
     BackHandler(enabled = page != "home") { page = "home" }
 
     WithArtAccents(accents) {
-        Scaffold(
-            topBar = {
-                AppTopBar(
-                    page = page,
-                    themeKey = themeKeyState,
-                    onSelectTheme = { theme ->
-                        scope.launch { container.settings.setThemeKey(theme.storageKey) }
-                    },
-                )
-            },
-            bottomBar = {
-                Column {
-                    AnimatedVisibility(
-                        visible = playerState.current != null,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
-                    ) {
-                        MiniPlayer(
-                            state = playerState,
-                            onPrev = { container.player.prevTrack() },
-                            onToggle = { container.player.togglePlay() },
-                            onNext = { container.player.nextTrack() },
-                        )
-                    }
-                    NavigationBar(
-                        containerColor = scheme.surface,
-                        tonalElevation = 0.dp,
-                    ) {
-                        NAV_ITEMS.forEach { item ->
-                            NavigationBarItem(
-                                selected = page == item.id,
-                                onClick = { page = item.id },
-                                icon = { Icon(item.icon, contentDescription = item.label) },
-                                label = { Text(item.label, fontSize = 11.sp) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = tokens.accentContrast,
-                                    indicatorColor = tokens.accent,
-                                    selectedTextColor = tokens.accent,
-                                    unselectedIconColor = tokens.textDim,
-                                    unselectedTextColor = tokens.textDim,
-                                ),
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                topBar = {
+                    AppTopBar(
+                        page = page,
+                        themeKey = themeKeyState,
+                        onSelectTheme = { theme ->
+                            scope.launch { container.settings.setThemeKey(theme.storageKey) }
+                        },
+                    )
+                },
+                bottomBar = {
+                    Column {
+                        AnimatedVisibility(
+                            visible = playerState.current != null,
+                            enter = fadeIn(),
+                            exit = fadeOut(),
+                        ) {
+                            MiniPlayer(
+                                state = playerState,
+                                onPrev = { container.player.prevTrack() },
+                                onToggle = { container.player.togglePlay() },
+                                onNext = { container.player.nextTrack() },
+                                onQueue = { queueOpen = !queueOpen },
+                                onExpand = { expanded = true },
+                                queueOpen = queueOpen,
                             )
+                        }
+                        NavigationBar(
+                            containerColor = scheme.surface,
+                            tonalElevation = 0.dp,
+                        ) {
+                            NAV_ITEMS.forEach { item ->
+                                NavigationBarItem(
+                                    selected = page == item.id,
+                                    onClick = { page = item.id },
+                                    icon = { Icon(item.icon, contentDescription = item.label) },
+                                    label = { Text(item.label, fontSize = 11.sp) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = tokens.accentContrast,
+                                        indicatorColor = tokens.accent,
+                                        selectedTextColor = tokens.accent,
+                                        unselectedIconColor = tokens.textDim,
+                                        unselectedTextColor = tokens.textDim,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                },
+            ) { padding ->
+                Box(modifier = Modifier.padding(padding)) {
+                    Crossfade(targetState = page, label = "page") { current ->
+                        when (current) {
+                            "home" -> HomeScreen(
+                                extraction = container.extraction,
+                                library = container.library,
+                                engine = container.player,
+                                playerState = playerState,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            "search" -> SearchScreen(
+                                query = searchQuery,
+                                onQueryChange = { searchQuery = it },
+                                extraction = container.extraction,
+                                engine = container.player,
+                                library = container.library,
+                                playerState = playerState,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            "library" -> LibraryScreen(
+                                engine = container.player,
+                                library = container.library,
+                                playerState = playerState,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            else -> DownloadsScreen(modifier = Modifier.fillMaxSize())
                         }
                     }
                 }
-            },
-        ) { padding ->
-            Box(modifier = Modifier.padding(padding)) {
-                Crossfade(targetState = page, label = "page") { current ->
-                    when (current) {
-                        "home" -> HomeScreen(
-                            extraction = container.extraction,
-                            library = container.library,
-                            engine = container.player,
-                            playerState = playerState,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        "search" -> SearchScreen(
-                            query = searchQuery,
-                            onQueryChange = { searchQuery = it },
-                            extraction = container.extraction,
-                            engine = container.player,
-                            library = container.library,
-                            playerState = playerState,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        "library" -> LibraryScreen(modifier = Modifier.fillMaxSize())
-                        else -> DownloadsScreen(modifier = Modifier.fillMaxSize())
-                    }
+            }
+
+            /* ── queue drawer (web QueueDrawer: right slide-in) ─────── */
+            BackHandler(enabled = queueOpen) { queueOpen = false }
+            AnimatedVisibility(
+                visible = queueOpen,
+                enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+                exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .clickable { queueOpen = false },
+                    )
+                    QueueDrawerPanel(
+                        state = playerState,
+                        engine = container.player,
+                        library = container.library,
+                        onClose = { queueOpen = false },
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                    )
                 }
             }
+
+            /* ── expanded fullscreen player ─────────────────────────── */
+            BackHandler(enabled = expanded) { expanded = false }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = slideInVertically(initialOffsetY = { it / 6 }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it / 4 }) + fadeOut(),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                ExpandedPlayer(
+                    state = playerState,
+                    engine = container.player,
+                    library = container.library,
+                    extraction = container.extraction,
+                    playerTab = playerTab,
+                    onTabChange = { playerTab = it },
+                    onCollapse = { expanded = false },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+/** Right-hand slide-in queue — web `QueueDrawer` panel. */
+@Composable
+private fun QueueDrawerPanel(
+    state: PlayerSnapshot,
+    engine: local.themashup.music.core.player.PlaybackEngine,
+    library: local.themashup.music.core.data.LibraryRepository,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = LocalMashupTokens.current
+    val scheme = MaterialTheme.colorScheme
+    val count = state.queue.size
+
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .fillMaxWidth(0.88f)
+            .widthIn(max = 330.dp)
+            .background(tokens.bgSoft.copy(alpha = 0.97f))
+            .border(1.dp, tokens.border),
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, tokens.border)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Queue",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onBackground,
+                    )
+                    Text(
+                        text = "$count track${if (count == 1) "" else "s"}",
+                        color = tokens.textFaint,
+                        fontSize = 11.sp,
+                    )
+                }
+                if (count > 0) {
+                    Icon(
+                        Icons.Outlined.Delete,
+                        contentDescription = "Clear queue",
+                        tint = tokens.textDim,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { engine.clearQueue() }
+                            .padding(7.dp),
+                    )
+                }
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Close queue",
+                    tint = tokens.textDim,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onClose)
+                        .padding(7.dp),
+                )
+            }
+            QueueList(
+                state = state,
+                engine = engine,
+                library = library,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            )
         }
     }
 }

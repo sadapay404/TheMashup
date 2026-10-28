@@ -34,6 +34,8 @@ data class PlayerSnapshot(
     val durationMs: Long = 0,
     val failover: FailoverState? = null,
     val source: String? = null,
+    /** Play context label (web `contextLabel`: "home" | "radio" | "search" …). */
+    val contextLabel: String? = null,
     val warnings: List<String> = emptyList(),
 ) {
     val current: Track? get() = queue.getOrNull(cursor)
@@ -66,6 +68,7 @@ object PlaybackStateMachine {
         tracks: List<Track>,
         startIndex: Int,
         startAtMs: Long = 0,
+        context: String? = null,
     ): Pair<PlayerSnapshot, PlayerEffect?> {
         if (tracks.isEmpty()) return snapshot to null
         val cursor = startIndex.coerceIn(0, tracks.size - 1)
@@ -78,6 +81,7 @@ object PlaybackStateMachine {
             durationMs = 0,
             failover = null,
             source = null,
+            contextLabel = context,
         )
         return next to PlayerEffect.Resolve(tracks[cursor], startAtMs)
     }
