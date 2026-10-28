@@ -40,9 +40,42 @@ export const API_BASE: string = (() => {
   return "";
 })();
 
+/**
+ * Runtime override discovered/persisted by lib/connection.ts (Android LAN
+ * discovery or manual entry). null → fall back to the build-time API_BASE.
+ */
+let runtimeBase: string | null = null;
+
+export function getApiBase(): string {
+  return runtimeBase ?? API_BASE;
+}
+
+export function setApiBase(base: string | null): void {
+  runtimeBase = base ? base.replace(/\/$/, "") : null;
+}
+
 /** Prefix a root-relative gateway path with the active API base. */
 export const apiUrl = (path: string): string =>
-  path.startsWith("/api") ? API_BASE + path : path;
+  path.startsWith("/api") ? getApiBase() + path : path;
+
+/** Network reachability fan-out (lib/connection.ts renders the retry chip). */
+type NetListener = (down: boolean) => void;
+const netListeners = new Set<NetListener>();
+
+export function onNetworkChange(fn: NetListener): () => void {
+  netListeners.add(fn);
+  return () => netListeners.delete(fn);
+}
+
+function emitNetwork(down: boolean): void {
+  for (const fn of netListeners) {
+    try {
+      fn(down);
+    } catch {
+      /* listener errors must never break requests */
+    }
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -83,8 +116,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       },
     });
   } catch (err) {
+    emitNetwork(true);
     throw new ApiError(0, `Cannot reach TheMashup API (${(err as Error).message})`, "NETWORK");
   }
+  emitNetwork(false);
   const text = await res.text();
   let body: unknown = null;
   try {

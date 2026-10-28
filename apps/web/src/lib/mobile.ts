@@ -16,16 +16,8 @@ import type { DownloadJob } from "@themashup/shared";
 import { api } from "./api";
 import type { SaveOutcome } from "./desktop";
 
-interface CapacitorGlobal {
-  isNativePlatform?: () => boolean;
-  getPlatform?: () => string;
-}
-
-export function isCapacitor(): boolean {
-  if (typeof window === "undefined") return false;
-  const cap = (window as Window & { Capacitor?: CapacitorGlobal }).Capacitor;
-  return Boolean(cap?.isNativePlatform?.() ?? cap?.getPlatform?.() === "android");
-}
+export { isCapacitor } from "./bridge";
+import { isCapacitor } from "./bridge";
 
 /** Base64 without stack-overflowing String.fromCharCode.apply on big files. */
 export function bytesToBase64(bytes: Uint8Array): string {
@@ -47,18 +39,17 @@ export function downloadFileName(job: DownloadJob): string {
  * Returns "unavailable" off-device or on failure so callers fall back.
  */
 interface DownloadSaverPlugin {
-  save(options: { name: string; base64: string }): Promise<{ uri?: string; path?: string }>;
+  /** Streams <url> to the shared Downloads collection natively. */
+  download(options: { url: string; name: string }): Promise<{ uri?: string; path?: string }>;
 }
 
 export async function saveJobToDownloads(job: DownloadJob): Promise<SaveOutcome> {
   if (!isCapacitor()) return "unavailable";
   try {
-    const res = await fetch(api.fileUrl(job.id));
-    if (!res.ok) throw new Error(`gateway returned ${res.status}`);
-    const bytes = new Uint8Array(await res.arrayBuffer());
     const { registerPlugin } = await import("@capacitor/core");
     const saver = registerPlugin<DownloadSaverPlugin>("DownloadSaver");
-    await saver.save({ name: downloadFileName(job), base64: bytesToBase64(bytes) });
+    // Identity rides in the query string (fileUrl) — native HTTP, no CORS.
+    await saver.download({ url: api.fileUrl(job.id), name: downloadFileName(job) });
     return "saved";
   } catch (err) {
     console.warn("[capacitor] save to Downloads failed", err);
@@ -66,16 +57,41 @@ export async function saveJobToDownloads(job: DownloadJob): Promise<SaveOutcome>
   }
 }
 
-export type BackAction = "collapse-player" | "close-queue" | "close-sidebar" | "exit";
+export type BackDecision =
+  | "collapse-player"
+  | "close-queue"
+  | "close-sidebar"
+  | "navigate"
+  | "go-home"
+  | "none";
 
-/** Pure decision for the Android hardware back button (unit-tested). */
-export function resolveBackAction(input: {
+/**
+ * Pure decision for the Android hardware back button (unit-tested).
+ *
+ * Priority: dismiss open layers → double-press (≤400 ms after a navigation)
+ * jumps straight to Home → single press goes to the previous section →
+ * at Home with no history the press does nothing (the system gesture
+ * handles leaving the app; back never force-closes).
+ */
+export function decideBackPress(input: {
   playerExpanded: boolean;
   queueOpen: boolean;
   sidebarOpen: boolean;
-}): BackAction {
+  page: string;
+  historyLen: number;
+  msSinceLastNavigate: number | null;
+}): BackDecision {
   if (input.playerExpanded) return "collapse-player";
   if (input.queueOpen) return "close-queue";
   if (input.sidebarOpen) return "close-sidebar";
-  return "exit";
+  if (
+    input.msSinceLastNavigate !== null &&
+    input.msSinceLastNavigate >= 0 &&
+    input.msSinceLastNavigate <= 400
+  ) {
+    return "go-home";
+  }
+  if (input.historyLen > 0) return "navigate";
+  if (input.page !== "home") return "go-home";
+  return "none";
 }

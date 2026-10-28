@@ -47,29 +47,53 @@ Or open the project in Android Studio (`cd mobile && pnpm open`) and press ▶.
 
 ## Talking to the gateway
 
-| Where the app runs | API base | What you need |
+The app **finds the gateway itself** on the LAN — no rebuilds for phone use:
+
+1. **mDNS discovery** — the Express server advertises `_themashup._tcp` (see
+   `advertiseOnLan()` in `apps/api/src/server.ts`); on launch the app scans via
+   Android's `NsdManager` (`NsdDiscovery` plugin) and probes every advertiser.
+2. **Remembered address** — the first server that answers is persisted in the
+   WebView (`themashup.server`) and re-probed on later launches.
+3. **Setup screen** — if nothing answers (cold PC, mDNS blocked by the router),
+   a full-screen picker appears: *Scan again*, a manual **PC LAN IP** field
+   (`192.168.1.20` or `http://192.168.1.20:4000`), and an emulator shortcut
+   (`10.0.2.2`). The sidebar **API pill** re-opens this flow any time.
+4. **Live recovery** — when requests start failing mid-session a
+   *Gateway lost — tap to reconnect* chip appears; it re-probes and re-scans.
+
+| Where the app runs | Default API base | Notes |
 | --- | --- | --- |
-| Android **emulator** | `http://10.0.2.2:4000` (default, built in) | Gateway on the host: `pnpm dev` |
-| **Physical device** | `http://<your-LAN-IP>:4000` | `VITE_API_BASE=http://192.168.x.x:4000 pnpm mobile:apk` |
+| Android **emulator** | `http://10.0.2.2:4000` (tried automatically) | Host machine's loopback alias |
+| **Physical device** | discovered / entered LAN address | Same Wi‑Fi as the PC; PC firewall must allow 4000/8000 |
+| Forced override | `VITE_API_BASE=http://<ip>:4000 pnpm mobile:apk` | Still supported; bypasses discovery entirely |
 
 Notes:
 
 - The WebView origin is `https://localhost` while the gateway is plain http —
-  `android.allowMixedContent: true` covers this, and the gateway always allows
-  the `https://localhost` CORS origin (app/api/src/config.ts).
-- `VITE_API_BASE` is baked at **build** time (it's a Vite env var), so rebuild
-  after changing it.
+  `android.allowMixedContent: true` covers WebView loads, and native HTTP
+  (discovery probes, downloads) is allowed via `android:usesCleartextTraffic`.
+  The gateway always allows the `https://localhost` CORS origin.
+- `MDNS_OFF=1` on the gateway disables the advertisement (tests skip it too).
 - The resolver must be running too (`pnpm dev` starts API + resolver): the
   gateway proxies stream/download work to `:8000`.
 
 ## What's native in the shell
 
-- **Scoped-storage downloads** — the Save button on the Downloads page writes
-  through the custom `DownloadSaver` plugin
-  (`mobile/android/.../DownloadSaver.java`): `MediaStore.Downloads` on
-  Android 10+ (no permissions), legacy public Downloads folder on Android 9−
-  (`WRITE_EXTERNAL_STORAGE` is declared with `maxSdkVersion="28"`). Files show
-  up in the system Files/Downloads app.
+- **Scoped-storage downloads** — the Save button streams through the custom
+  `DownloadSaver` plugin (`mobile/android/.../DownloadSaver.java`): the file is
+  fetched natively (no base64 across the bridge) into `MediaStore.Downloads`
+  on Android 10+ (no permissions) or the legacy public Downloads folder on
+  Android 9− (`WRITE_EXTERNAL_STORAGE`, `maxSdkVersion="28"`). Files show up
+  in the system Files/Downloads app.
+- **Edge-to-edge / cutout** — targetSdk 36 forces edge-to-edge, so the
+  content frame is padded with the status-bar, punch-hole (display cutout)
+  and gesture-bar insets in `MainActivity`, on the app background `#0A0A0F`
+  (never a white band). System-bar icons are forced light-on-dark.
+- **Back button UX** — a press closes the top layer (expanded player → queue
+  → sidebar), then walks section history (Home/Search/Library/Downloads);
+  a **double press within 400 ms jumps to Home**; at Home the press does
+  nothing (the system gesture leaves the app — back never force-closes).
+  History lives in `uiStore.pageHistory` (in-memory, capped at 30).
 - **Lock-screen / notification controls** — driven by `navigator.mediaSession`
   from the page (metadata, artwork, play/pause/next/prev/seek, seek bar
   position). This is intentionally page-driven: it sees the real player state.
@@ -114,8 +138,10 @@ you can instead sideload the unsigned APK signed with apksigner.
 ## Tests & checks
 
 - `pnpm test` — includes `lib/mobile.test.ts` (detection, filename safety,
-  base64 chunking, back-button decisions) and `lib/mediaSession.test.ts`
-  (metadata/state mirroring, action handlers, cleanup).
+  back-button decision matrix incl. double-press), `lib/connection.test.ts`
+  (URL normalization + health probe), `stores/uiStore.test.ts` (section
+  history) and `lib/mediaSession.test.ts` (metadata/state mirroring, action
+  handlers, cleanup).
 - `pnpm typecheck` — covers `mobile/` config via the web/api/shared projects.
 - The native project itself compiles on your machine with `pnpm mobile:apk`
   (Gradle downloads the Android Gradle Plugin from Google's Maven repo).
@@ -124,7 +150,8 @@ you can instead sideload the unsigned APK signed with apksigner.
 
 | Symptom | Fix |
 | --- | --- |
-| `net::ERR_CLEARTEXT_NOT_PERMITTED` | `allowMixedContent` got reset — re-check `capacitor.config.json` and re-run `pnpm mobile:sync` |
+| Stuck on “Connect to TheMashup” | Gateway not running, wrong Wi‑Fi, or PC firewall — start `pnpm dev`, same network, allow ports 4000/8000, tap Scan or type the PC IP |
+| `net::ERR_CLEARTEXT_NOT_PERMITTED` | `allowMixedContent` / `usesCleartextTraffic` got reset — re-check config + manifest, re-run `pnpm mobile:sync` |
 | Gateway CORS errors in logcat | Origin mismatch — WebView must be `https://localhost` (default `androidScheme`). If you changed the scheme, add your origin to `CORS_ORIGIN` |
 | Spinning forever on cold start | Gateway not running / wrong `VITE_API_BASE` — emulator needs `10.0.2.2`, device needs your LAN IP |
 | `SDK location not found` | Install Android Studio SDK or set `ANDROID_HOME`; create `mobile/android/local.properties` with `sdk.dir=…` |

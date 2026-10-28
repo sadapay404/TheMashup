@@ -7,6 +7,8 @@ export type PageId = "home" | "search" | "library" | "downloads";
 
 interface UIState {
   page: PageId;
+  /** Section history for the Android back button (in-memory only). */
+  pageHistory: PageId[];
   theme: ThemeId;
   sidebarOpen: boolean;
   playerExpanded: boolean;
@@ -21,6 +23,10 @@ interface UIState {
   downloadTrack: import("@themashup/shared").Track | null;
 
   setPage: (page: PageId) => void;
+  /** Android back: previous section, or false when history is empty. */
+  backPage: () => boolean;
+  /** Jump to Home and clear section history (double back press). */
+  goHome: () => void;
   setTheme: (theme: ThemeId) => void;
   setSidebar: (open: boolean) => void;
   setPlayerExpanded: (open: boolean) => void;
@@ -34,8 +40,9 @@ interface UIState {
 
 export const useUIStore = create<UIState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       page: "home",
+      pageHistory: [],
       theme: DEFAULT_THEME,
       sidebarOpen: false,
       playerExpanded: false,
@@ -46,7 +53,20 @@ export const useUIStore = create<UIState>()(
       authModalOpen: false,
       downloadTrack: null,
 
-      setPage: (page) => set({ page }),
+      setPage: (page) =>
+        set((s) =>
+          page === s.page
+            ? {}
+            : { page, pageHistory: [...s.pageHistory, s.page].slice(-30) },
+        ),
+      backPage: () => {
+        const { pageHistory } = get();
+        if (pageHistory.length === 0) return false;
+        const prev = pageHistory[pageHistory.length - 1]!;
+        set({ page: prev, pageHistory: pageHistory.slice(0, -1) });
+        return true;
+      },
+      goHome: () => set({ page: "home", pageHistory: [] }),
       setTheme: (theme) => {
         set({ theme });
         document.documentElement?.setAttribute("data-theme", theme);

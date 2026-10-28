@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/engine/playbackLogic.test.ts src/stores/queueLogic.test.ts src/stores/stress.test.ts src/lib/desktop.test.ts src/lib/mobile.test.ts src/lib/mediaSession.test.ts"
+    "test": "tsx --test src/engine/playbackLogic.test.ts src/stores/queueLogic.test.ts src/stores/stress.test.ts src/lib/desktop.test.ts src/lib/mobile.test.ts src/lib/mediaSession.test.ts src/lib/connection.test.ts src/stores/uiStore.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",

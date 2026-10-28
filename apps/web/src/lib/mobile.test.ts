@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { DownloadJob } from "@themashup/shared";
-import { isCapacitor, bytesToBase64, downloadFileName, resolveBackAction } from "./mobile";
+import { isCapacitor, bytesToBase64, downloadFileName, decideBackPress, type BackDecision } from "./mobile";
 
 function fakeJob(over: Partial<DownloadJob> = {}): DownloadJob {
   return {
@@ -72,13 +72,42 @@ test("downloadFileName sanitises names and keeps the container extension", () =>
   assert.equal(downloadFileName(fakeJob({ title: "", video_id: "vid42", container: "mp4" })), "vid42.mp4");
 });
 
-test("resolveBackAction: layers first, exit last", () => {
-  const base = { playerExpanded: false, queueOpen: false, sidebarOpen: false };
-  assert.equal(resolveBackAction(base), "exit");
-  assert.equal(resolveBackAction({ ...base, sidebarOpen: true }), "close-sidebar");
-  assert.equal(resolveBackAction({ ...base, sidebarOpen: true, queueOpen: true }), "close-queue");
+test("decideBackPress: layers always come first", () => {
+  const base = { page: "home", historyLen: 3, msSinceLastNavigate: null };
+  assert.equal(decideBackPress({ ...base, playerExpanded: true, queueOpen: true, sidebarOpen: true }), "collapse-player");
+  assert.equal(decideBackPress({ ...base, queueOpen: true, sidebarOpen: true }), "close-queue");
+  assert.equal(decideBackPress({ ...base, sidebarOpen: true }), "close-sidebar");
+});
+
+test("decideBackPress: single press walks history, never exits", () => {
   assert.equal(
-    resolveBackAction({ playerExpanded: true, queueOpen: true, sidebarOpen: true }),
-    "collapse-player",
+    decideBackPress({ playerExpanded: false, queueOpen: false, sidebarOpen: false, page: "library", historyLen: 2, msSinceLastNavigate: null }),
+    "navigate",
+  );
+  // History empty but not home → straight home (first press).
+  assert.equal(
+    decideBackPress({ playerExpanded: false, queueOpen: false, sidebarOpen: false, page: "downloads", historyLen: 0, msSinceLastNavigate: null }),
+    "go-home",
+  );
+  // At home with no history → press is a no-op (system gesture exits).
+  assert.equal(
+    decideBackPress({ playerExpanded: false, queueOpen: false, sidebarOpen: false, page: "home", historyLen: 0, msSinceLastNavigate: null }),
+    "none",
+  );
+});
+
+test("decideBackPress: double press (≤400 ms) jumps home from anywhere", () => {
+  const inWindow: Array<BackDecision> = [0, 1, 200, 400].map((ms) =>
+    decideBackPress({ playerExpanded: false, queueOpen: false, sidebarOpen: false, page: "search", historyLen: 5, msSinceLastNavigate: ms }),
+  );
+  assert.deepEqual(inWindow, ["go-home", "go-home", "go-home", "go-home"]);
+  // Outside the window it is an ordinary back navigation again.
+  assert.equal(
+    decideBackPress({ playerExpanded: false, queueOpen: false, sidebarOpen: false, page: "search", historyLen: 5, msSinceLastNavigate: 401 }),
+    "navigate",
+  );
+  assert.equal(
+    decideBackPress({ playerExpanded: false, queueOpen: false, sidebarOpen: false, page: "search", historyLen: 5, msSinceLastNavigate: null }),
+    "navigate",
   );
 });

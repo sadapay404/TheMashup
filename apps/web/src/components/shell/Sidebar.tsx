@@ -5,6 +5,8 @@ import { useUIStore, type PageId } from "../../stores/uiStore";
 import { useDownloadsStore } from "../../stores/downloadsStore";
 import { ThemeSwitcher } from "../ui/ThemeSwitcher";
 import { api } from "../../lib/api";
+import { isCapacitor } from "../../lib/mobile";
+import { useConnectionStore } from "../../lib/connection";
 
 const NAV: { id: PageId; label: string; icon: typeof Home }[] = [
   { id: "home", label: "Home", icon: Home },
@@ -29,9 +31,20 @@ function ApiStatusDot() {
       clearInterval(t);
     };
   }, []);
-  return (
+  const native = isCapacitor();
+  const pill = (
     <span
-      title={ok === null ? "Checking API…" : ok ? "API connected" : "API offline"}
+      title={
+        ok === null
+          ? "Checking API…"
+          : ok
+            ? native
+              ? "API connected — tap to re-scan servers"
+              : "API connected"
+            : native
+              ? "API offline — tap to reconnect"
+              : "API offline"
+      }
       className="inline-flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[10px] uppercase tracking-wider text-dim"
     >
       <span
@@ -41,6 +54,17 @@ function ApiStatusDot() {
       />
       {ok === null ? "…" : ok ? "live" : "offline"}
     </span>
+  );
+  if (!native) return pill;
+  // Native: the pill doubles as "find my gateway" (mDNS scan → setup screen).
+  return (
+    <button
+      type="button"
+      onClick={() => void useConnectionStore.getState().runSetup()}
+      className="transition hover:opacity-80"
+    >
+      {pill}
+    </button>
   );
 }
 

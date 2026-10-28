@@ -16,6 +16,8 @@ import { useUIStore } from "./stores/uiStore";
 import { usePlayerStore } from "./stores/playerStore";
 import { useDownloadsStore } from "./stores/downloadsStore";
 import { applyArtworkAccent } from "./lib/colors";
+import { ConnectionScreen, ConnectionLostChip } from "./components/settings/ConnectionScreen";
+import { useConnectionStore } from "./lib/connection";
 
 function ErrorToast() {
   const error = usePlayerStore((s) => (s.status === "error" ? s.error : undefined));
@@ -46,6 +48,13 @@ function ErrorToast() {
       )}
     </AnimatePresence>
   );
+}
+
+/** Full-screen gateway picker — only on native when nothing is reachable. */
+function ConnectionScreenGate() {
+  const status = useConnectionStore((s) => s.status);
+  if (status !== "need-setup") return null;
+  return <ConnectionScreen />;
 }
 
 export default function App() {
@@ -116,6 +125,8 @@ export default function App() {
         <QualityPicker />
         <SignInModal />
         <ErrorToast />
+        <ConnectionLostChip />
+        <ConnectionScreenGate />
       </div>
     </ErrorBoundary>
   );
