@@ -90,7 +90,7 @@ docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md · 
 | # | Deliverable | Status |
 |---|---|---|
 | N1 | Blueprint + buildable Compose skeleton (`android/`, 5-theme shell, syntax gate) | ✅ |
-| N2 | Pure-Kotlin domain core + local data layer (ported algorithms, Room) | ⏳ |
+| N2 | Pure-Kotlin domain core + local data layer (ported algorithms, JSON repositories) | ✅ |
 | N3 | Extraction + lyrics networking (NewPipe, LRCLIB, fallbacks) | ⏳ |
 | N4 | Player engine (Media3, queue/failover, lock-screen service) | ⏳ |
 | N5 | Shell + 5 themes + Home/Search UI | ⏳ |

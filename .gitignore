@@ -45,3 +45,6 @@ services/resolver/jobs/
 /mobile/android/app/src/main/assets/capacitor.config.json
 /mobile/android/app/src/main/assets/capacitor.plugins.json
 /mobile/android/.cxx/
+
+# kotlin toolchain (downloaded by scripts/test-kotlin-domain.sh)
+/tools/

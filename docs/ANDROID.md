@@ -38,7 +38,7 @@
 | YouTube | **NewPipe Extractor v0.26.5** (JitPack) | Battle-tested keyless extraction: search, stream candidates, related/radio, exact audio formats; direct stream URLs handed to ExoPlayer with proper headers |
 | HTTP | OkHttp 4.12 + kotlinx-serialization 1.7.3 | LRCLIB lyrics, Piped/Invidious fallbacks, ffmpeg fetch |
 | Images | Coil 2.7.0 | Artwork loading + caching |
-| Local data | Room (KSP pinned in Phase 2 when introduced) | Likes, playlists (ordered), history, plays, download jobs, settings |
+| Local data | kotlinx-serialization **JSON file repositories** (`JsonFileStore`: mutex + atomic tmp/rename + corrupt→`.bak` fallback) — same contract as the web's `data/*.json`; **KSP/Room deliberately avoided** (toolchain risk, no schema migrations needed at personal scale) | Likes, playlists (ordered), history, plays, download jobs |
 | Themes persistence | DataStore Preferences | Survives restart (same contract as the web `localStorage` persist) |
 | Color extraction | Palette (`androidx.palette`) | Dynamic album-art accent colors (port of `lib/colors.ts`) |
 | Transcoder | Static ffmpeg binary, first-run download → `filesDir` | User decision: slim APK, one-time ~128 MB fetch, exact MP3/FLAC/Opus output |
@@ -51,9 +51,13 @@
   `cd android && ./gradlew build`. Each phase ships a `BUILD.md` step list;
   if the build breaks, send the error back and it is fixed under the same
   phase before the gate passes.
-- Pure-Kotlin domain logic (Phase 2+) is additionally executed in-sandbox
-  with a standalone Kotlin compiler fetched from GitHub releases where
-  feasible, plus test sources for your machine's `./gradlew test`.
+- Pure-Kotlin domain logic (N2+) is additionally executed in-sandbox with a
+  standalone Kotlin 2.4.21 compiler + JDK 21 fetched from the **npm registry
+  and PyPI** (`kotlin-compiler` tarball, `jdk4py` wheel — GitHub release
+  assets redirect off the sandbox's allowlist) via
+  `scripts/test-kotlin-domain.sh`; the same test classes also run under real
+  JUnit on your machine with `./gradlew test`. Data-layer tests (JSON store)
+  need the serialization runtime and run only via Gradle.
 - Dependency pins were chosen from verified release feeds (GitHub API for
   Kotlin/KSP/NewPipe/ffmpeg assets); Google-Maven artifacts (AGP, Compose,
   Media3) are pinned to well-known stable versions above.
@@ -86,7 +90,7 @@ local.themashup.music
 ├── MainActivity.kt            single activity → setContent { TheMashupTheme { App() } }
 ├── core/
 │   ├── domain/                pure Kotlin: models, recommend/fuzzy/queue/quality logic
-│   ├── data/                  Room DAOs, repositories, DataStore, JSON codecs
+│   ├── data/                  JsonFileStore + repositories, DataStore settings
 │   ├── net/                   OkHttp clients: LRCLIB, Piped/Invidious, ffmpeg fetch
 │   ├── extract/               NewPipe Extractor wrapper → StreamCandidates
 │   ├── download/              job runner: fetch → ffmpeg (Process) → MediaStore
@@ -108,7 +112,7 @@ quality ordering) → `PlayerController.play(candidates)` → ExoPlayer with
 lock-screen/notification and the Compose UI.
 
 **Data flow (download):** quality sheet → `DownloadRepository.enqueue()` →
-Room job row + Flow progress → network fetch of chosen stream URL → if a
+JSON `DownloadJob` row + Flow progress → network fetch of chosen stream URL → if a
 transcode is needed, first ensure ffmpeg (show the one-time download sheet
 with progress) → run transcode via `ProcessBuilder` → write finished file
 into `MediaStore.Downloads` (scoped storage, no permissions on 10+) →
@@ -133,7 +137,7 @@ notification/UI update.
 | # | Phase | Done when |
 |---|---|---|
 | **N1** | Blueprint + buildable Compose skeleton (this doc, `android/` project, theme shell, syntax gate script, README) | Syntax gate green; `./gradlew assembleDebug` documented; report |
-| **N2** | Pure-Kotlin domain core + local data layer (models, ported algorithms + tests, Room schema, repositories, settings persistence) | `./gradlew test` green on build machine; in-sandbox execution of pure logic |
+| **N2** | Pure-Kotlin domain core + local data layer (models, ported algorithms + tests, JSON-file repositories, settings persistence via DataStore) | `./gradlew test` green on build machine; in-sandbox execution of pure logic (48 domain tests via `scripts/test-kotlin-domain.sh`) |
 | **N3** | Extraction + lyrics networking (NewPipe search/streams/related, LRCLIB, Piped/Invidious fallback, fixture tests) | Live smoke on device/emulator: search → candidates resolve |
 | **N4** | Player (Media3 ExoPlayer + MediaSessionService, queue/repeat/shuffle, failover, audio focus, notification/lock screen) | Background play + controls verified on device |
 | **N5** | Shell + themes + Home/Search UI (5 themes ported from CSS, persistence, navigation, cards/shelves, dynamic art accents) | Screens visually match web counterparts |
