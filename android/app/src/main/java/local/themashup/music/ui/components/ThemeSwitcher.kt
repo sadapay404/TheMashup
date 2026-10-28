@@ -39,14 +39,14 @@ fun ThemeSwatchPicker(
         THEME_CATALOG.forEach { theme ->
             val active = theme == current
             val ring = if (active) tokens.accent else Color.Transparent
-            Box(
-                modifier = Modifier
-                    .size(width = 30.dp, height = 16.dp)
-                    .clickable { onSelect(theme) }
-                    .semantics {
-                        contentDescription = "${theme.label}, ${theme.hint}"
-                    },
-            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 30.dp, height = 16.dp)
+                        .pressClickable(pressScale = 0.98f) { onSelect(theme) }
+                        .semantics {
+                            contentDescription = "${theme.label}, ${theme.hint}"
+                        },
+                ) {
                 Row {
                     theme.swatch.forEachIndexed { i, argb ->
                         Box(

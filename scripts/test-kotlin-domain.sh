@@ -113,6 +113,7 @@ log "running..."
   local.themashup.music.ui.logic.ThemeCatalogTest \
   local.themashup.music.ui.logic.ArtFallbackTest \
   local.themashup.music.ui.logic.LyricClockTest \
+  local.themashup.music.ui.logic.VisualizerBarsTest \
   local.themashup.music.core.network.logic.VideoIdsTest \
   local.themashup.music.core.network.logic.TrackNormalizeTest \
   local.themashup.music.core.network.logic.StreamNormalizeTest \

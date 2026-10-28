@@ -1,6 +1,7 @@
 # TheMashup — Native Android (Kotlin + Jetpack Compose)
 
-> **Status:** Phase 1 — blueprint + skeleton. This is a **full rewrite** of the
+> **Status:** All 8 phases delivered (N1–N8) — full native app, feature
+> parity matrix in the N8 notes below. This is a **full rewrite** of the
 > app as a true native Android application: **no PC, no gateway, no LAN —
 > ever.** Everything (YouTube extraction, streaming, lyrics, downloads,
 > library, recommendations) runs on the phone. The existing web/desktop code
@@ -291,6 +292,81 @@ notification/UI update.
 - **Gates**: sandbox **175/175** (+`DownloadLogicTest`, `TarArchiveTest`,
   `StreamNormalizeVideoTest`, dedupe case), syntax green (103 kt / 5 xml /
   1 toml), web matrix 124/124, `pnpm typecheck` 0.
+
+### N8 notes (delivered — final phase)
+
+- **Visualizer** (`ui/logic/VisualizerBars.kt` + `ui/components/
+  PlayerVisualizer.kt` + `core/player/OutputVisualizer.kt`): bar math is a
+  web `Visualizer.tsx` port (44 bars, 3 px gap, `floor(i/bars·len)` bin
+  spread, idle sine `0.12 + 0.08·sin(phase + i·0.45)`, `0.4 + v·0.6` alpha,
+  top-rounded bars, art-1→art-2 gradient, reduce-motion floor 0.18) —
+  sandbox-tested. Data source = `android.media.audiofx.Visualizer` on the
+  ExoPlayer audio session (session id resolved reflectively — media3 `Int`
+  or `AudioSessionId` both handled; R8 keep rule added), polled until the
+  session exists, FFT capture rate = half of `getMaxCaptureRate()`.
+  Permission: `RECORD_AUDIO` requested once from the expanded player —
+  denial keeps the web's no-analyser idle sine, never an error. Mounted as
+  the expanded strip (`h-16 max-w-lg opacity-90`, after PlayerControls) with
+  the web header toggle (Activity→`GraphicEq`, "Visualizer on/off",
+  white/50 when off) before Download + Like; toggle persists via
+  `SettingsRepository.visualizerOn` (default on, web parity).
+- **Error toast** (web `ErrorToast`): top-center red pill while
+  `PlayerSnapshot.status == ERROR`, enter y −18/scale .96, auto-hide after
+  6 s (web resets the store to paused; native play-from-ERROR reloads the
+  track — same user outcome).
+- **Motion**: `ui/components/Motion.kt` — `pressClickable` ≈ framer
+  `whileTap` (TrackCard play ×0.9, theme swatches ×0.98) and `FadeSlideIn`
+  ≈ mount entrances (hero y −8; shelf stagger `min(i·40, 320)` ms; search
+  result rows y 8 with `min(i·30, 300)`; search empty state; library page
+  y 14). Existing motion kept from N5-N6: Crossfade routes, expanded/queue
+  slides, shimmer skeletons, DropdownMenu popover animation.
+- **Recommendations (this phase's traceability row)**: audited — already
+  delivered in N5 as the exact `recommendationsRouter` port (`Shelves.kt`:
+  listen_again / quick / discover / trending, taste-vector + radio
+  λ=0.5 fallback, titles, empty-shelf drop, authed order) with
+  `ShelvesTest`; no further code required.
+- **Release polish**: conditional release signing in
+  `app/build.gradle.kts` (`android/app/key.properties` when present,
+  git-ignored along with `*.jks`), `android/README.md` gained the full
+  keystore → `assembleRelease` → install runbook, R8 keeps extended for the
+  visualizer reflection, README phase table completed.
+- **Deviations (deliberate)**: hover-only effects (web `group-hover`
+  artwork/glow reveals, ThemeSwitcher `whileHover`) are omitted — touch has
+  no hover; press feedback covers them. Shelf stagger runs per shelf, not
+  per card (LazyRow recycling would re-animate rows on every scroll-back).
+  The web downloads store's `banner` field is never rendered anywhere on
+  the web either — not ported. The visualizer permission prompt happens at
+  most once per process (web never prompts; Android requires it).
+  `ConnectionScreen`/`ConnectionLostChip` are gateway concepts — N/A under
+  hard requirement #1.
+- **Risks**: some ROMs refuse `Visualizer` capture outright → idle sine
+  (documented degrade); `getAudioSessionId` shape handled reflectively but
+  is compile-unverifiable here; Compose layer + release R8 build remain
+  fix-forward on your machine, as with N3-N7.
+- **Gates**: sandbox **182/182** (+`VisualizerBarsTest` ×7), syntax green
+  (**108 kt** / 5 xml / 1 toml), web matrix 124/124, `pnpm typecheck` 0.
+
+### Feature parity matrix (N8 done-when)
+
+| Requirement (this doc) | Native artifact | Phase | Status |
+|---|---|---|---|
+| Android-only runtime (no PC/gateway/LAN, ever) | Everything on-device; gateway concepts never ported | N1-N7 | ✅ |
+| Aggregated streaming + failover | `ExtractionService` (NewPipe → Piped → Invidious) + `StreamFailover` (web-exact messages, 1 refresh) | N3/N4 | ✅ |
+| Synced lyrics + karaoke | `LyricsPanel` (+0.05 line tolerance, center-scroll, glow) | N6 | ✅ |
+| Hybrid smart search | `SearchScreen` (typeahead ⇄ pasted-lyrics fuzzy, `mergeHybrid`) | N6 | ✅ |
+| Quality downloads + first-run ffmpeg | `FfmpegManager` / `DownloadEngine` / `MediaStoreWriter` / `QualityPicker` / `FfmpegSheet` | N7 | ✅ |
+| Recommendations (shelves scoring) | `Shelves.kt` + `ShelvesTest` + Home shelves (audit this phase) | N5 | ✅ |
+| Library: likes/playlists/reorder/history/follows | `LibraryScreen` + JSON repos (commit-on-drop reorder) | N2/N6 | ✅ |
+| 5 persistent themes + dynamic art colors | `ThemeCatalog` + `Color.kt` + DataStore + `ArtAccents` | N5 | ✅ |
+| Background / lock-screen playback | Media3 `MediaSessionService` + notification controls | N4 | ✅ |
+| Animated UI | Crossfade routes, expanded/queue slides, `FadeSlideIn` entrances, `pressClickable`, shimmer skeletons, popover/menu animations | N5-N8 | ✅ |
+| Visualizer | `OutputVisualizer` (session FFT) + `PlayerVisualizer` strip + header toggle + `visualizerOn` persistence | N8 | ✅ |
+| Error toasts | `ErrorToast` port (6 s auto-hide pill) | N8 | ✅ |
+| Skeletons / error cards | Shimmer shelves + search skeletons + amber charts-error retry (web verbatim) | N5 | ✅ |
+| Status pill / header / theme switcher | `AppTopBar` + `ThemeSwatchPicker` | N5 | ✅ |
+| Downloads progress UI + quality matrix | Downloads page + picker (N7 deviations noted there) | N7 | ✅ |
+| Release APK docs | `android/README.md` signing runbook + conditional `key.properties` signing | N8 | ✅ |
+| Gateway connection screen / SSE chip | N/A — no gateway exists by design (hard requirement #1) | — | N/A |
 
 ## Build (your machine)
 

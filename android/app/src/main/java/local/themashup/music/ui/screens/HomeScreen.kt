@@ -46,6 +46,7 @@ import local.themashup.music.core.domain.buildRadioQueue
 import local.themashup.music.core.network.ExtractionService
 import local.themashup.music.core.player.PlaybackEngine
 import local.themashup.music.core.player.PlayerSnapshot
+import local.themashup.music.ui.components.FadeSlideIn
 import local.themashup.music.ui.components.ShelfSection
 import local.themashup.music.ui.theme.LocalMashupTokens
 import local.themashup.music.ui.theme.LocalArtAccents
@@ -106,10 +107,13 @@ fun HomeScreen(
             .verticalScroll(rememberScrollState())
             .padding(bottom = 24.dp),
     ) {
-        WelcomeHero(
-            accent = accents.first,
-            accentAlt = accents.second,
-        )
+        // Web hero entrance: initial y −8, ease-out ~350 ms.
+        FadeSlideIn(offsetYDp = (-8).dp) {
+            WelcomeHero(
+                accent = accents.first,
+                accentAlt = accents.second,
+            )
+        }
 
         if (loading && charts.isEmpty()) {
             // Chart shelves skeleton (web shows two shimmer shelves).
@@ -129,30 +133,34 @@ fun HomeScreen(
         }
 
         shelves.forEachIndexed { i, shelf ->
-            ShelfSection(
-                title = shelf.title,
-                kindPill = shelf.kind.replace('_', ' '),
-                tracks = shelf.tracks,
-                currentTrackId = playerState.current?.id,
-                isPlaying = playerState.status == local.themashup.music.core.domain.PlayStatus.PLAYING,
-                modifier = Modifier.padding(top = if (i == 0 && charts.isEmpty() && error == null) 20.dp else 26.dp),
-                onCardPlay = { track, queue ->
-                    val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    engine.playQueue(queue, startIndex = index, context = "home")
-                    scope.launch { library.recordPlay(track, context = "home") }
-                },
-                onCardQueue = { track -> engine.addToEnd(track) },
-                onCardRadio = { track, queue ->
-                    val pool = (queue + charts).distinctBy { it.id }
-                    val radio = if (pool.size >= 3) {
-                        buildRadioQueue(track, pool, RadioOptions(limit = 30))
-                    } else {
-                        queue
-                    }
-                    engine.playQueue(radio, startIndex = 0, context = "radio")
-                    scope.launch { library.recordPlay(track, context = "radio") }
-                },
-            )
+            // Web card stagger (min(i*40, 320) ms) expressed per shelf —
+            // LazyRow recycling would otherwise re-animate rows on scroll-back.
+            FadeSlideIn(delayMillis = minOf(i * 40, 320)) {
+                ShelfSection(
+                    title = shelf.title,
+                    kindPill = shelf.kind.replace('_', ' '),
+                    tracks = shelf.tracks,
+                    currentTrackId = playerState.current?.id,
+                    isPlaying = playerState.status == local.themashup.music.core.domain.PlayStatus.PLAYING,
+                    modifier = Modifier.padding(top = if (i == 0 && charts.isEmpty() && error == null) 20.dp else 26.dp),
+                    onCardPlay = { track, queue ->
+                        val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+                        engine.playQueue(queue, startIndex = index, context = "home")
+                        scope.launch { library.recordPlay(track, context = "home") }
+                    },
+                    onCardQueue = { track -> engine.addToEnd(track) },
+                    onCardRadio = { track, queue ->
+                        val pool = (queue + charts).distinctBy { it.id }
+                        val radio = if (pool.size >= 3) {
+                            buildRadioQueue(track, pool, RadioOptions(limit = 30))
+                        } else {
+                            queue
+                        }
+                        engine.playQueue(radio, startIndex = 0, context = "radio")
+                        scope.launch { library.recordPlay(track, context = "radio") }
+                    },
+                )
+            }
         }
 
         // A "see all" affordance is unnecessary: shelves are full horizontal lists.

@@ -10,3 +10,8 @@ captures/
 app/release/
 *.apk
 *.aab
+
+# Release signing (never commit keys — see android/README.md)
+key.properties
+*.jks
+*.keystore

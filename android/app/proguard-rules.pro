@@ -19,3 +19,9 @@
 # OkHttp platform
 -dontwarn okhttp3.**
 -dontwarn okio.**
+
+# N8 visualizer — OutputVisualizer resolves the session id reflectively
+# (media3 may expose Int or AudioSessionId across versions).
+-keepclassmembers class * {
+    *** getAudioSessionId();
+}

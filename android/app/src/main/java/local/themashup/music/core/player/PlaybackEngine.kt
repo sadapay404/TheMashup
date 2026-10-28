@@ -58,11 +58,44 @@ class PlaybackEngine(
         player = p
         p.addListener(playerListener)
         applyPlayerMirrors(_state.value)
+        startVisualizerPoller(p)
     }
 
     fun detachPlayer(p: ExoPlayer) {
         p.removeListener(playerListener)
-        if (player === p) player = null
+        if (player === p) {
+            player = null
+            vizPoller?.cancel()
+            vizPoller = null
+            visualizer.release()
+        }
+    }
+
+    /* ── N8 visualizer: FFT feed for the expanded-player bar strip ──────── */
+
+    /** Owns the `android.media.audiofx.Visualizer` (service attaches player). */
+    val visualizer = OutputVisualizer()
+
+    private var vizPoller: kotlinx.coroutines.Job? = null
+
+    /**
+     * The audio session id is unset until ExoPlayer finishes initializing the
+     * output, so poll cheaply until bound; permission refusals back off to a
+     * slow tick (cleared via [OutputVisualizer.allowRetry] after the grant).
+     */
+    private fun startVisualizerPoller(p: ExoPlayer) {
+        vizPoller?.cancel()
+        vizPoller = scope.launch {
+            withContext(Dispatchers.IO) {
+                while (isActive) {
+                    when (visualizer.tryBind(p)) {
+                        OutputVisualizer.BindOutcome.BOUND -> break
+                        OutputVisualizer.BindOutcome.RETRY -> delay(1_000)
+                        OutputVisualizer.BindOutcome.UNAVAILABLE -> delay(10_000)
+                    }
+                }
+            }
+        }
     }
 
     /* ── UI / session commands ───────────────────────────────────────────── */

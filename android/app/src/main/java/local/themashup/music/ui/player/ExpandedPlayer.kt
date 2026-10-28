@@ -1,5 +1,6 @@
 package local.themashup.music.ui.player
 
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material3.Icon
@@ -41,8 +44,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberLauncherForActivityResult
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
@@ -59,12 +65,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.request.ImageRequest
+import android.content.pm.PackageManager
 import local.themashup.music.core.data.LibraryRepository
 import local.themashup.music.core.network.ExtractionService
 import local.themashup.music.core.player.PlaybackEngine
 import local.themashup.music.core.player.PlayerSnapshot
 import local.themashup.music.ui.components.Artwork
 import local.themashup.music.ui.components.LikeButton
+import local.themashup.music.ui.components.PlayerVisualizer
 import local.themashup.music.ui.lyrics.LyricsPanel
 import local.themashup.music.ui.theme.LocalArtAccents
 import local.themashup.music.ui.theme.LocalMashupTokens
@@ -88,10 +96,33 @@ fun ExpandedPlayer(
     onCollapse: () -> Unit,
     modifier: Modifier = Modifier,
     onDownload: ((local.themashup.music.core.domain.Track) -> Unit)? = null,
+    visualizerOn: Boolean = true,
+    onToggleVisualizer: () -> Unit = {},
 ) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
     val accents = LocalArtAccents.current
+    val context = LocalContext.current
+
+    // RECORD_AUDIO enables the session FFT; asked at most once per process —
+    // denial keeps the web's idle-sine bars (never an error).
+    var askedPermission by rememberSaveable { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) engine.visualizer.allowRetry()
+    }
+    androidx.compose.runtime.LaunchedEffect(visualizerOn) {
+        if (visualizerOn && !askedPermission) {
+            askedPermission = true
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.RECORD_AUDIO,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     val current = state.current
     val artworkUrl = current?.artworkBest ?: current?.artwork
     val playing = state.status == local.themashup.music.core.domain.PlayStatus.PLAYING
@@ -195,6 +226,17 @@ fun ExpandedPlayer(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        // Web header: Activity toggle → download → like.
+                        Icon(
+                            Icons.Outlined.GraphicEq,
+                            contentDescription = if (visualizerOn) "Visualizer on" else "Visualizer off",
+                            tint = if (visualizerOn) scheme.onBackground else scheme.onBackground.copy(alpha = 0.5f),
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .clickable(onClick = onToggleVisualizer)
+                                .padding(7.dp),
+                        )
                         if (onDownload != null) {
                             Icon(
                                 Icons.Outlined.Download,
@@ -286,6 +328,29 @@ fun ExpandedPlayer(
                         large = true,
                         modifier = Modifier.padding(top = 8.dp, bottom = 14.dp),
                     )
+
+                    // Visualizer strip — web `mx-auto mt-5 h-16 max-w-lg opacity-90`.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp)
+                            .height(64.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .widthIn(max = 512.dp)
+                                .height(64.dp)
+                                .graphicsLayer { alpha = 0.9f },
+                        ) {
+                            PlayerVisualizer(
+                                fft = { engine.visualizer.latestFft() },
+                                enabled = visualizerOn,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
                 }
             }
 

@@ -3,8 +3,11 @@ package local.themashup.music.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -45,6 +48,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,19 +59,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import local.themashup.music.core.data.AppContainer
+import local.themashup.music.core.domain.PlayStatus
 import local.themashup.music.core.domain.Track
 import local.themashup.music.core.download.FfmpegState
 import local.themashup.music.core.player.PlayerSnapshot
 import local.themashup.music.ui.art.rememberArtAccents
 import local.themashup.music.ui.components.FfmpegSheet
+import local.themashup.music.ui.components.FadeSlideIn
 import local.themashup.music.ui.components.MiniPlayer
 import local.themashup.music.ui.components.QualityPicker
 import local.themashup.music.ui.components.ThemeSwatchPicker
@@ -130,6 +138,8 @@ private fun MashupShell(container: AppContainer) {
     // N7: track queued for the quality picker (web uiStore.downloadTrack).
     var pendingDownload by remember { mutableStateOf<Track?>(null) }
     var ffmpegManualOpen by remember { mutableStateOf(false) }
+    // N8: visualizer toggle (web uiStore.visualizerOn → persisted setting).
+    val visualizerOn by container.settings.visualizerOn.collectAsState(initial = true)
     val themeKeyState by container.settings.themeKey.collectAsState(initial = DEFAULT_THEME_ID.storageKey)
 
     val artwork = playerState.current?.artworkBest ?: playerState.current?.artwork
@@ -209,13 +219,15 @@ private fun MashupShell(container: AppContainer) {
                                 onDownload = { pendingDownload = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            "library" -> LibraryScreen(
-                                engine = container.player,
-                                library = container.library,
-                                playerState = playerState,
-                                onDownload = { pendingDownload = it },
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                            "library" -> FadeSlideIn {
+                                LibraryScreen(
+                                    engine = container.player,
+                                    library = container.library,
+                                    playerState = playerState,
+                                    onDownload = { pendingDownload = it },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                             else -> DownloadsScreen(
                                 downloads = container.downloads,
                                 engine = container.downloadEngine,
@@ -272,6 +284,10 @@ private fun MashupShell(container: AppContainer) {
                     onCollapse = { expanded = false },
                     modifier = Modifier.fillMaxSize(),
                     onDownload = { pendingDownload = it },
+                    visualizerOn = visualizerOn,
+                    onToggleVisualizer = {
+                        scope.launch { container.settings.setVisualizerOn(!visualizerOn) }
+                    },
                 )
             }
 
@@ -308,6 +324,54 @@ private fun MashupShell(container: AppContainer) {
                     },
                     onDismiss = { ffmpegManualOpen = false },
                 )
+            }
+
+            /* ── N8 error toast — web `ErrorToast` (top pill, 6s auto-hide) ── */
+            val playerError = playerState.error.takeIf { playerState.status == PlayStatus.ERROR }
+            var toastDismissed by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(playerError) {
+                if (playerError != null) {
+                    delay(6000) // web resets the store to paused after 6s
+                    toastDismissed = playerError
+                } else {
+                    toastDismissed = null
+                }
+            }
+            // Mounted always so the exit animation plays when the error clears.
+            run {
+                val enterFromPx = 18.dp.roundToPx()
+                val exitToPx = 14.dp.roundToPx()
+                AnimatedVisibility(
+                    visible = playerError != null && toastDismissed != playerError,
+                    enter = slideInVertically(tween(280)) { -enterFromPx } +
+                        fadeIn(tween(240)) +
+                        scaleIn(initialScale = 0.96f, animationSpec = tween(260)),
+                    exit = slideOutVertically(tween(220)) { -exitToPx } +
+                        fadeOut(tween(180)) +
+                        scaleOut(targetScale = 0.97f, animationSpec = tween(200)),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
+                        .padding(top = 10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .widthIn(max = 340.dp)
+                            .shadow(8.dp, RoundedCornerShape(50))
+                            .clip(RoundedCornerShape(50))
+                            .background(scheme.error.copy(alpha = 0.92f))
+                            .border(1.dp, scheme.error.copy(alpha = 0.4f), RoundedCornerShape(50))
+                            .padding(horizontal = 20.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            text = playerError.orEmpty(),
+                            color = scheme.onError,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            maxLines = 3,
+                        )
+                    }
+                }
             }
         }
     }

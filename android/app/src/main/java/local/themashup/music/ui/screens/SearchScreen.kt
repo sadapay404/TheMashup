@@ -62,6 +62,7 @@ import local.themashup.music.core.network.ExtractionService
 import local.themashup.music.core.player.PlaybackEngine
 import local.themashup.music.core.player.PlayerSnapshot
 import local.themashup.music.ui.components.Artwork
+import local.themashup.music.ui.components.FadeSlideIn
 import local.themashup.music.ui.components.TrackRow
 import local.themashup.music.ui.theme.LocalMashupTokens
 import kotlin.math.roundToInt
@@ -363,39 +364,46 @@ fun SearchScreen(
                 }
             }
 
-            visibleRows.forEach { row ->
+            visibleRows.forEachIndexed { rowIndex, row ->
+                // Web result stagger: min(rowIndex * 30, 300) ms, y 8 → 0.
+                val delay = minOf(rowIndex * 30, 300)
                 when (row) {
                     is HybridRow.TrackRow -> {
                         val track = row.track.track
-                        TrackRow(
-                            track = track,
-                            isCurrent = playerState.current?.id == track.id,
-                            onClick = { playTrack(track, tracks) },
-                            modifier = Modifier.padding(vertical = 3.dp),
-                            onDownload = onDownload,
-                        )
+                        FadeSlideIn(delayMillis = delay, offsetYDp = 8.dp) {
+                            TrackRow(
+                                track = track,
+                                isCurrent = playerState.current?.id == track.id,
+                                onClick = { playTrack(track, tracks) },
+                                modifier = Modifier.padding(vertical = 3.dp),
+                                onDownload = onDownload,
+                            )
+                        }
                     }
                     is HybridRow.LyricRow -> {
-                        LyricRowCard(
-                            match = row.match,
-                            extraction = extraction,
-                            onResolve = { resolved, queue -> playTrack(resolved, queue) },
-                        )
+                        FadeSlideIn(delayMillis = delay, offsetYDp = 8.dp) {
+                            LyricRowCard(
+                                match = row.match,
+                                extraction = extraction,
+                                onResolve = { resolved, queue -> playTrack(resolved, queue) },
+                            )
+                        }
                     }
                 }
             }
 
             if (!loading && visibleRows.isEmpty() && !(showArtists && artists.isNotEmpty()) && error == null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 24.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(scheme.surface.copy(alpha = 0.5f))
-                        .border(1.dp, tokens.border, RoundedCornerShape(16.dp))
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
+                FadeSlideIn {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 24.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(scheme.surface.copy(alpha = 0.5f))
+                            .border(1.dp, tokens.border, RoundedCornerShape(16.dp))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Outlined.MusicNote, contentDescription = null, tint = tokens.textFaint, modifier = Modifier.size(30.dp))
                         Text(
@@ -411,6 +419,7 @@ fun SearchScreen(
                             color = tokens.textFaint,
                             modifier = Modifier.padding(top = 4.dp),
                         )
+                    }
                     }
                 }
             }

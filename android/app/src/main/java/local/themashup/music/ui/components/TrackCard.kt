@@ -110,7 +110,7 @@ fun TrackCard(
                         .size(38.dp)
                         .clip(CircleShape)
                         .background(tokens.accent)
-                        .clickable(onClick = onPlay),
+                        .pressClickable(pressScale = 0.9f, onClick = onPlay),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
