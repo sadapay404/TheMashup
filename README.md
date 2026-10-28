@@ -44,6 +44,7 @@ pnpm --filter @themashup/web dev
 | Downloads | Quality picker (MP3 128/320, FLAC, Opus, MP4 360p→4K), live SSE progress, bundled static ffmpeg, files survive resolver restarts |
 | Themes | 5 persistent themes (frosted, paper-ink, neon, aurora, vinyl) + dynamic album-art colors |
 | Library | Likes, playlists (drag-reorder), history, follows — Supabase RLS or local JSON fallback |
+| **Native Android** | **Full Kotlin/Compose rewrite in `android/` — no PC required, same design (see docs/ANDROID.md)** |
 
 ## Commands
 
@@ -64,7 +65,8 @@ packages/shared     types, constants, ranking/lyrics/radio/recommend utils + tes
 apps/api            Express gateway :4000 (auth, library, downloads, SSE, proxies)
 apps/web            React app (Vite) :8080
 desktop/src-tauri   Tauri shell (Phase 7) — media keys, tray, native save dialogs
-mobile/             Capacitor Android project (Phase 8) — WebView shell + DownloadSaver
+mobile/             Capacitor Android project (Phase 8) — superseded by android/, left untouched
+android/            Native Kotlin/Compose rewrite (phases N1–N8) — no PC required
 services/resolver   FastAPI :8000 (search/stream/lyrics/downloads, yt-dlp + ffmpeg)
 supabase/migrations Postgres schema (auth, library, embeddings, RLS)
 docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md · MOBILE.md
@@ -82,6 +84,19 @@ docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md · 
 | 6 | Animations, visualizer, stress tests, PWA, live preview | ✅ |
 | 7 | Tauri desktop shell (media keys, tray, native saves) | ✅ |
 | 8 | Capacitor Android APKs (scoped-storage saves, lock-screen controls, background runner) | ✅ |
+
+### Native Android rebuild (Kotlin + Compose — see `docs/ANDROID.md`)
+
+| # | Deliverable | Status |
+|---|---|---|
+| N1 | Blueprint + buildable Compose skeleton (`android/`, 5-theme shell, syntax gate) | ✅ |
+| N2 | Pure-Kotlin domain core + local data layer (ported algorithms, Room) | ⏳ |
+| N3 | Extraction + lyrics networking (NewPipe, LRCLIB, fallbacks) | ⏳ |
+| N4 | Player engine (Media3, queue/failover, lock-screen service) | ⏳ |
+| N5 | Shell + 5 themes + Home/Search UI | ⏳ |
+| N6 | Library + lyrics/karaoke + expanded player | ⏳ |
+| N7 | Downloads (first-run ffmpeg, scoped storage, progress) | ⏳ |
+| N8 | Recommendations + motion/visualizer + release polish | ⏳ |
 
 > Personal-use build. Streams resolve from YouTube via yt-dlp (ToS risk accepted by
 > the owner); sources are pluggable behind the resolver interface.
