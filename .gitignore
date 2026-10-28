@@ -1,0 +1,35 @@
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+
+# logs & os
+*.log
+npm-debug.log*
+.DS_Store
+
+# editor / tooling
+.idea/
+.vscode/
+*.swp
+
+# downloaded media (Phase 5+)
+/downloads/
+
+# local library database (phase 4 fallback)
+apps/api/data/
+
+# resolver download artifacts
+services/resolver/jobs/

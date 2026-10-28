@@ -1,0 +1,19 @@
+{
+  "name": "themashup",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "setup": "pnpm install && bash scripts/setup-resolver.sh",
+    "dev": "concurrently -k -n resolver,api -c magenta,cyan \"pnpm dev:resolver\" \"pnpm dev:api\"",
+    "dev:api": "pnpm --filter @themashup/api dev",
+    "dev:resolver": "bash scripts/dev-resolver.sh",
+    "test": "pnpm --filter @themashup/shared test && pnpm --filter @themashup/api test && pnpm --filter @themashup/web test && bash scripts/test-resolver.sh",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.2"
+  }
+}
