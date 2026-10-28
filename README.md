@@ -53,6 +53,8 @@ pnpm typecheck     # 3 TypeScript packages
 pnpm build         # production web bundle
 pnpm desktop:dev   # Tauri dev window (needs Rust — see docs/DESKTOP.md)
 pnpm desktop:build # package the Windows app
+pnpm mobile:sync   # build web + copy into the Capacitor Android project
+pnpm mobile:apk    # sync + gradlew assembleDebug (needs JDK/SDK — see docs/MOBILE.md)
 ```
 
 ## Repo map
@@ -62,9 +64,10 @@ packages/shared     types, constants, ranking/lyrics/radio/recommend utils + tes
 apps/api            Express gateway :4000 (auth, library, downloads, SSE, proxies)
 apps/web            React app (Vite) :8080
 desktop/src-tauri   Tauri shell (Phase 7) — media keys, tray, native save dialogs
+mobile/             Capacitor Android project (Phase 8) — WebView shell + DownloadSaver
 services/resolver   FastAPI :8000 (search/stream/lyrics/downloads, yt-dlp + ffmpeg)
 supabase/migrations Postgres schema (auth, library, embeddings, RLS)
-docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md
+docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md · MOBILE.md
 ```
 
 ## Phases
@@ -78,7 +81,7 @@ docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md
 | 5 | Downloads + recommendations | ✅ |
 | 6 | Animations, visualizer, stress tests, PWA, live preview | ✅ |
 | 7 | Tauri desktop shell (media keys, tray, native saves) | ✅ |
-| 8 | Capacitor Android APKs | ⏳ |
+| 8 | Capacitor Android APKs (scoped-storage saves, lock-screen controls, background runner) | ✅ |
 
 > Personal-use build. Streams resolve from YouTube via yt-dlp (ToS risk accepted by
 > the owner); sources are pluggable behind the resolver interface.

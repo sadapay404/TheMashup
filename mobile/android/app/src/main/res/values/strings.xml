@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TheMashup</string>
+    <string name="title_activity_main">TheMashup</string>
+    <string name="package_name">local.themashup.player</string>
+    <string name="custom_url_scheme">local.themashup.player</string>
+</resources>

@@ -27,6 +27,16 @@ export const API_BASE: string = (() => {
   if (loc.protocol === "tauri:" || loc.hostname === "tauri.localhost") {
     return "http://127.0.0.1:4000";
   }
+  // Capacitor Android WebView (origin https://localhost): the special DNS
+  // alias 10.0.2.2 points back at the host machine from the EMULATOR.
+  // Physical devices must set VITE_API_BASE to your computer's LAN IP —
+  // see docs/MOBILE.md.
+  const cap = (window as Window & {
+    Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string };
+  }).Capacitor;
+  if (cap?.isNativePlatform?.() ?? cap?.getPlatform?.() === "android") {
+    return "http://10.0.2.2:4000";
+  }
   return "";
 })();
 

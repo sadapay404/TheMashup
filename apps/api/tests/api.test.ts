@@ -578,6 +578,14 @@ test("CORS: Tauri desktop origins pass preflight and read filenames", async () =
   });
   assert.equal(res.headers.get("access-control-allow-origin"), "tauri://localhost");
   assert.equal(res.headers.get("access-control-expose-headers")?.toLowerCase(), "content-disposition");
+
+  // Capacitor Android WebView (origin https://localhost) — same guarantees.
+  const pre3 = await fetch(`${base}/api/health`, {
+    method: "OPTIONS",
+    headers: { Origin: "https://localhost", "Access-Control-Request-Method": "GET" },
+  });
+  assert.equal(pre3.status, 204);
+  assert.equal(pre3.headers.get("access-control-allow-origin"), "https://localhost");
 });
 
 test("real resolver client module exports a health probe", () => {

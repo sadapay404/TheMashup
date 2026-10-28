@@ -33,3 +33,15 @@ apps/api/data/
 
 # resolver download artifacts
 services/resolver/jobs/
+
+# Capacitor Android (mobile/) — sync-generated web assets, SDK-local state, builds
+/mobile/android/.gradle/
+/mobile/android/build/
+/mobile/android/app/build/
+/mobile/android/local.properties
+/mobile/android/.idea/
+/mobile/android/captures/
+/mobile/android/app/src/main/assets/public/
+/mobile/android/app/src/main/assets/capacitor.config.json
+/mobile/android/app/src/main/assets/capacitor.plugins.json
+/mobile/android/.cxx/

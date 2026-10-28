@@ -32,11 +32,17 @@ export const config = {
   /** Local JSON library store path (fallback when Supabase is absent). */
   libraryDbPath: process.env.LIBRARY_DB_PATH || "data/library.json",
   corsOrigins: (() => {
-    // Desktop (Tauri) origins are always allowed so the bundled shell can call
-    // the gateway directly on 127.0.0.1 — even when CORS_ORIGIN is explicit.
-    const desktop = ["tauri://localhost", "http://tauri.localhost"];
+    // Desktop (Tauri) and Android (Capacitor WebView) origins are always
+    // allowed so the bundled shells can call the gateway directly — even when
+    // CORS_ORIGIN is explicit. https://localhost is the Capacitor default
+    // WebView origin (androidScheme: https in capacitor.config.json).
+    const shells = [
+      "tauri://localhost",
+      "http://tauri.localhost",
+      "https://localhost",
+    ];
     const list = process.env.CORS_ORIGIN?.split(",").map((s) => s.trim()).filter(Boolean);
-    return list ? [...list, ...desktop] : ["*"];
+    return list ? [...list, ...shells] : ["*"];
   })(),
   version: "0.1.0",
 } as const;

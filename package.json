@@ -10,13 +10,18 @@
     "dev:api": "pnpm --filter @themashup/api dev",
     "desktop:dev": "cd desktop && pnpm exec tauri dev",
     "desktop:build": "cd desktop && pnpm exec tauri build",
+    "mobile:sync": "pnpm --filter @themashup/web build && cd mobile && pnpm run sync",
+    "mobile:apk": "pnpm --filter @themashup/web build && cd mobile && pnpm run sync && cd android && ./gradlew assembleDebug",
+    "mobile:apk:release": "pnpm --filter @themashup/web build && cd mobile && pnpm run sync && cd android && ./gradlew assembleRelease",
     "dev:resolver": "bash scripts/dev-resolver.sh",
     "test": "pnpm --filter @themashup/shared test && pnpm --filter @themashup/api test && pnpm --filter @themashup/web test && bash scripts/test-resolver.sh",
+    "build": "pnpm --filter @themashup/web build",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4",
     "concurrently": "^9.1.2",
     "typescript": "^5.7.2"
-  }
+  },
+  "dependencies": {}
 }

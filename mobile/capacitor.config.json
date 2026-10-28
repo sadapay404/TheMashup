@@ -1,0 +1,22 @@
+{
+  "appId": "local.themashup.player",
+  "appName": "TheMashup",
+  "webDir": "../apps/web/dist",
+  "backgroundColor": "#0a0a0f",
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "BackgroundRunner": {
+      "label": "local.themashup.player.runner",
+      "src": "runners/background.js",
+      "event": "playerHeartbeat",
+      "repeat": true,
+      "interval": 30,
+      "autoStart": true
+    }
+  }
+}

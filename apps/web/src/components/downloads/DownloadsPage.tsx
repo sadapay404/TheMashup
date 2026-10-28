@@ -21,6 +21,7 @@ import type { DownloadJob } from "@themashup/shared";
 import { formatBytes, formatSpeed, formatTimeLeft } from "@themashup/shared";
 import { api } from "../../lib/api";
 import { isDesktop, saveJobFile } from "../../lib/desktop";
+import { isCapacitor, saveJobToDownloads } from "../../lib/mobile";
 import { useUIStore } from "../../stores/uiStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useDownloadsStore, activeJobs, doneJobs } from "../../stores/downloadsStore";
@@ -114,12 +115,18 @@ function FinishedRow({ job }: { job: DownloadJob }) {
           target="_blank"
           rel="noreferrer"
           download
-          title={isDesktop() ? "Save to a folder of your choice" : "Open file"}
+          title={
+            isDesktop() || isCapacitor()
+              ? "Save to a folder of your choice"
+              : "Open file"
+          }
           onClick={(e) => {
-            if (!isDesktop()) return;
-            // Desktop: native Save dialog instead of the browser download shelf.
+            if (!isDesktop() && !isCapacitor()) return;
+            // Desktop: native Save dialog. Android: scoped-storage write into
+            // the shared Downloads collection (MediaStore plugin).
             e.preventDefault();
-            void saveJobFile(job).then((outcome) => {
+            const save = isDesktop() ? saveJobFile(job) : saveJobToDownloads(job);
+            void save.then((outcome) => {
               if (outcome === "unavailable") {
                 window.open(api.fileUrl(job.id), "_blank");
               }
@@ -127,7 +134,7 @@ function FinishedRow({ job }: { job: DownloadJob }) {
           }}
           className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-fg transition hover:opacity-90"
         >
-          <Download size={13} /> {isDesktop() ? "Save" : "Open"}
+          <Download size={13} /> {isDesktop() || isCapacitor() ? "Save" : "Open"}
         </a>
       )}
     </div>
