@@ -30,6 +30,11 @@ class AppContainer(context: Context) {
 
     val settings = SettingsRepository(context)
 
+    /** N3 extraction facade (NewPipe primary + Piped/Invidious + LRCLIB). */
+    val extraction: local.themashup.music.core.network.ExtractionService by lazy {
+        local.themashup.music.core.network.ExtractionService()
+    }
+
     /** Hydrate persistent state (call from Application.onCreate). */
     fun start() {
         library.startLoad()

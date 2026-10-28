@@ -1,0 +1,35 @@
+{
+  "adaptiveFormats": [
+    {
+      "type": "audio/mp4; codecs=\"mp4a.40.2\"",
+      "url": "https://cdn.example/range/expire=1700000000&itag=140",
+      "bitrate": "128000",
+      "audioQuality": "AUDIO_QUALITY_MEDIUM",
+      "contentLength": "7100000"
+    },
+    {
+      "type": "audio/webm; codecs=\"opus\"",
+      "url": "https://cdn.example/range/expire=1700000000&itag=251",
+      "bitrate": 160000,
+      "size": "8400000"
+    },
+    {
+      "type": "video/mp4; codecs=\"avc1.64001F\"",
+      "url": "https://cdn.example/video.mp4",
+      "bitrate": 4500000
+    },
+    { "type": "audio/mp4", "url": null }
+  ],
+  "recommendedVideos": [
+    {
+      "videoId": "OPf0YbXqDm0",
+      "title": "Uptown Funk",
+      "author": "Mark Ronson",
+      "lengthSeconds": 270,
+      "videoThumbnails": [{ "url": "https://i.ytimg.com/vi/OPf0YbXqDm0/hq720.jpg", "width": 1280, "height": 720 }]
+    }
+  ],
+  "recommendations": [
+    { "videoId": "shouldNotBeUsed", "title": "ignored", "author": "x", "lengthSeconds": 10 }
+  ]
+}

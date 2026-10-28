@@ -1,0 +1,20 @@
+[
+  {
+    "videoId": "JGwWNGJdvx8",
+    "title": "Shape of You",
+    "author": "Ed Sheeran",
+    "authorId": "UC4eYXhJI4-75SW3Vw-z5SRA",
+    "lengthSeconds": 263,
+    "videoThumbnails": [
+      { "url": "https://i.ytimg.com/vi/JGwWNGJdvx8/maxres.jpg", "quality": "maxres", "width": 1280, "height": 720 }
+    ]
+  },
+  {
+    "id": "OPf0YbXqDm0",
+    "uploader": "Mark Ronson",
+    "title": "Uptown Funk",
+    "lengthSeconds": 270,
+    "thumbnails": [{ "url": "https://i.ytimg.com/vi/OPf0YbXqDm0/hq720.jpg" }]
+  },
+  { "title": "missing video id", "author": "x" }
+]

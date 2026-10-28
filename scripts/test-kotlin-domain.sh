@@ -62,6 +62,9 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 DOMAIN="$ROOT/android/app/src/main/java/local/themashup/music/core/domain"
 TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/domain"
+# N3 pure-logic layer (network clients + JSON parsing stay Gradle-only)
+NETWORK_LOGIC="$ROOT/android/app/src/main/java/local/themashup/music/core/network/logic"
+NETWORK_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/network/logic"
 SANDBOX="$ROOT/android/sandbox"
 
 log "compiling domain + tests + sandbox stubs..."
@@ -69,6 +72,8 @@ rm -f "$OUT_JAR"
 "$KOTLINC/bin/kotlinc" \
   "$DOMAIN"/*.kt \
   "$TESTS"/*.kt \
+  "$NETWORK_LOGIC"/*.kt \
+  "$NETWORK_TESTS"/*.kt \
   "$SANDBOX"/*.kt \
   "$SANDBOX"/org/junit/*.kt \
   "$SANDBOX"/kotlinx/serialization/*.kt \
@@ -87,4 +92,9 @@ log "running..."
   local.themashup.music.core.domain.RankTest \
   local.themashup.music.core.domain.HybridTest \
   local.themashup.music.core.domain.RecommendTest \
-  local.themashup.music.core.domain.RadioTest
+  local.themashup.music.core.domain.RadioTest \
+  local.themashup.music.core.network.logic.VideoIdsTest \
+  local.themashup.music.core.network.logic.TrackNormalizeTest \
+  local.themashup.music.core.network.logic.StreamNormalizeTest \
+  local.themashup.music.core.network.logic.LyricsLogicTest \
+  local.themashup.music.core.network.logic.ExtractionLogicTest

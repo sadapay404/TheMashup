@@ -91,8 +91,9 @@ local.themashup.music
 ├── core/
 │   ├── domain/                pure Kotlin: models, recommend/fuzzy/queue/quality logic
 │   ├── data/                  JsonFileStore + repositories, DataStore settings
-│   ├── net/                   OkHttp clients: LRCLIB, Piped/Invidious, ffmpeg fetch
-│   ├── extract/               NewPipe Extractor wrapper → StreamCandidates
+│   ├── network/               extraction facade (N3): NewPipe source, Piped/Invidious
+│   │                          pools, LRCLIB client — logic/ pure (sandbox-tested),
+│   │                          parsing/ wire codecs, ExtractionService walk
 │   ├── download/              job runner: fetch → ffmpeg (Process) → MediaStore
 │   └── player/                ExoPlayer + MediaSessionService + queue controller
 └── ui/

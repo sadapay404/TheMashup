@@ -40,6 +40,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // NewPipeExtractor needs desugar_jdk_libs_nio below API 33 (its README).
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -86,6 +88,7 @@ dependencies {
 
     // YouTube extraction (Phase N3)
     implementation(libs.newpipe.extractor)
+    coreLibraryDesugaring(libs.desugar.jdk.libs.nio)
 
     // Tests
     testImplementation(libs.junit)

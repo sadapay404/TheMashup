@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "title": "Never Gonna Give You Up",
+      "uploaderName": "Rick Astley",
+      "duration": 213,
+      "thumbnails": [
+        { "url": "https://i.ytimg.com/sb/abc/hq720.jpg", "width": 1280, "height": 720 },
+        { "url": "https://i.ytimg.com/sb/abc/default.jpg", "width": 120, "height": 90 }
+      ]
+    },
+    {
+      "id": "kJQP7kiw5Fk",
+      "url": "watch?v=kJQP7kiw5Fk",
+      "title": "Despacito",
+      "uploader": "Luis Fonsi",
+      "lengthSeconds": 282,
+      "thumbnail": "https://i.ytimg.com/vi/kJQP7kiw5Fk/hq720.jpg"
+    },
+    {
+      "title": "Broken item without id",
+      "uploaderName": "Nobody"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+[
+  {
+    "id": 900001,
+    "trackName": "Midnight Mirage",
+    "artistName": "Nova Arcade",
+    "albumName": "Chrome Gardens",
+    "duration": 214,
+    "plainLyrics": "City hums in ultraviolet\nSignals fold into the night\nEvery shadow keeps a secret\nEvery street becomes a light",
+    "syncedLyrics": "[00:00.00]City hums in ultraviolet\n[00:07.50]Signals fold into the night\n[00:15.00]Every shadow keeps a secret\n[00:23.00]Every street becomes a light\n",
+    "instrumental": false,
+    "someFutureField": "ignored thanks to ignoreUnknownKeys"
+  },
+  {
+    "id": 900002,
+    "trackName": "Paper Crowns",
+    "artistName": "Elder & Vine",
+    "albumName": "Quiet Riot Season",
+    "duration": 187,
+    "plainLyrics": "We wore paper crowns\nAnd swore they were gold",
+    "syncedLyrics": "[00:04.00]We wore paper crowns\n[00:11.00]And swore they were gold\n[00:19.00]The rain had other plans\n"
+  }
+]

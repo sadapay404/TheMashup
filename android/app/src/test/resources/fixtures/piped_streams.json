@@ -1,0 +1,32 @@
+{
+  "audioStreams": [
+    {
+      "url": "https://cdn.example/videoplayback?expire=1700000000&itag=251&cpn=aa",
+      "mimeType": "audio/webm; codecs=\"opus\"",
+      "quality": "160kbps",
+      "bitrate": 160043,
+      "contentLength": "8461234"
+    },
+    {
+      "url": "https://cdn.example/videoplayback?expire=1700000000&itag=140&cpn=bb",
+      "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+      "quality": "128kbps",
+      "bitrate": 128009,
+      "contentLength": 7123456
+    },
+    {
+      "url": null,
+      "mimeType": "audio/webm"
+    }
+  ],
+  "relatedStreams": [
+    {
+      "url": "https://www.youtube.com/watch?v=9bZkp7q19f0",
+      "title": "Gangnam Style",
+      "uploaderName": "officialpsy",
+      "duration": 253,
+      "thumbnails": [{ "url": "https://i.ytimg.com/vi/9bZkp7q19f0/hq720.jpg", "width": 1280, "height": 720 }]
+    },
+    { "title": "no ids here", "uploaderName": "x" }
+  ]
+}
