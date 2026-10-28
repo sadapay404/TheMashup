@@ -1,0 +1,263 @@
+package local.themashup.music.ui
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import local.themashup.music.core.data.AppContainer
+import local.themashup.music.core.player.PlayerSnapshot
+import local.themashup.music.ui.art.rememberArtAccents
+import local.themashup.music.ui.components.MiniPlayer
+import local.themashup.music.ui.components.ThemeSwatchPicker
+import local.themashup.music.ui.logic.DEFAULT_THEME_ID
+import local.themashup.music.ui.logic.themeFromKey
+import local.themashup.music.ui.screens.DownloadsScreen
+import local.themashup.music.ui.screens.HomeScreen
+import local.themashup.music.ui.screens.LibraryScreen
+import local.themashup.music.ui.screens.SearchScreen
+import local.themashup.music.ui.theme.LocalMashupTokens
+import local.themashup.music.ui.theme.TheMashupTheme
+import local.themashup.music.ui.theme.WithArtAccents
+
+/** Per-page title + blurb — web PAGE_TITLES. */
+private val PAGE_TITLES: Map<String, Pair<String, String>> = mapOf(
+    "home" to ("Home" to "Picks tuned by what you play"),
+    "search" to ("Search" to "Songs, artists & lyric lookup"),
+    "library" to ("Library" to "Likes, playlists & history"),
+    "downloads" to ("Downloads" to "MP3 · FLAC · MP4 in every quality"),
+)
+
+private data class NavItem(val id: String, val label: String, val icon: ImageVector)
+
+private val NAV_ITEMS = listOf(
+    NavItem("home", "Home", Icons.Filled.Home),
+    NavItem("search", "Search", Icons.Filled.Search),
+    NavItem("library", "Library", Icons.Filled.LibraryMusic),
+    NavItem("downloads", "Downloads", Icons.Filled.Download),
+)
+
+/**
+ * Root UI: persisted theme (DataStore) + scaffold shell — top bar with the
+ * 5-swatch switcher, page content (Crossfade like the web AnimatePresence
+ * route swap), mini player + 4-tab bottom nav. Art accents sample the
+ * current artwork app-wide (`--art-1` / `--art-2`).
+ */
+@Composable
+fun TheMashupRoot(container: AppContainer) {
+    val themeKey by container.settings.themeKey.collectAsState(initial = DEFAULT_THEME_ID.storageKey)
+    TheMashupTheme(themeId = themeFromKey(themeKey)) {
+        MashupShell(container)
+    }
+}
+
+@Composable
+private fun MashupShell(container: AppContainer) {
+    val tokens = LocalMashupTokens.current
+    val scheme = MaterialTheme.colorScheme
+    val scope = rememberCoroutineScope()
+    val playerState by container.player.state.collectAsState()
+
+    var page by rememberSaveable { mutableStateOf("home") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val themeKeyState by container.settings.themeKey.collectAsState(initial = DEFAULT_THEME_ID.storageKey)
+
+    val artwork = playerState.current?.artworkBest ?: playerState.current?.artwork
+    val accents = rememberArtAccents(url = artwork, seed = playerState.current?.id ?: "themashup")
+
+    BackHandler(enabled = page != "home") { page = "home" }
+
+    WithArtAccents(accents) {
+        Scaffold(
+            topBar = {
+                AppTopBar(
+                    page = page,
+                    themeKey = themeKeyState,
+                    onSelectTheme = { theme ->
+                        scope.launch { container.settings.setThemeKey(theme.storageKey) }
+                    },
+                )
+            },
+            bottomBar = {
+                Column {
+                    AnimatedVisibility(
+                        visible = playerState.current != null,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                    ) {
+                        MiniPlayer(
+                            state = playerState,
+                            onPrev = { container.player.prevTrack() },
+                            onToggle = { container.player.togglePlay() },
+                            onNext = { container.player.nextTrack() },
+                        )
+                    }
+                    NavigationBar(
+                        containerColor = scheme.surface,
+                        tonalElevation = 0.dp,
+                    ) {
+                        NAV_ITEMS.forEach { item ->
+                            NavigationBarItem(
+                                selected = page == item.id,
+                                onClick = { page = item.id },
+                                icon = { Icon(item.icon, contentDescription = item.label) },
+                                label = { Text(item.label, fontSize = 11.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = tokens.accentContrast,
+                                    indicatorColor = tokens.accent,
+                                    selectedTextColor = tokens.accent,
+                                    unselectedIconColor = tokens.textDim,
+                                    unselectedTextColor = tokens.textDim,
+                                ),
+                            )
+                        }
+                    }
+                }
+            },
+        ) { padding ->
+            Box(modifier = Modifier.padding(padding)) {
+                Crossfade(targetState = page, label = "page") { current ->
+                    when (current) {
+                        "home" -> HomeScreen(
+                            extraction = container.extraction,
+                            library = container.library,
+                            engine = container.player,
+                            playerState = playerState,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        "search" -> SearchScreen(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            extraction = container.extraction,
+                            engine = container.player,
+                            library = container.library,
+                            playerState = playerState,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        "library" -> LibraryScreen(modifier = Modifier.fillMaxSize())
+                        else -> DownloadsScreen(modifier = Modifier.fillMaxSize())
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Web AppShell header: brand chip + title/blurb + 5-swatch switcher. */
+@Composable
+private fun AppTopBar(
+    page: String,
+    themeKey: String,
+    onSelectTheme: (local.themashup.music.ui.logic.ThemeId) -> Unit,
+) {
+    val tokens = LocalMashupTokens.current
+    val scheme = MaterialTheme.colorScheme
+    val (title, blurb) = PAGE_TITLES[page] ?: ("Home" to "")
+    val current = themeFromKey(themeKey)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
+            .background(scheme.background)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // Brand chip — web Disc3 logo (accent-filled rounded square).
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(tokens.accent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.MusicNote,
+                contentDescription = null,
+                tint = tokens.accentContrast,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = scheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = blurb,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.textFaint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        ThemeSwatchPicker(current = current, onSelect = onSelectTheme)
+        // Local profile chip — web AuthArea avatar.
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(tokens.accent.copy(alpha = 0.18f))
+                .border(BorderStroke(1.dp, tokens.border), RoundedCornerShape(999.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "M",
+                color = tokens.accent,
+                fontSize = 13.sp,
+            )
+        }
+    }
+}

@@ -146,6 +146,46 @@ notification/UI update.
 | **N7** | Downloads (first-run ffmpeg sheet + transcode + scoped storage + progress/cancel + quality matrix) | File lands in system Downloads, correct format/bitrate |
 | **N8** | Recommendations + motion/visualizer + release polish (shelves scoring, animations, signing docs, README final) | Matrix of feature parity vs this doc; release APK docs |
 
+### N5 notes (delivered)
+
+- **Shell**: `ui/App.kt` — edge-to-edge `Scaffold`, custom top bar (brand chip +
+  page title/blurb per web `PAGE_TITLES` + **5-swatch theme switcher** + local
+  profile chip), `Crossfade` page swaps, back-to-home, 4-tab `NavigationBar`,
+  floating `MiniPlayer` (progress line + transport) above the nav; expanded
+  player/queue/lyrics actions are N6. `MainActivity` now just mounts
+  `TheMashupRoot(container)`.
+- **Themes**: exact `[data-theme=…]` CSS tokens → `ui/theme/Color.kt`
+  (`MashupTokens` + M3 schemes incl. translucent surfaces/borders); `ThemeId`
+  moved to pure `ui/logic/ThemeCatalog.kt` (labels/hints/swatch triples verbatim
+  from `ThemeSwitcher.tsx`) with sandbox tests; persistence via
+  `SettingsRepository.setThemeKey` (DataStore) — default **frosted**
+  (`DEFAULT_THEME` fixed from `paper` to match web). Paper & Ink + Vinyl render
+  the serif display family.
+- **Home**: hero card (welcome copy — "gateway" line adapted to "resolved
+  on-device with automatic source failover") + shelves from
+  `Shelves.kt` (port of api `radio.ts` recommendations: listen_again from the
+  local library, quick/discover/trending over the charts pool). **Charts pool is
+  new**: `ExtractionLogic.trending` walk → Piped `GET /trending` +
+  Invidious `GET /api/v1/trending?region=US` (`Wire` array decoders, category
+  `video`), exposed as `ExtractionService.trending`. Cards = web TrackCard
+  (art + `--art-1` glow + Radio/queue/play overlay + "playing" pill), shimmer
+  skeletons, amber charts-error card with retry.
+- **Search**: `SearchScreen` merges the web typeahead + full-page behaviors for
+  mobile — 170 ms debounce, parallel `search` + `lyricMatch` + `suggest`
+  (`ExtractionService.suggest` = new Piped suggestions walk), error only when
+  both catalog and lyric sources fail, filter chips with counts, artist chips
+  derived from track artists, `mergeHybrid` rows, LyricMatch rows resolve
+  `"{track} {artist}"` → play top hit (web exact), suggestion chips, shimmer +
+  empty/error states.
+- **Art accents**: `ui/art/ArtAccents.kt` — Palette sampling with the web
+  `colors.ts` saturation/luminance filter, `fallbackArtColors` hash fallback;
+  `LocalArtAccents` feeds card glows app-wide.
+- **Gates**: sandbox **141/141** (`ShelvesTest`, `ThemeCatalogTest`,
+  `ArtFallbackTest`, `ExtractionWalkTest` added), syntax 83 kt green, web matrix
+  124/124, tsc 0. Known risks: Compose layer compiles only on the build machine
+  (Gradle) — sandbox covers `ui/logic` + domain + network logic; Material3/
+  Coil/Palette APIs pinned via BOM versions in `libs.versions.toml`.
+
 ## Build (your machine)
 
 ```bash

@@ -20,6 +20,12 @@ interface MusicSource {
     fun search(query: String, limit: Int = 20): List<Track>
 
     fun streams(videoId: String): SourceStreams
+
+    /** Trending/charts list (Piped `/trending`, Invidious `/api/v1/trending`). */
+    fun trending(limit: Int = 40): List<Track> = emptyList()
+
+    /** Autocomplete suggestions (Piped `/suggestions`). */
+    fun suggest(query: String): List<String> = emptyList()
 }
 
 /** Search outcome (web `SearchResponse`-shaped, minus artists/albums for N3). */
@@ -106,5 +112,23 @@ object ExtractionLogic {
             degraded = true,
             warnings = warnings,
         )
+    }
+
+    /** First source with a non-empty trending list (charts pool for shelves). */
+    fun trending(sources: List<MusicSource>, limit: Int): List<Track> {
+        for (src in sources) {
+            val items = runCatching { src.trending(limit) }.getOrElse { emptyList() }
+            if (items.isNotEmpty()) return items
+        }
+        return emptyList()
+    }
+
+    /** First source with suggestions; never throws (typeahead degrades). */
+    fun suggest(sources: List<MusicSource>, query: String): List<String> {
+        for (src in sources) {
+            val items = runCatching { src.suggest(query) }.getOrElse { emptyList() }
+            if (items.isNotEmpty()) return items
+        }
+        return emptyList()
     }
 }

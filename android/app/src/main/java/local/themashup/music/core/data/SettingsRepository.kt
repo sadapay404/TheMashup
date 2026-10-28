@@ -49,6 +49,7 @@ class SettingsRepository(private val context: Context) {
 
     companion object {
         /** Paper & Ink — the default theme's storage key (ui/theme). */
-        const val DEFAULT_THEME = "paper"
+        /** Web DEFAULT_THEME (packages/shared constants). */
+        const val DEFAULT_THEME = "frosted"
     }
 }

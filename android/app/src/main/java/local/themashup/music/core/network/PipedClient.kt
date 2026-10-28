@@ -28,6 +28,13 @@ class PipedClient(
             limit,
         )
 
+    override fun trending(limit: Int): List<Track> =
+        runCatching {
+            PipedParsing.trending(getJson("/trending", mapOf("region" to "US")), limit)
+        }.getOrElse { emptyList() }
+
+    override fun suggest(query: String): List<String> = suggestions(query, 8)
+
     fun suggestions(query: String, limit: Int = 8): List<String> =
         PipedParsing.suggestions(getJson("/suggest", mapOf("q" to query)), limit)
 

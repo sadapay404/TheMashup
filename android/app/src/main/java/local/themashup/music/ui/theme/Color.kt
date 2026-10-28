@@ -5,103 +5,141 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
+/** Re-export so `ui.theme.ThemeId` keeps working (same enum, pure package). */
+typealias ThemeId = local.themashup.music.ui.logic.ThemeId
+
 /**
- * The five persistent themes — seeds ported from
- * `apps/web/src/styles/index.css` (`[data-theme=…]` blocks). Phase N5 refines
- * every token to pixel-match the web sheets; the structure is final now.
+ * Extra semantic tokens beyond Material3's scheme — direct ports of the CSS
+ * custom properties (`--bg-soft`, `--surface-2`, `--border`, `--accent-2`)
+ * that cards/shelves/switcher need to visually match the web.
  */
-enum class ThemeId(val storageKey: String, val label: String) {
-    FROSTED("frosted", "Frosted"),
-    PAPER_INK("paper-ink", "Paper & Ink"),
-    NEON("neon", "Neon"),
-    AURORA("aurora", "Aurora"),
-    VINYL("vinyl", "Vinyl"),
+data class MashupTokens(
+    val bg: Color,
+    val bgSoft: Color,
+    val surface2: Color,
+    val border: Color,
+    val accent: Color,
+    val accent2: Color,
+    val accentContrast: Color,
+    val textDim: Color,
+    val textFaint: Color,
+)
+
+private fun hex(value: Long): Color = Color(value.toInt())
+private fun alpha(color: Long, alpha: Int): Color = Color(((alpha shl 24) or (color and 0xFFFFFF)).toInt())
+
+private data class WebTheme(
+    val bg: Long,
+    val bgSoft: Long,
+    val surface: Long,
+    val surface2: Long,
+    val surfaceSolid: Long,
+    val text: Long,
+    val dim: Long,
+    val faint: Long,
+    val accent: Long,
+    val accent2: Long,
+    val contrast: Long,
+    val border: Long,
+)
+
+/** `[data-theme=…]` sheets from `apps/web/src/styles/index.css`, exact. */
+private val WEB_THEMES: Map<ThemeId, WebTheme> = mapOf(
+    ThemeId.FROSTED to WebTheme(
+        bg = 0xFF0A0A0F, bgSoft = 0xFF101018,
+        surface = 0x0BFFFFFF, surface2 = 0x14FFFFFF, surfaceSolid = 0xFF15151F,
+        text = 0xFFF4F4F8, dim = 0xFFA3A3B5, faint = 0xFF6B6B80,
+        accent = 0xFF8B6CFF, accent2 = 0xFF4DD0FF, contrast = 0xFF0B0B12,
+        border = 0x17FFFFFF,
+    ),
+    ThemeId.PAPER_INK to WebTheme(
+        bg = 0xFFF4EFE4, bgSoft = 0xFFECE5D6,
+        surface = 0xC7FFFDF7, surface2 = 0xF3FFFDF7, surfaceSolid = 0xFFFFFDF7,
+        text = 0xFF211C14, dim = 0xFF6C6353, faint = 0xFF9A907C,
+        accent = 0xFFB3441F, accent2 = 0xFF2F5D50, contrast = 0xFFFFFDF7,
+        border = 0x24211C14,
+    ),
+    ThemeId.NEON to WebTheme(
+        bg = 0xFF04060B, bgSoft = 0xFF080C14,
+        surface = 0x0D00FFC8, surface2 = 0x1A00FFC8, surfaceSolid = 0xFF070B12,
+        text = 0xFFE8FEFF, dim = 0xFF7FC9C4, faint = 0xFF46787A,
+        accent = 0xFF00FFC8, accent2 = 0xFFFF3EC8, contrast = 0xFF02120E,
+        border = 0x3800FFC8,
+    ),
+    ThemeId.AURORA to WebTheme(
+        bg = 0xFF0A1022, bgSoft = 0xFF0E1730,
+        surface = 0x1292B2FF, surface2 = 0x2192B2FF, surfaceSolid = 0xFF101A36,
+        text = 0xFFEEF2FF, dim = 0xFF9FB0D8, faint = 0xFF62739C,
+        accent = 0xFF6EE7FF, accent2 = 0xFFB490FF, contrast = 0xFF06121A,
+        border = 0x2E92B2FF,
+    ),
+    ThemeId.VINYL to WebTheme(
+        bg = 0xFF16110D, bgSoft = 0xFF1D1712,
+        surface = 0x0EF3E9DC, surface2 = 0x1AF3E9DC, surfaceSolid = 0xFF221A14,
+        text = 0xFFF3E9DC, dim = 0xFFBFAE99, faint = 0xFF7D6F5F,
+        accent = 0xFFE8A33D, accent2 = 0xFFA03B3B, contrast = 0xFF1A1109,
+        border = 0x21F3E9DC,
+    ),
+)
+
+fun tokensFor(id: ThemeId): MashupTokens {
+    val t = WEB_THEMES.getValue(id)
+    return MashupTokens(
+        bg = hex(t.bg),
+        bgSoft = hex(t.bgSoft),
+        surface2 = hex(t.surface2),
+        border = hex(t.border),
+        accent = hex(t.accent),
+        accent2 = hex(t.accent2),
+        accentContrast = hex(t.contrast),
+        textDim = hex(t.dim),
+        textFaint = hex(t.faint),
+    )
 }
 
-/** Shared brand red — accent used across themes (matches web `--accent`). */
-val MashupAccent = Color(0xFFE11D48)
-
-private fun dark(
-    background: Color,
-    surface: Color,
-    surfaceVariant: Color,
-    onBackground: Color,
-    outline: Color,
-    accent: Color = MashupAccent,
-): ColorScheme = darkColorScheme(
-    primary = accent,
-    onPrimary = Color.White,
-    secondary = surfaceVariant,
-    onSecondary = onBackground,
-    background = background,
-    onBackground = onBackground,
-    surface = surface,
-    onSurface = onBackground,
-    surfaceVariant = surfaceVariant,
-    onSurfaceVariant = outline,
-    outline = outline,
+private fun darkFrom(t: WebTheme): ColorScheme = darkColorScheme(
+    primary = hex(t.accent),
+    onPrimary = hex(t.contrast),
+    primaryContainer = alpha(t.accent, 0x33),
+    onPrimaryContainer = hex(t.accent),
+    secondary = hex(t.accent2),
+    onSecondary = hex(t.contrast),
+    secondaryContainer = alpha(t.accent2, 0x2E),
+    onSecondaryContainer = hex(t.accent2),
+    background = hex(t.bg),
+    onBackground = hex(t.text),
+    surface = hex(t.surfaceSolid),
+    onSurface = hex(t.text),
+    surfaceVariant = hex(t.bgSoft),
+    onSurfaceVariant = hex(t.dim),
+    surfaceTint = hex(t.accent),
+    outline = hex(t.faint),
+    outlineVariant = hex(t.border),
     error = Color(0xFFF87171),
 )
 
-/** Frosted — dark glass over near-black (web default `#0a0a0f`). */
-val FrostedScheme = dark(
-    background = Color(0xFF0A0A0F),
-    surface = Color(0xFF101018),
-    surfaceVariant = Color(0xFF171722),
-    onBackground = Color(0xFFEDEDF2),
-    outline = Color(0xFF8A8A99),
+private fun lightFrom(t: WebTheme): ColorScheme = lightColorScheme(
+    primary = hex(t.accent),
+    onPrimary = hex(t.contrast),
+    primaryContainer = alpha(t.accent, 0x1F),
+    onPrimaryContainer = hex(t.accent),
+    secondary = hex(t.accent2),
+    onSecondary = hex(t.contrast),
+    secondaryContainer = alpha(t.accent2, 0x1F),
+    onSecondaryContainer = hex(t.accent2),
+    background = hex(t.bg),
+    onBackground = hex(t.text),
+    surface = hex(t.surfaceSolid),
+    onSurface = hex(t.text),
+    surfaceVariant = hex(t.bgSoft),
+    onSurfaceVariant = hex(t.dim),
+    surfaceTint = hex(t.accent),
+    outline = hex(t.faint),
+    outlineVariant = hex(t.border),
+    error = hex(t.accent),
 )
 
-/** Neon — hot dark with electric accents. */
-val NeonScheme = dark(
-    background = Color(0xFF05050A),
-    surface = Color(0xFF0B0B14),
-    surfaceVariant = Color(0xFF12121F),
-    onBackground = Color(0xFFF2F2FF),
-    outline = Color(0xFF9B8CFF),
-    accent = Color(0xFF22D3EE),
-)
-
-/** Aurora — deep space with teal/violet glow. */
-val AuroraScheme = dark(
-    background = Color(0xFF070B14),
-    surface = Color(0xFF0D1322),
-    surfaceVariant = Color(0xFF131B2E),
-    onBackground = Color(0xFFE8EEF9),
-    outline = Color(0xFF7DD3FC),
-    accent = Color(0xFFA78BFA),
-)
-
-/** Vinyl — warm dark (record-sleeve browns over charcoal). */
-val VinylScheme = dark(
-    background = Color(0xFF0E0B09),
-    surface = Color(0xFF161210),
-    surfaceVariant = Color(0xFF1F1916),
-    onBackground = Color(0xFFF4EDE6),
-    outline = Color(0xFFB3A08F),
-    accent = Color(0xFFE8A33D),
-)
-
-/** Paper & Ink — the light theme (web `#f4efe4` paper). */
-val PaperInkScheme = lightColorScheme(
-    primary = Color(0xFFB91C1C),
-    onPrimary = Color.White,
-    secondary = Color(0xFF3F3F46),
-    onSecondary = Color.White,
-    background = Color(0xFFF4EFE4),
-    onBackground = Color(0xFF1C1917),
-    surface = Color(0xFFFBF7EE),
-    onSurface = Color(0xFF1C1917),
-    surfaceVariant = Color(0xFFEAE3D5),
-    onSurfaceVariant = Color(0xFF57534E),
-    outline = Color(0xFF78716C),
-    error = Color(0xFFB91C1C),
-)
-
-fun colorSchemeFor(id: ThemeId): ColorScheme = when (id) {
-    ThemeId.FROSTED -> FrostedScheme
-    ThemeId.PAPER_INK -> PaperInkScheme
-    ThemeId.NEON -> NeonScheme
-    ThemeId.AURORA -> AuroraScheme
-    ThemeId.VINYL -> VinylScheme
+fun colorSchemeFor(id: ThemeId): ColorScheme {
+    val t = WEB_THEMES.getValue(id)
+    return if (id.isLight) lightFrom(t) else darkFrom(t)
 }

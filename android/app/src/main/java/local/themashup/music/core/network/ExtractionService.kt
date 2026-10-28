@@ -28,6 +28,13 @@ class ExtractionService(
     fun search(query: String, limit: Int = 20): SearchOutcome =
         ExtractionLogic.search(sources, query, limit)
 
+    /** Charts pool for home shelves (trending walk). */
+    fun trending(limit: Int = 40): List<Track> = ExtractionLogic.trending(sources, limit)
+
+    /** Typeahead autocomplete. */
+    fun suggest(query: String, limit: Int = 8): List<String> =
+        ExtractionLogic.suggest(sources, query).take(limit)
+
     fun streams(videoId: String): StreamOutcome =
         ExtractionLogic.streams(sources, videoId)
 

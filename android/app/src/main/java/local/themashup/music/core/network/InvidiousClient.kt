@@ -27,6 +27,11 @@ class InvidiousClient(
             limit,
         )
 
+    override fun trending(limit: Int): List<Track> =
+        runCatching {
+            InvidiousParsing.trending(getJson("/api/v1/trending", mapOf("region" to "US")), limit)
+        }.getOrElse { emptyList() }
+
     override fun streams(videoId: String): SourceStreams {
         val (candidates, related) = InvidiousParsing.streams(getJson("/api/v1/videos/$videoId"))
         return SourceStreams(candidates, related)

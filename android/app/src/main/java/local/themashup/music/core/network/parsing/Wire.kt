@@ -161,6 +161,12 @@ object PipedParsing {
     fun suggestions(body: String, limit: Int): List<String> =
         json.decodeFromString(PipedSuggestResponse.serializer(), body).suggestions.take(limit)
 
+    /** `/trending` returns a bare search-item array (no envelope). */
+    fun trending(body: String, limit: Int): List<Track> =
+        json.decodeFromString<List<PipedSearchItem>>(body)
+            .mapNotNull { pipedItemToTrack(it, category = "video") }
+            .take(limit)
+
     fun streams(body: String): Pair<List<StreamCandidate>, List<Track>> {
         val resp = json.decodeFromString(PipedStreamsResponse.serializer(), body)
         val candidates = StreamNormalize.sortCandidates(
@@ -193,6 +199,10 @@ object InvidiousParsing {
         }
 
     fun search(body: String, limit: Int): List<Track> =
+        searchItems(body).mapNotNull { invidiousItemToTrack(it, category = "video") }.take(limit)
+
+    /** `/api/v1/trending?region=` — same tolerant item shape as search. */
+    fun trending(body: String, limit: Int): List<Track> =
         searchItems(body).mapNotNull { invidiousItemToTrack(it, category = "video") }.take(limit)
 
     fun streams(body: String): Pair<List<StreamCandidate>, List<Track>> {

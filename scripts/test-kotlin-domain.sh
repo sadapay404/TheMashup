@@ -68,6 +68,9 @@ NETWORK_LOGIC="$ROOT/android/app/src/main/java/local/themashup/music/core/networ
 PLAYER="$ROOT/android/app/src/main/java/local/themashup/music/core/player"
 PLAYER_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/player"
 NETWORK_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/core/network/logic"
+# N5 pure UI logic (ThemeCatalog + art fallbacks — no Compose imports)
+UI_LOGIC="$ROOT/android/app/src/main/java/local/themashup/music/ui/logic"
+UI_LOGIC_TESTS="$ROOT/android/app/src/test/java/local/themashup/music/ui/logic"
 SANDBOX="$ROOT/android/sandbox"
 
 log "compiling domain + tests + sandbox stubs..."
@@ -80,6 +83,8 @@ rm -f "$OUT_JAR"
   "$PLAYER"/StreamFailover.kt \
   "$PLAYER"/PlaybackStateMachine.kt \
   "$PLAYER_TESTS"/*.kt \
+  "$UI_LOGIC"/*.kt \
+  "$UI_LOGIC_TESTS"/*.kt \
   "$SANDBOX"/*.kt \
   "$SANDBOX"/org/junit/*.kt \
   "$SANDBOX"/kotlinx/serialization/*.kt \
@@ -99,10 +104,14 @@ log "running..."
   local.themashup.music.core.domain.HybridTest \
   local.themashup.music.core.domain.RecommendTest \
   local.themashup.music.core.domain.RadioTest \
+  local.themashup.music.core.domain.ShelvesTest \
+  local.themashup.music.ui.logic.ThemeCatalogTest \
+  local.themashup.music.ui.logic.ArtFallbackTest \
   local.themashup.music.core.network.logic.VideoIdsTest \
   local.themashup.music.core.network.logic.TrackNormalizeTest \
   local.themashup.music.core.network.logic.StreamNormalizeTest \
   local.themashup.music.core.network.logic.LyricsLogicTest \
   local.themashup.music.core.network.logic.ExtractionLogicTest \
+  local.themashup.music.core.network.logic.ExtractionWalkTest \
   local.themashup.music.core.player.StreamFailoverTest \
   local.themashup.music.core.player.PlaybackStateMachineTest

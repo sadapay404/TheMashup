@@ -93,7 +93,7 @@ docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md · 
 | N2 | Pure-Kotlin domain core + local data layer (ported algorithms, JSON repositories) | ✅ |
 | N3 | Extraction + lyrics networking (NewPipe, LRCLIB, fallbacks) | ✅ |
 | N4 | Player engine (Media3, queue/failover, lock-screen service) | ✅ |
-| N5 | Shell + 5 themes + Home/Search UI | ⏳ |
+| N5 | Shell + 5 themes + Home/Search UI | ✅ |
 | N6 | Library + lyrics/karaoke + expanded player | ⏳ |
 | N7 | Downloads (first-run ffmpeg, scoped storage, progress) | ⏳ |
 | N8 | Recommendations + motion/visualizer + release polish | ⏳ |
