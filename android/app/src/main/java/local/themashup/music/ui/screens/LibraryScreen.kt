@@ -199,6 +199,7 @@ fun LibraryScreen(
                     playerState = playerState,
                     library = library,
                     onPlay = { t -> playContext(t, tracks, "playlist") },
+                    onDownload = onDownload,
                 )
                 if (tracks.size > 1) {
                     Text(
@@ -514,6 +515,7 @@ private fun ReorderableTrackList(
     playerState: PlayerSnapshot,
     library: LibraryRepository,
     onPlay: (Track) -> Unit,
+    onDownload: ((Track) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current

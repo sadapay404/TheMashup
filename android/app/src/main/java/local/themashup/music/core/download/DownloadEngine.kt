@@ -30,7 +30,7 @@ import local.themashup.music.core.download.logic.outputFilename
 import local.themashup.music.core.download.logic.pickAudio
 import local.themashup.music.core.download.logic.pickVideo
 import local.themashup.music.core.network.ExtractionService
-import local.themashup.music.core.network.logic.StreamCandidate
+import local.themashup.music.core.domain.StreamCandidate
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request

@@ -129,3 +129,6 @@ class LibraryRepository(
     fun isFollowing(artistName: String): Boolean = artistName.trim() in _state.value.follows
 
 }
+
+/** Web parity: `apps/api/src/services/libraryDb.ts` HISTORY_CAP. */
+private const val HISTORY_CAP = 300

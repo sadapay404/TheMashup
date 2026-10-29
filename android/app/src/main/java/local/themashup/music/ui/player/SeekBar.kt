@@ -31,6 +31,7 @@ import local.themashup.music.ui.theme.LocalMashupTokens
  * `surface-2` track, thumb visible while dragging (preview) with commit on
  * release (web scrubs with preview + commit).
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun SeekBar(
     positionMs: Long,

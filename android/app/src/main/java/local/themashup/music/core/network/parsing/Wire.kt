@@ -192,7 +192,7 @@ object PipedParsing {
                 mimeType = a.mimeType,
                 quality = a.quality,
                 bitrateBps = a.bitrate,
-                sizeValue = a.contentLength.decimalText(),
+                contentLength = a.contentLength.decimalText(),
             )
         }
         val video = resp.videoStreams.mapNotNull { v ->

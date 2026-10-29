@@ -23,7 +23,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.MusicNote
-import androidx.compose.material.icons.outlined.Quote
+import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -52,6 +52,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import local.themashup.music.core.data.LibraryRepository
 import local.themashup.music.core.domain.HybridRow
@@ -74,7 +75,10 @@ import kotlin.math.roundToInt
  * so pasting a half-remembered lyric line switches the results to lyric hits
  * automatically. Filter chips: Everything / Songs / Lyrics / Artists.
  */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+)
 @Composable
 fun SearchScreen(
     query: String,
@@ -501,7 +505,7 @@ private fun LyricRowCard(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            Icons.Outlined.Quote,
+            Icons.Outlined.FormatQuote,
             contentDescription = null,
             tint = tokens.accent,
             modifier = Modifier.size(18.dp),

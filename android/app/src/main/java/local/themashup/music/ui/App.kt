@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,7 +70,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import local.themashup.music.core.data.AppContainer
-import local.themashup.music.core.domain.PlayStatus
+import local.themashup.music.core.player.PlayStatus
 import local.themashup.music.core.domain.Track
 import local.themashup.music.core.download.FfmpegState
 import local.themashup.music.core.player.PlayerSnapshot
@@ -339,8 +340,9 @@ private fun MashupShell(container: AppContainer) {
             }
             // Mounted always so the exit animation plays when the error clears.
             run {
-                val enterFromPx = 18.dp.roundToPx()
-                val exitToPx = 14.dp.roundToPx()
+                val density = LocalDensity.current
+                val enterFromPx = with(density) { 18.dp.roundToPx() }
+                val exitToPx = with(density) { 14.dp.roundToPx() }
                 AnimatedVisibility(
                     visible = playerError != null && toastDismissed != playerError,
                     enter = slideInVertically(tween(280)) { -enterFromPx } +

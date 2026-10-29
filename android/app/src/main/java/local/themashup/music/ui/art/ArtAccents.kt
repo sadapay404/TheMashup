@@ -47,7 +47,10 @@ fun rememberArtAccents(url: String?, seed: String): ArtAccents {
                 val fb2 = fallback.second.toArgb()
                 // Web: hue buckets ranked by population, gray/black/white skipped.
                 val ranked = palette.swatches
-                    .filter { s -> s.population > 0 && webPass(s.red, s.green, s.blue) }
+                    .filter { s ->
+                        s.population > 0 &&
+                            webPass((s.rgb shr 16) and 0xFF, (s.rgb shr 8) and 0xFF, s.rgb and 0xFF)
+                    }
                     .sortedByDescending { it.population }
                 val c1 = ranked.getOrNull(0)?.rgb ?: fb1
                 val c2 = ranked.getOrNull(1)?.rgb ?: fb2

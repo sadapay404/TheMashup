@@ -44,7 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberLauncherForActivityResult
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -125,7 +125,7 @@ fun ExpandedPlayer(
 
     val current = state.current
     val artworkUrl = current?.artworkBest ?: current?.artwork
-    val playing = state.status == local.themashup.music.core.domain.PlayStatus.PLAYING
+    val playing = state.status == local.themashup.music.core.player.PlayStatus.PLAYING
     val failoverUsed = (state.failover?.activeIndex ?: 0) + (state.failover?.refreshesUsed ?: 0)
     val contextLabel = when (state.contextLabel) {
         "radio" -> "ENDLESS RADIO"

@@ -61,7 +61,7 @@ class PlaybackEngine(
         startVisualizerPoller(p)
     }
 
-    fun detachPlayer(p: ExoPlayer) {
+    fun detachPlayer(p: Player) {
         p.removeListener(playerListener)
         if (player === p) {
             player = null
@@ -122,19 +122,19 @@ class PlaybackEngine(
     }
 
     fun seekTo(positionMs: Long) = dispatch { sm.seek(it, positionMs) }
-    fun setRepeat(mode: RepeatMode) = dispatch { sm.setRepeat(it, mode) }
-    fun cycleRepeat() = dispatch { sm.cycleRepeat(it) }
-    fun setShuffle(on: Boolean) = dispatch { sm.setShuffle(it, on) }
-    fun toggleShuffle() = dispatch { sm.setShuffle(it, !it.shuffle) }
+    fun setRepeat(mode: RepeatMode) = dispatchSimple { sm.setRepeat(it, mode) }
+    fun cycleRepeat() = dispatchSimple { sm.cycleRepeat(it) }
+    fun setShuffle(on: Boolean) = dispatchSimple { sm.setShuffle(it, on) }
+    fun toggleShuffle() = dispatchSimple { sm.setShuffle(it, !it.shuffle) }
 
     fun addNext(track: local.themashup.music.core.domain.Track) =
-        dispatch { sm.enqueue(it, track, local.themashup.music.core.domain.InsertMode.NEXT) }
+        dispatchSimple { sm.enqueue(it, track, local.themashup.music.core.domain.InsertMode.NEXT) }
 
     fun addToEnd(track: local.themashup.music.core.domain.Track) =
-        dispatch { sm.enqueue(it, track, local.themashup.music.core.domain.InsertMode.END) }
+        dispatchSimple { sm.enqueue(it, track, local.themashup.music.core.domain.InsertMode.END) }
 
     fun removeFromQueue(index: Int) = dispatch { sm.remove(it, index) }
-    fun moveInQueue(from: Int, to: Int) = dispatch { sm.move(it, from, to) }
+    fun moveInQueue(from: Int, to: Int) = dispatchSimple { sm.move(it, from, to) }
     fun clearQueue() = dispatch(sm::clear)
 
     /** Tests/preview: deterministic shuffle sequence. */
@@ -143,6 +143,10 @@ class PlaybackEngine(
     }
 
     /* ── transition executor ─────────────────────────────────────────────── */
+
+    /** Machine methods without effects return a bare snapshot — pair them with null. */
+    private fun dispatchSimple(fn: (PlayerSnapshot) -> PlayerSnapshot) =
+        dispatch { fn(it) to null }
 
     private fun dispatch(fn: (PlayerSnapshot) -> Pair<PlayerSnapshot, PlayerEffect?>) {
         scope.launch {
@@ -291,7 +295,7 @@ class PlaybackEngine(
                     _state.update {
                         sm.onPosition(
                             it,
-                            positionMs = p.position.coerceAtLeast(0),
+                            positionMs = p.currentPosition.coerceAtLeast(0L),
                             durationMs = if (p.duration > 0) p.duration else 0,
                         )
                     }

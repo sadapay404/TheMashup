@@ -37,7 +37,7 @@ class AppContainer(private val context: Context) {
 
     /** N4 player: pure state machine + ExoPlayer shell (service attaches player). */
     val player: local.themashup.music.core.player.PlaybackEngine by lazy {
-        local.themashup.music.core.player.PlaybackEngine(context) { extraction }
+        local.themashup.music.core.player.PlaybackEngine(context, extraction = { extraction })
     }
 
     /** N7 first-run ffmpeg fetch (slim APK → pinned GitHub asset, cached). */

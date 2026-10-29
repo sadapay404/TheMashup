@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ListAdd
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.Icon
@@ -103,7 +103,7 @@ fun TrackCard(
                     Icon(Icons.Filled.Radio, contentDescription = null, tint = Color.White)
                 }
                 OverlayAction(onClick = onQueue, contentDescription = "Add to queue") {
-                    Icon(Icons.Filled.ListAdd, contentDescription = null, tint = Color.White)
+                    Icon(Icons.Filled.PlaylistAdd, contentDescription = null, tint = Color.White)
                 }
                 Box(
                     modifier = Modifier

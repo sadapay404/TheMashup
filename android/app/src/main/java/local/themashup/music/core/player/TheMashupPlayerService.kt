@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionResult
 import local.themashup.music.TheMashupApp
 
 /**
@@ -81,21 +82,21 @@ private class SessionCallback(
             Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
             -> {
                 engine.nextTrack()
-                return MediaSession.RESULT_ERROR_NOT_SUPPORTED
+                return SessionResult.RESULT_ERROR_NOT_SUPPORTED
             }
             Player.COMMAND_SEEK_TO_PREVIOUS,
             Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
             -> {
                 engine.prevTrack()
-                return MediaSession.RESULT_ERROR_NOT_SUPPORTED
+                return SessionResult.RESULT_ERROR_NOT_SUPPORTED
             }
             Player.COMMAND_SET_REPEAT_MODE -> {
                 engine.cycleRepeat()
-                return MediaSession.RESULT_ERROR_NOT_SUPPORTED
+                return SessionResult.RESULT_ERROR_NOT_SUPPORTED
             }
-            Player.COMMAND_SET_SHUFFLE_MODE_ENABLED -> {
+            Player.COMMAND_SET_SHUFFLE_MODE -> {
                 engine.toggleShuffle()
-                return MediaSession.RESULT_ERROR_NOT_SUPPORTED
+                return SessionResult.RESULT_ERROR_NOT_SUPPORTED
             }
         }
         return super.onPlayerCommandRequest(session, controller, playerCommand)

@@ -26,7 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import local.themashup.music.core.domain.PlayStatus
+import local.themashup.music.core.player.PlayStatus
 import local.themashup.music.core.domain.RepeatMode
 import local.themashup.music.core.player.PlayerSnapshot
 import local.themashup.music.ui.theme.LocalMashupTokens

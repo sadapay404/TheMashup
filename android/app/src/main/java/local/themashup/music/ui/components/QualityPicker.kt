@@ -46,7 +46,7 @@ import local.themashup.music.core.domain.formatDuration
 import local.themashup.music.core.download.logic.availableVideoHeights
 import local.themashup.music.core.download.logic.heightTarget
 import local.themashup.music.core.network.ExtractionService
-import local.themashup.music.core.network.logic.StreamCandidate
+import local.themashup.music.core.domain.StreamCandidate
 import local.themashup.music.ui.theme.LocalMashupTokens
 
 private data class Chip(

@@ -31,7 +31,7 @@ class NewPipeSource(
     override fun search(query: String, limit: Int): List<Track> {
         val extractor = ServiceList.YouTube.getSearchExtractor(query)
         extractor.fetchPage()
-        val items = extractor.initialPage?.itemsList ?: emptyList()
+        val items = extractor.initialPage?.items ?: emptyList()
         return items.mapNotNull { infoItemToTrack(it, category = "song") }.take(limit)
     }
 

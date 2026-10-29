@@ -28,7 +28,7 @@ data class MashupTokens(
 )
 
 private fun hex(value: Long): Color = Color(value.toInt())
-private fun alpha(color: Long, alpha: Int): Color = Color(((alpha shl 24) or (color and 0xFFFFFF)).toInt())
+private fun alpha(color: Long, alpha: Int): Color = Color(((alpha.toLong() shl 24) or (color and 0xFFFFFF)).toInt())
 
 private data class WebTheme(
     val bg: Long,

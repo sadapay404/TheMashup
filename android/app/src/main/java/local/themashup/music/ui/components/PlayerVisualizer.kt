@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withFrameNanos
+import androidx.compose.runtime.withFrameNanos
 import local.themashup.music.ui.logic.VisualizerBars
 import local.themashup.music.ui.theme.LocalArtAccents
 
@@ -33,7 +33,8 @@ fun PlayerVisualizer(
 ) {
     if (!enabled) return
     val accents = LocalArtAccents.current
-    val reduceMotion = remember { animationsReduced(LocalContext.current) }
+    val context = LocalContext.current // hoisted: CompositionLocal reads need @Composable scope
+    val reduceMotion = remember(context) { animationsReduced(context) }
     val frame = remember { mutableStateOf<Pair<ByteArray?, Float>?>(null) }
 
     // Single rAF-equivalent loop: sample FFT + advance the idle phase on

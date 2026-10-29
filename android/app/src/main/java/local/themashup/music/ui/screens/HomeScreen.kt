@@ -141,7 +141,7 @@ fun HomeScreen(
                     kindPill = shelf.kind.replace('_', ' '),
                     tracks = shelf.tracks,
                     currentTrackId = playerState.current?.id,
-                    isPlaying = playerState.status == local.themashup.music.core.domain.PlayStatus.PLAYING,
+                    isPlaying = playerState.status == local.themashup.music.core.player.PlayStatus.PLAYING,
                     modifier = Modifier.padding(top = if (i == 0 && charts.isEmpty() && error == null) 20.dp else 26.dp),
                     onCardPlay = { track, queue ->
                         val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)

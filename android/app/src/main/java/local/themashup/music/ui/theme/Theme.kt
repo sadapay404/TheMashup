@@ -54,5 +54,5 @@ fun WithArtAccents(accents: ArtAccents, content: @Composable () -> Unit) =
     CompositionLocalProvider(LocalArtAccents provides accents, content = content)
 
 @Suppress("unused")
-private val darkModeHint: Boolean
-    get() = isSystemInDarkTheme()
+@Composable
+private fun darkModeHint(): Boolean = isSystemInDarkTheme()
