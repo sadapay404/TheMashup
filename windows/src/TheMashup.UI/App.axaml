@@ -1,0 +1,107 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TheMashup.UI.App" RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <SolidColorBrush x:Key="AppBackground">#0A0A0F</SolidColorBrush>
+    <SolidColorBrush x:Key="SidebarBackground">#101018</SolidColorBrush>
+    <SolidColorBrush x:Key="Surface">#15151F</SolidColorBrush>
+    <SolidColorBrush x:Key="RaisedSurface">#1D1D2A</SolidColorBrush>
+    <SolidColorBrush x:Key="PrimaryText">#F4F4F8</SolidColorBrush>
+    <SolidColorBrush x:Key="MutedText">#A3A3B5</SolidColorBrush>
+    <SolidColorBrush x:Key="SubtleText">#88889E</SolidColorBrush>
+    <SolidColorBrush x:Key="Accent">#9B80FF</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentSecondary">#4DD0FF</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentText">#0B0B12</SolidColorBrush>
+    <SolidColorBrush x:Key="Outline">#2C2C3B</SolidColorBrush>
+    <SolidColorBrush x:Key="HeroStart">#282442</SolidColorBrush>
+    <SolidColorBrush x:Key="HeroEnd">#171724</SolidColorBrush>
+    <StreamGeometry x:Key="HomeIcon">M 3,10.5 L 12,3 L 21,10.5 M 5.5,9.5 L 5.5,20 L 18.5,20 L 18.5,9.5 M 9.5,20 L 9.5,14 L 14.5,14 L 14.5,20</StreamGeometry>
+    <StreamGeometry x:Key="SearchIcon">M 20,20 L 16.2,16.2 M 18,10.5 A 7.5,7.5 0 1 1 3,10.5 A 7.5,7.5 0 1 1 18,10.5</StreamGeometry>
+    <StreamGeometry x:Key="LibraryIcon">M 4,4 L 4,20 M 9,4 L 9,20 M 13,5 L 18,3 L 22,18 L 17,20 Z</StreamGeometry>
+    <StreamGeometry x:Key="DownloadIcon">M 12,3 L 12,15 M 7.5,11 L 12,15.5 L 16.5,11 M 4,18 L 4,20 L 20,20 L 20,18</StreamGeometry>
+    <StreamGeometry x:Key="SettingsIcon">M 12,3 L 12,6 M 12,18 L 12,21 M 3,12 L 6,12 M 18,12 L 21,12 M 5.6,5.6 L 7.7,7.7 M 16.3,16.3 L 18.4,18.4 M 18.4,5.6 L 16.3,7.7 M 7.7,16.3 L 5.6,18.4 M 16,12 A 4,4 0 1 1 8,12 A 4,4 0 1 1 16,12</StreamGeometry>
+    <StreamGeometry x:Key="QueueIcon">M 3,6 L 17,6 M 3,11 L 17,11 M 3,16 L 12,16 M 17,15 L 21,18 L 17,21 Z</StreamGeometry>
+    <StreamGeometry x:Key="SparkIcon">M 12,2 L 14.3,9.7 L 22,12 L 14.3,14.3 L 12,22 L 9.7,14.3 L 2,12 L 9.7,9.7 Z</StreamGeometry>
+    <StreamGeometry x:Key="MusicIcon">M 9,17 L 9,5 L 18,3 L 18,15 M 9,17 A 3,2 0 1 1 3,17 A 3,2 0 1 1 9,17 M 18,15 A 3,2 0 1 1 12,15 A 3,2 0 1 1 18,15</StreamGeometry>
+    <StreamGeometry x:Key="ArrowIcon">M 4,12 L 20,12 M 14,6 L 20,12 L 14,18</StreamGeometry>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource PrimaryText}" />
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{DynamicResource MutedText}" />
+    </Style>
+    <Style Selector="TextBlock.subtle">
+      <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
+    </Style>
+    <Style Selector="TextBlock.eyebrow">
+      <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.nav">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedText}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,10" />
+      <Setter Property="MinHeight" Value="43" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedSurface}" />
+    </Style>
+    <Style Selector="Button.nav.active">
+      <Setter Property="Foreground" Value="{DynamicResource PrimaryText}" />
+      <Setter Property="Background" Value="{DynamicResource RaisedSurface}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.nav.active /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedSurface}" />
+    </Style>
+    <Style Selector="Button.action">
+      <Setter Property="Background" Value="{DynamicResource Accent}" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="16,11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="Button.action:pointerover /template/ ContentPresenter">
+      <Setter Property="Opacity" Value="0.88" />
+    </Style>
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="{DynamicResource RaisedSurface}" />
+      <Setter Property="Foreground" Value="{DynamicResource PrimaryText}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Outline}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="14,10" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="Button.theme-card">
+      <Setter Property="Background" Value="{DynamicResource Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Outline}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="12" />
+      <Setter Property="Margin" Value="0,0,12,12" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.theme-card.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Padding" Value="11" />
+    </Style>
+    <Style Selector="Button.theme-card.selected /template/ ContentPresenter">
+      <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+  </Application.Styles>
+</Application>

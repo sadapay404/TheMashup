@@ -1,0 +1,8 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:TheMashup.UI.Views"
+        x:Class="TheMashup.UI.Views.MainWindow"
+        Title="TheMashup" Width="1440" Height="900" MinWidth="640" MinHeight="540"
+        Background="{DynamicResource AppBackground}">
+  <views:MainView />
+</Window>

@@ -1,0 +1,357 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TheMashup.UI.Views.MainView"
+             Background="{DynamicResource AppBackground}">
+  <Grid RowDefinitions="*,84">
+    <Grid Grid.Row="0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="{Binding SidebarWidth}" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+
+      <!-- Left navigation: it contracts on smaller windows. -->
+      <Border Grid.Column="0" Background="{DynamicResource SidebarBackground}"
+              BorderBrush="{DynamicResource Outline}" BorderThickness="0,0,1,0">
+        <Grid RowDefinitions="84,*,Auto">
+          <Grid Grid.Row="0" Margin="18,0" ColumnDefinitions="40,*" ColumnSpacing="11">
+            <Border Width="38" Height="38" CornerRadius="12" Background="{DynamicResource Accent}"
+                    VerticalAlignment="Center">
+              <TextBlock Text="m." Foreground="{DynamicResource AccentText}" FontSize="22" FontWeight="Bold"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-3,1,0" />
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" IsVisible="{Binding ShowNavLabels}">
+              <TextBlock Text="TheMashup" FontWeight="Bold" FontSize="15" />
+              <TextBlock Text="YOUR MUSIC SPACE" Classes="subtle" FontWeight="SemiBold" FontSize="9" />
+            </StackPanel>
+          </Grid>
+          <StackPanel Grid.Row="1" Margin="12,13,12,0" Spacing="4">
+            <TextBlock Text="EXPLORE" Classes="eyebrow" Margin="12,0,0,8" IsVisible="{Binding ShowNavLabels}" />
+            <Button Classes="nav" Classes.active="{Binding IsHome}" Command="{Binding NavigateCommand}"
+                    CommandParameter="home" AutomationProperties.Name="Home" ToolTip.Tip="Home">
+              <StackPanel Orientation="Horizontal" Spacing="13">
+                <Viewbox Width="19" Height="19"><Path Data="{StaticResource HomeIcon}" Stroke="{DynamicResource MutedText}" StrokeThickness="1.8" /></Viewbox>
+                <TextBlock Text="Home" IsVisible="{Binding ShowNavLabels}" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+            <Button Classes="nav" Classes.active="{Binding IsSearch}" Command="{Binding NavigateCommand}"
+                    CommandParameter="search" AutomationProperties.Name="Search" ToolTip.Tip="Search">
+              <StackPanel Orientation="Horizontal" Spacing="13">
+                <Viewbox Width="19" Height="19"><Path Data="{StaticResource SearchIcon}" Stroke="{DynamicResource MutedText}" StrokeThickness="1.8" /></Viewbox>
+                <TextBlock Text="Search" IsVisible="{Binding ShowNavLabels}" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+            <TextBlock Text="YOUR MUSIC" Classes="eyebrow" Margin="12,25,0,8" IsVisible="{Binding ShowNavLabels}" />
+            <Button Classes="nav" Classes.active="{Binding IsLibrary}" Command="{Binding NavigateCommand}"
+                    CommandParameter="library" AutomationProperties.Name="Your library" ToolTip.Tip="Your library">
+              <StackPanel Orientation="Horizontal" Spacing="13">
+                <Viewbox Width="19" Height="19"><Path Data="{StaticResource LibraryIcon}" Stroke="{DynamicResource MutedText}" StrokeThickness="1.8" /></Viewbox>
+                <TextBlock Text="Your library" IsVisible="{Binding ShowNavLabels}" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+            <Button Classes="nav" Classes.active="{Binding IsDownloads}" Command="{Binding NavigateCommand}"
+                    CommandParameter="downloads" AutomationProperties.Name="Downloads" ToolTip.Tip="Downloads">
+              <StackPanel Orientation="Horizontal" Spacing="13">
+                <Viewbox Width="19" Height="19"><Path Data="{StaticResource DownloadIcon}" Stroke="{DynamicResource MutedText}" StrokeThickness="1.8" /></Viewbox>
+                <TextBlock Text="Downloads" IsVisible="{Binding ShowNavLabels}" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+          <StackPanel Grid.Row="2" Margin="12,0,12,18" Spacing="8">
+            <Button Classes="nav" Classes.active="{Binding IsSettings}" Command="{Binding NavigateCommand}"
+                    CommandParameter="settings" AutomationProperties.Name="Appearance" ToolTip.Tip="Appearance">
+              <StackPanel Orientation="Horizontal" Spacing="13">
+                <Viewbox Width="19" Height="19"><Path Data="{StaticResource SettingsIcon}" Stroke="{DynamicResource MutedText}" StrokeThickness="1.8" /></Viewbox>
+                <TextBlock Text="Appearance" IsVisible="{Binding ShowNavLabels}" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+                    BorderThickness="1" CornerRadius="10" Padding="11" IsVisible="{Binding ShowNavLabels}">
+              <StackPanel Spacing="3">
+                <TextBlock Text="WINDOWS PREVIEW" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource Accent}" />
+                <TextBlock Text="Phase 01 · Foundation" Classes="muted" FontSize="11" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <!-- Shared primary content area. -->
+      <Grid Grid.Column="1" RowDefinitions="70,*" Background="{DynamicResource AppBackground}">
+        <Border Grid.Row="0" BorderBrush="{DynamicResource Outline}" BorderThickness="0,0,0,1">
+          <Grid ColumnDefinitions="*,Auto" Margin="30,0">
+            <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+              <TextBlock Text="YOUR SPACE" Classes="eyebrow" VerticalAlignment="Center" />
+              <TextBlock Text="/" Classes="subtle" FontSize="12" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding PageTitle}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}" BorderThickness="1"
+                      CornerRadius="15" Padding="10,5">
+                <TextBlock Text="PREVIEW  ·  01" Classes="muted" FontSize="10" FontWeight="SemiBold" />
+              </Border>
+              <Border Width="32" Height="32" CornerRadius="16" Background="{DynamicResource RaisedSurface}">
+                <TextBlock Text="M" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Accent}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <Grid Margin="30,24,30,34">
+            <!-- Home: real empty states, not mock songs or recommendations. -->
+            <StackPanel IsVisible="{Binding IsHome}" Spacing="22" MaxWidth="1050" HorizontalAlignment="Stretch">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="MADE FOR YOUR MOMENTS" Foreground="{DynamicResource Accent}" FontSize="10" FontWeight="Bold" />
+                  <TextBlock Text="Good to see you." FontSize="29" FontWeight="Bold" />
+                  <TextBlock Text="A little more space for the music you love." Classes="muted" FontSize="13" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" IsVisible="{Binding ShowNavLabels}">
+                  <TextBlock Text="YOUR SPACE" Classes="eyebrow" HorizontalAlignment="Right" />
+                  <TextBlock Text="Made yours, over time." Classes="subtle" FontSize="11" />
+                </StackPanel>
+              </Grid>
+
+              <Border Height="244" CornerRadius="18" Background="{DynamicResource HeroStart}" ClipToBounds="True">
+                <Grid>
+                  <Ellipse Width="278" Height="278" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,52,0"
+                           Fill="{DynamicResource HeroEnd}" Opacity="0.72" />
+                  <Ellipse Width="214" Height="214" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,84,0"
+                           Stroke="{DynamicResource Accent}" StrokeThickness="1" Opacity="0.28" />
+                  <Ellipse Width="173" Height="173" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,104,0"
+                           Stroke="{DynamicResource Accent}" StrokeThickness="1" Opacity="0.20" />
+                  <Ellipse Width="96" Height="96" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,143,0"
+                           Fill="{DynamicResource Accent}" Opacity="0.22" />
+                  <Ellipse Width="11" Height="11" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,185,0"
+                           Fill="{DynamicResource Accent}" Opacity="0.7" />
+                  <StackPanel Margin="30,25" Spacing="9" HorizontalAlignment="Left" VerticalAlignment="Center" MaxWidth="405">
+                    <TextBlock Text="A FRESH START" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource Accent}" />
+                    <TextBlock Text="Make it your own." FontSize="26" FontWeight="Bold" />
+                    <TextBlock Text="A calmer place for your songs, playlists, and everything you’ll discover next."
+                               Classes="muted" TextWrapping="Wrap" FontSize="13" MaxWidth="330" HorizontalAlignment="Left" />
+                    <Button Classes="action" Content="Explore appearance  →" Margin="0,8,0,0"
+                            Command="{Binding NavigateCommand}" CommandParameter="settings"
+                            HorizontalAlignment="Left" AutomationProperties.Name="Explore appearance" />
+                  </StackPanel>
+                </Grid>
+              </Border>
+
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="3">
+                  <TextBlock Text="Start here" FontSize="17" FontWeight="Bold" />
+                  <TextBlock Text="The essentials, all in one place." Classes="muted" FontSize="12" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="YOUR THEME" Classes="eyebrow" VerticalAlignment="Bottom" />
+              </Grid>
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+                <Border Grid.Column="0" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+                        BorderThickness="1" CornerRadius="14" Padding="18">
+                  <StackPanel Spacing="10">
+                    <Border Width="37" Height="37" CornerRadius="10" Background="{DynamicResource RaisedSurface}" HorizontalAlignment="Left">
+                      <Viewbox Width="18" Height="18"><Path Data="{StaticResource LibraryIcon}" Stroke="{DynamicResource Accent}" StrokeThickness="1.8" /></Viewbox>
+                    </Border>
+                    <TextBlock Text="Your library" FontSize="14" FontWeight="Bold" />
+                    <TextBlock Text="A home for your likes and playlists." Classes="muted" FontSize="12" TextWrapping="Wrap" />
+                    <Button Classes="secondary" Content="Open library  →" Command="{Binding NavigateCommand}" CommandParameter="library"
+                            HorizontalAlignment="Left" AutomationProperties.Name="Open library" />
+                  </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+                        BorderThickness="1" CornerRadius="14" Padding="18">
+                  <StackPanel Spacing="10">
+                    <Border Width="37" Height="37" CornerRadius="10" Background="{DynamicResource RaisedSurface}" HorizontalAlignment="Left">
+                      <Viewbox Width="18" Height="18"><Path Data="{StaticResource SparkIcon}" Stroke="{DynamicResource Accent}" StrokeThickness="1.7" /></Viewbox>
+                    </Border>
+                    <TextBlock Text="Make it feel like you" FontSize="14" FontWeight="Bold" />
+                    <TextBlock Text="{Binding CurrentThemeName, StringFormat='Current theme: {0}'}" Classes="muted" FontSize="12" TextWrapping="Wrap" />
+                    <Button Classes="secondary" Content="Change theme  →" Command="{Binding NavigateCommand}" CommandParameter="settings"
+                            HorizontalAlignment="Left" AutomationProperties.Name="Change theme" />
+                  </StackPanel>
+                </Border>
+              </Grid>
+              <TextBlock Text="This is an early Windows preview. Search, playback, recommendations, and downloads are not connected yet."
+                         Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <!-- Honest, navigable states for the features that will be implemented later. -->
+            <StackPanel IsVisible="{Binding IsFeaturePage}" Spacing="20" MaxWidth="1050" HorizontalAlignment="Stretch">
+              <TextBlock Text="{Binding FeatureEyebrow}" Foreground="{DynamicResource Accent}" FontWeight="Bold" FontSize="10" />
+              <TextBlock Text="{Binding PageTitle}" FontWeight="Bold" FontSize="29" />
+              <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+                      BorderThickness="1" CornerRadius="18" MinHeight="300" Padding="32">
+                <StackPanel Spacing="13" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="430">
+                  <Border Width="55" Height="55" CornerRadius="17" Background="{DynamicResource RaisedSurface}" HorizontalAlignment="Left">
+                    <Viewbox Width="24" Height="24"><Path Data="{StaticResource MusicIcon}" Stroke="{DynamicResource Accent}" StrokeThickness="1.6" /></Viewbox>
+                  </Border>
+                  <TextBlock Text="{Binding FeatureTitle}" FontSize="21" FontWeight="Bold" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding FeatureDescription}" Classes="muted" FontSize="13" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding FeatureFootnote}" Foreground="{DynamicResource Accent}" FontSize="10" FontWeight="Bold" Margin="0,8,0,0" />
+                  <Button Classes="secondary" Content="Back to Home  →" Command="{Binding NavigateCommand}" CommandParameter="home"
+                          HorizontalAlignment="Left" AutomationProperties.Name="Back to Home" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- Five actual themes; selecting one changes the shared UI immediately. -->
+            <StackPanel IsVisible="{Binding IsSettings}" Spacing="20" MaxWidth="1050" HorizontalAlignment="Stretch">
+              <StackPanel Spacing="5">
+                <TextBlock Text="MAKE IT YOURS" Foreground="{DynamicResource Accent}" FontSize="10" FontWeight="Bold" />
+                <TextBlock Text="Appearance" FontSize="29" FontWeight="Bold" />
+                <TextBlock Text="Choose a look that feels like you." Classes="muted" FontSize="13" />
+              </StackPanel>
+              <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+                      BorderThickness="1" CornerRadius="16" Padding="20">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="Your theme" FontSize="16" FontWeight="Bold" />
+                  <TextBlock Text="Five moods. One place for your music." Classes="muted" FontSize="12" />
+                  <TextBlock Text="{Binding ThemeStatus}" Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+              <WrapPanel>
+                <Button Classes="theme-card" Classes.selected="{Binding IsFrosted}" Width="174" Height="156"
+                        Command="{Binding SelectThemeCommand}" CommandParameter="frosted" AutomationProperties.Name="Frosted Glass theme">
+                  <StackPanel Spacing="8">
+                    <Border Height="67" CornerRadius="8" Background="#15151F" BorderBrush="#343449" BorderThickness="1">
+                      <StackPanel Orientation="Horizontal" Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Ellipse Width="23" Height="23" Fill="#9B80FF" /><Ellipse Width="23" Height="23" Fill="#4DD0FF" /><Ellipse Width="23" Height="23" Fill="#F4F4F8" />
+                      </StackPanel>
+                    </Border>
+                    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Frosted Glass" FontSize="12" FontWeight="Bold" />
+                      <TextBlock Grid.Column="1" Text="●" Foreground="{DynamicResource Accent}" IsVisible="{Binding IsFrosted}" /></Grid>
+                    <TextBlock Text="Dark · glass" Classes="subtle" FontSize="11" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="theme-card" Classes.selected="{Binding IsPaper}" Width="174" Height="156"
+                        Command="{Binding SelectThemeCommand}" CommandParameter="paper-ink" AutomationProperties.Name="Paper and Ink theme">
+                  <StackPanel Spacing="8">
+                    <Border Height="67" CornerRadius="8" Background="#F4EFE4" BorderBrush="#D6CDBE" BorderThickness="1">
+                      <StackPanel Orientation="Horizontal" Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Ellipse Width="23" Height="23" Fill="#B3441F" /><Ellipse Width="23" Height="23" Fill="#2F5D50" /><Ellipse Width="23" Height="23" Fill="#211C14" />
+                      </StackPanel>
+                    </Border>
+                    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Paper &amp; Ink" FontSize="12" FontWeight="Bold" />
+                      <TextBlock Grid.Column="1" Text="●" Foreground="{DynamicResource Accent}" IsVisible="{Binding IsPaper}" /></Grid>
+                    <TextBlock Text="Light · typographic" Classes="subtle" FontSize="11" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="theme-card" Classes.selected="{Binding IsNeon}" Width="174" Height="156"
+                        Command="{Binding SelectThemeCommand}" CommandParameter="neon" AutomationProperties.Name="Neon Cyber theme">
+                  <StackPanel Spacing="8">
+                    <Border Height="67" CornerRadius="8" Background="#070B12" BorderBrush="#1B4742" BorderThickness="1">
+                      <StackPanel Orientation="Horizontal" Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Ellipse Width="23" Height="23" Fill="#00DDB0" /><Ellipse Width="23" Height="23" Fill="#FF3EC8" /><Ellipse Width="23" Height="23" Fill="#E8FEFF" />
+                      </StackPanel>
+                    </Border>
+                    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Neon Cyber" FontSize="12" FontWeight="Bold" />
+                      <TextBlock Grid.Column="1" Text="●" Foreground="{DynamicResource Accent}" IsVisible="{Binding IsNeon}" /></Grid>
+                    <TextBlock Text="Dark · electric" Classes="subtle" FontSize="11" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="theme-card" Classes.selected="{Binding IsAurora}" Width="174" Height="156"
+                        Command="{Binding SelectThemeCommand}" CommandParameter="aurora" AutomationProperties.Name="Aurora theme">
+                  <StackPanel Spacing="8">
+                    <Border Height="67" CornerRadius="8" Background="#101A36" BorderBrush="#2B3E68" BorderThickness="1">
+                      <StackPanel Orientation="Horizontal" Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Ellipse Width="23" Height="23" Fill="#6EE7FF" /><Ellipse Width="23" Height="23" Fill="#B490FF" /><Ellipse Width="23" Height="23" Fill="#EEF2FF" />
+                      </StackPanel>
+                    </Border>
+                    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Aurora" FontSize="12" FontWeight="Bold" />
+                      <TextBlock Grid.Column="1" Text="●" Foreground="{DynamicResource Accent}" IsVisible="{Binding IsAurora}" /></Grid>
+                    <TextBlock Text="Dark · atmospheric" Classes="subtle" FontSize="11" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="theme-card" Classes.selected="{Binding IsVinyl}" Width="174" Height="156"
+                        Command="{Binding SelectThemeCommand}" CommandParameter="vinyl" AutomationProperties.Name="Vinyl theme">
+                  <StackPanel Spacing="8">
+                    <Border Height="67" CornerRadius="8" Background="#221A14" BorderBrush="#48392C" BorderThickness="1">
+                      <StackPanel Orientation="Horizontal" Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Ellipse Width="23" Height="23" Fill="#E8A33D" /><Ellipse Width="23" Height="23" Fill="#BD5959" /><Ellipse Width="23" Height="23" Fill="#F3E9DC" />
+                      </StackPanel>
+                    </Border>
+                    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Vinyl" FontSize="12" FontWeight="Bold" />
+                      <TextBlock Grid.Column="1" Text="●" Foreground="{DynamicResource Accent}" IsVisible="{Binding IsVinyl}" /></Grid>
+                    <TextBlock Text="Warm · retro" Classes="subtle" FontSize="11" />
+                  </StackPanel>
+                </Button>
+              </WrapPanel>
+              <TextBlock Text="Windows and browser preview settings are separate. No account or sync is needed."
+                         Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+          </Grid>
+        </ScrollViewer>
+      </Grid>
+
+      <!-- Secondary rail is hidden automatically when space is limited. -->
+      <Border Grid.Column="2" IsVisible="{Binding ShowRightRail}" Width="270" Background="{DynamicResource SidebarBackground}"
+              BorderBrush="{DynamicResource Outline}" BorderThickness="1,0,0,0">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="20,25" Spacing="18">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="NOW PLAYING" Classes="eyebrow" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="· · ·" Classes="muted" FontWeight="Bold" />
+            </Grid>
+            <Border Height="204" CornerRadius="14" Background="{DynamicResource HeroStart}" ClipToBounds="True">
+              <Grid>
+                <Ellipse Width="130" Height="130" Fill="{DynamicResource HeroEnd}" />
+                <Ellipse Width="80" Height="80" Stroke="{DynamicResource Accent}" StrokeThickness="1" Opacity="0.35" />
+                <Ellipse Width="34" Height="34" Fill="{DynamicResource Accent}" Opacity="0.25" />
+                <Viewbox Width="20" Height="20"><Path Data="{StaticResource MusicIcon}" Stroke="{DynamicResource Accent}" StrokeThickness="1.7" /></Viewbox>
+              </Grid>
+            </Border>
+            <StackPanel Spacing="4">
+              <TextBlock Text="Nothing playing yet" FontWeight="Bold" FontSize="15" />
+              <TextBlock Text="Your soundtrack will appear here." Classes="muted" FontSize="12" TextWrapping="Wrap" />
+            </StackPanel>
+            <Border Height="1" Background="{DynamicResource Outline}" Margin="0,4" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="Up next" FontWeight="Bold" FontSize="14" />
+              <TextBlock Grid.Column="1" Text="EMPTY" Classes="eyebrow" />
+            </Grid>
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}" BorderThickness="1"
+                    CornerRadius="12" Padding="14">
+              <StackPanel Spacing="8">
+                <Viewbox Width="20" Height="20" HorizontalAlignment="Left"><Path Data="{StaticResource QueueIcon}" Stroke="{DynamicResource SubtleText}" StrokeThickness="1.8" /></Viewbox>
+                <TextBlock Text="Room for what’s next" FontWeight="SemiBold" FontSize="12" />
+                <TextBlock Text="Your queue will appear here once playback is ready." Classes="muted" FontSize="11" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+            <TextBlock Text="Playback is planned for phase 04." Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+
+    <!-- Disabled transport makes its current unavailability explicit. -->
+    <Border Grid.Row="1" Background="{DynamicResource SidebarBackground}" BorderBrush="{DynamicResource Outline}" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="*,Auto,*" Margin="20,0" ColumnSpacing="15">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <Border Width="46" Height="46" CornerRadius="9" Background="{DynamicResource RaisedSurface}">
+            <Viewbox Width="18" Height="18"><Path Data="{StaticResource MusicIcon}" Stroke="{DynamicResource SubtleText}" StrokeThickness="1.7" /></Viewbox>
+          </Border>
+          <StackPanel VerticalAlignment="Center" Spacing="3" IsVisible="{Binding ShowNavLabels}">
+            <TextBlock Text="Nothing playing" FontSize="12" FontWeight="SemiBold" />
+            <TextBlock Text="Your music lives here" Classes="subtle" FontSize="11" />
+          </StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center" Opacity="0.55">
+          <Button IsEnabled="False" Background="Transparent" BorderThickness="0" Padding="4" AutomationProperties.Name="Previous track (not available yet)">
+            <Path Data="M 18,4 L 18,20 M 16,12 L 6,5 L 6,19 Z" Width="18" Height="18" Stretch="Uniform" Stroke="{DynamicResource MutedText}" StrokeThickness="1.8" />
+          </Button>
+          <Button IsEnabled="False" Width="38" Height="38" CornerRadius="19" Background="{DynamicResource RaisedSurface}" BorderThickness="0" AutomationProperties.Name="Play (not available yet)">
+            <Path Data="M 7,4 L 18,12 L 7,20 Z" Width="13" Height="16" Stretch="Uniform" Fill="{DynamicResource MutedText}" />
+          </Button>
+          <Button IsEnabled="False" Background="Transparent" BorderThickness="0" Padding="4" AutomationProperties.Name="Next track (not available yet)">
+            <Path Data="M 6,4 L 6,20 M 8,12 L 18,5 L 18,19 Z" Width="18" Height="18" Stretch="Uniform" Stroke="{DynamicResource MutedText}" StrokeThickness="1.8" />
+          </Button>
+        </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" HorizontalAlignment="Right" IsVisible="{Binding ShowNavLabels}">
+          <TextBlock Text="0:00" Classes="subtle" FontSize="11" VerticalAlignment="Center" />
+          <Border Width="80" Height="3" CornerRadius="2" Background="{DynamicResource Outline}" />
+          <TextBlock Text="--:--" Classes="subtle" FontSize="11" VerticalAlignment="Center" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>
