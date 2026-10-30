@@ -14,6 +14,7 @@ internal static partial class Program
     private static Task Main(string[] args)
     {
         App.ThemeStore = new BrowserThemeStore();
+        App.LibraryStore = new BrowserLibraryStore();
         return AppBuilder.Configure<App>()
             .WithInterFont()
             .StartBrowserAppAsync("out", new BrowserPlatformOptions
@@ -33,4 +34,29 @@ internal sealed partial class BrowserThemeStore : IThemeStore
 
     public string? Read() => ReadTheme();
     public bool TryWrite(string themeId) => WriteTheme(themeId);
+}
+
+internal sealed partial class BrowserLibraryStore : ILibraryStore
+{
+    [JSImport("globalThis.themashupPreferences.readLibrary")]
+    private static partial string? ReadLibrary();
+
+    [JSImport("globalThis.themashupPreferences.writeLibrary")]
+    private static partial bool WriteLibrary(string content);
+
+    public LibraryReadResult Read()
+    {
+        try
+        {
+            var value = ReadLibrary();
+            return value is null ? new(false, null) : new(true, value.Length == 0 ? null : value[1..]);
+        }
+        catch { return new(false, null); }
+    }
+
+    public bool TryWrite(string content)
+    {
+        try { return WriteLibrary(content); }
+        catch { return false; }
+    }
 }

@@ -11,6 +11,7 @@ internal static class Program
     {
         var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         App.ThemeStore = new FileThemeStore(Path.Combine(root, "TheMashup", "appearance.txt"));
+        App.LibraryStore = new FileLibraryStore(Path.Combine(root, "TheMashup", "library.json"));
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 

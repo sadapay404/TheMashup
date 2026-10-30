@@ -51,7 +51,7 @@ try {
 
 
 
-  await clickButton('Appearance', 60, 715);
+  await clickButton('Appearance', 60, 860);
   await page.waitForTimeout(500);
   await clickButton('Paper and Ink theme', 525, 360);
   await page.waitForFunction(() => localStorage.getItem('themashup.windows.theme') === 'paper-ink', null, { timeout: 10000 });
@@ -63,7 +63,7 @@ try {
   const themeCases = [
     { name: 'Neon Cyber theme', id: 'neon', x: 713, y: 360, rgb: [4, 6, 11] },
     { name: 'Aurora theme', id: 'aurora', x: 899, y: 360, rgb: [10, 16, 34] },
-    { name: 'Vinyl theme', id: 'vinyl', x: 340, y: 540, rgb: [22, 17, 13] },
+    { name: 'Vinyl theme', id: 'vinyl', x: 1083, y: 360, rgb: [22, 17, 13] },
     { name: 'Frosted Glass theme', id: 'frosted', x: 340, y: 360, rgb: [10, 10, 15] },
     { name: 'Paper and Ink theme', id: 'paper-ink', x: 525, y: 360, rgb: [244, 239, 228] },
   ];
@@ -83,6 +83,30 @@ try {
   const restored = await page.screenshot({ type: 'png' });
   assert.ok(brightness(restored, 250, 80) > 160, 'The chosen theme should be restored after reload');
 
+  // Exercise the real library UI, including persistence through a page reload.
+  await clickButton('Your library', 60, 288);
+  await page.waitForTimeout(500);
+  const nameInput = page.getByRole('textbox', { name: 'New playlist name', exact: true });
+  if (await nameInput.count() && await nameInput.first().isVisible()) {
+    await nameInput.first().fill('Focus time');
+  } else {
+    await page.mouse.click(450, 258);
+    await page.keyboard.type('Focus time');
+  }
+  await clickButton('Create playlist', 1290, 258);
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('themashup.windows.library');
+    return raw && JSON.parse(raw).playlists.some(item => item.name === 'Focus time');
+  }, null, { timeout: 10000 });
+  await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/library.png' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('#out canvas').first().waitFor({ state: 'visible', timeout: 120000 });
+  await page.waitForTimeout(2500);
+  await clickButton('Your library', 60, 288);
+  await page.waitForTimeout(500);
+  const restoredLibrary = await page.evaluate(() => JSON.parse(localStorage.getItem('themashup.windows.library')));
+  assert.equal(restoredLibrary.playlists[0].name, 'Focus time', 'Playlist should survive browser reload');
+
   await page.setViewportSize({ width: 760, height: 600 });
   await page.waitForTimeout(800);
   const canvas = await page.locator('#out canvas').first().boundingBox();
@@ -90,8 +114,8 @@ try {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/compact.png' });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join(' | ')}`);
   if (expectedRendererFallbacks.length) console.log(`Software renderer fallback used (${expectedRendererFallbacks.length} WebGL attempts unavailable).`);
-  console.log('PASS: Avalonia browser starts; all five themes render; selection survives reload; viewport resizes.');
-  console.log('::notice title=Windows browser checks::All five themes, browser reload persistence and viewport resize passed.');
+  console.log('PASS: Avalonia browser starts; five themes and playlist creation persist; viewport resizes.');
+  console.log('::notice title=Windows browser checks::All five themes, playlist creation and reload persistence, and viewport resize passed.');
 } catch (error) {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');

@@ -1,10 +1,12 @@
 # TheMashup for Windows — separate rebuild
 
-**Status: phase W1 implementation.** The new shell uses Avalonia with a shared
-Windows/browser interface, targets 64-bit Windows 10 and 11 on Intel-compatible
-x64 processors, and keeps each device's library local. No Windows executable,
-installer, Android build or APK is produced by this phase. Search, playback,
-recommendations, library contents and downloads are not connected yet.
+**Status: phase W2.** The shell uses Avalonia with a shared Windows/browser
+interface, targets 64-bit Windows 10 and 11 on Intel-compatible x64 processors,
+and keeps each device's library local. Playlist creation, renaming and deletion
+are connected to local storage. The versioned data model also supports likes,
+history and the explicit manual queue, ready for later catalog/playback wiring.
+Search, playback, recommendations and downloads are not connected yet. No Windows
+executable, installer, Android build or APK is produced in this phase.
 
 The new Windows app will be developed under this top-level `windows/` directory,
 separately from `android/`, the legacy `desktop/` wrapper, and the existing
@@ -13,9 +15,10 @@ staged with Windows-only changes, or compiled during this Windows work.
 
 ## Phase plan
 
-Each implementation phase ends with a consistent phase report, exact commands
-for its **actual** Google Cloud Shell preview, results/limitations, and a stop
-for explicit permission before starting the next phase. Browser previews can
+Each implementation phase ends with a consistent phase report, results and
+limitations, and a stop for explicit permission before starting the next phase.
+The user requested postponing the next preview until it has useful music
+features; provide the actual Cloud Shell commands when they request that preview. Browser previews can
 exercise cross-platform UI and network behavior; they cannot establish that
 Windows-only APIs, media keys, system notifications, installation or desktop
 performance work. Those require a Windows machine or Windows CI and must be
@@ -24,7 +27,7 @@ reported separately.
 | Phase | Scope | Preview/gate |
 |---|---|---|
 | W1 | Project foundation, separate app shell, responsive desktop layout, navigation, accessible controls, initial theme/persistence support, browser preview infrastructure. | Run the real phase-1 UI through Cloud Shell port 8080; distinguish unfinished features from working ones. |
-| W2 | Local data and core: persistent settings, five themes, likes, playlists, history, queue model, data migrations and tests. | Preview persistence and library interactions; run model/data tests. |
+| W2 | Local data and core: persistent settings, five themes, likes, playlists, history, queue model, data migrations and tests. | Playlist creation, rename and confirmed deletion work locally; test persisted models and UI. The user deferred preview until later. |
 | W3 | Search, catalog and lyrics: YouTube-first extraction, Piped/Invidious fallbacks, lyric matching, suggestions, independent loading/error states. | Preview real integration where network access permits; identify any fixture mode explicitly. |
 | W4 | Playback engine: audio/video, failover, seek, shuffle/repeat, end-of-track behavior, explicit manual queue semantics, desktop transport integration. | Preview supported playback; Windows media controls/tray need Windows validation. |
 | W5 | One-time account connection and native Home recommendations, with Google/YouTube developer credentials not required. No separate YouTube Music listening section. | Preview supported Home flows; account authentication and security require appropriate environment/device validation. |
@@ -55,6 +58,23 @@ with a fake or stub and claim parity.
 | Background play, queue, media keys, system controls and tray | Validate Windows-specific behavior on Windows, not just in the browser. |
 | Separate local libraries | No automatic cross-device sync; consider optional import/export only if requested. |
 | No EXE yet | Do not package/build an EXE or installer until explicitly authorized. |
+
+## W2 storage and feature boundaries
+
+Windows keeps themes and the versioned library separately in its local app-data
+folder (`TheMashup/appearance.txt` and `TheMashup/library.json`). The browser
+uses its own origin-scoped local storage; it is not synced to Windows or Android
+and may disappear if browser data is cleared or a preview origin changes.
+Unknown/newer or corrupt library files are left untouched and editing is disabled
+rather than silently overwriting them. Save failures are reported in the UI.
+Playlist deletion asks for confirmation and does not delete liked tracks. The
+queue and likes/history models are implemented and tested, but they are not yet
+connected to any search or audio engine. No track should be presented as playing
+just because it is present in a saved queue.
+
+To reduce visual clutter the inactive player/now-playing placeholders are hidden
+until there is real playback. This is a layout simplification, not a measured
+performance claim; responsiveness and playback must be profiled on Windows later.
 
 ## Google Cloud Shell preview (W1)
 

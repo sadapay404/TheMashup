@@ -11,6 +11,18 @@ globalThis.themashupPreferences = {
     try { localStorage.setItem('themashup.windows.theme', theme); return true; }
     catch { return false; }
   },
+  // Empty string means no record; null means storage is unavailable. The prefix
+  // distinguishes an existing (even empty/corrupt) value from a missing one.
+  readLibrary() {
+    try {
+      const value = localStorage.getItem('themashup.windows.library');
+      return value === null ? '' : `1${value}`;
+    } catch { return null; }
+  },
+  writeLibrary(content) {
+    try { localStorage.setItem('themashup.windows.library', content); return true; }
+    catch { return false; }
+  },
 };
 
 try {
