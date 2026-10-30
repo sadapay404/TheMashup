@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 import { PNG } from 'pngjs';
+import jpeg from 'jpeg-js';
 import { mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
@@ -41,13 +42,23 @@ try {
   assert.ok(brightness(home, 250, 80) < 80, 'Default theme should render a dark app surface');
 
   if (process.env.PREVIEW_SNAPSHOT_BRIDGE === '1') {
-    const preview = (await page.screenshot({ type: 'jpeg', quality: 40 })).toString('base64');
-    const chunkSize = 28000;
+    // Tiny diagnostic screenshot for environments where CI artifacts cannot be downloaded.
+    const source = PNG.sync.read(home);
+    const width = Math.floor(source.width / 2);
+    const height = Math.floor(source.height / 2);
+    const data = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const from = ((y * 2) * source.width + x * 2) * 4;
+      const to = (y * width + x) * 4;
+      source.data.copy(data, to, from, from + 4);
+    }
+    const preview = jpeg.encode({ data, width, height }, 35).data.toString('base64');
+    const chunkSize = 3500;
     const chunks = Math.ceil(preview.length / chunkSize);
-    if (chunks <= 8) {
+    if (chunks <= 9) {
       for (let index = 0; index < chunks; index++)
         console.log(`::notice file=windows/tests/browser/smoke.mjs,line=1::SNAPSHOT_${index + 1}_OF_${chunks}:${preview.slice(index * chunkSize, (index + 1) * chunkSize)}`);
-    }
+    } else console.log(`Diagnostic screenshot too large for annotations (${chunks} chunks).`);
   }
 
   await clickButton('Appearance', 60, 715);
@@ -75,6 +86,8 @@ try {
 } catch (error) {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');
+  const summary = String(error?.message || error).replaceAll('%', '%25').replaceAll('\n', '%0A').slice(0, 3000);
+  console.log(`::error title=Preview smoke test::${summary}`);
   console.error('ARIA labels:', await page.locator('[aria-label]').evaluateAll(nodes => nodes.slice(0, 30).map(n => n.getAttribute('aria-label'))).catch(() => []));
   throw error;
 } finally {

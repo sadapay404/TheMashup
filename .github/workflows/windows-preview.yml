@@ -89,7 +89,7 @@ jobs:
                   lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
               except OSError:
                   continue
-              useful = [line for line in lines if re.search(r'error|failed|exception|assert|timed? out|NU[0-9]+', line, re.I) and not re.search(r'Passed!\s*-\s*Failed:\s*0', line)]
+              useful = [line for line in lines if len(line) < 4000 and not line.startswith('::notice') and re.search(r'error|failed|exception|assert|timed? out|NU[0-9]+', line, re.I) and not re.search(r'Passed!\s*-\s*Failed:\s*0|0 Error\(s\)', line)]
               if not useful:
                   continue
               text = ('\n'.join(useful[-35:]))[-18000:]
