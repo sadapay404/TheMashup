@@ -48,3 +48,6 @@ services/resolver/jobs/
 
 # kotlin toolchain (downloaded by scripts/test-kotlin-domain.sh)
 /tools/
+
+# CI-built ffmpeg bundle (workflow artifact → jniLibs)
+android/app/src/main/jniLibs/

@@ -40,11 +40,10 @@ class AppContainer(private val context: Context) {
         local.themashup.music.core.player.PlaybackEngine(context, extraction = { extraction })
     }
 
-    /** N7 first-run ffmpeg fetch (slim APK → pinned GitHub asset, cached). */
+    /** N9: ffmpeg is bundled in the APK (jniLibs → nativeLibraryDir). */
     val ffmpeg: local.themashup.music.core.download.FfmpegManager by lazy {
         local.themashup.music.core.download.FfmpegManager(
-            local.themashup.music.core.network.newNetworkClient(),
-            context.filesDir,
+            File(context.applicationInfo.nativeLibraryDir),
         )
     }
 

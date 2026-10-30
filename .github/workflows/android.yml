@@ -13,12 +13,77 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # N9 — static ffmpeg built from source (Javernaut/ffmpeg-android-maker, the
+  # method the FOSS reference players use) and bundled into the APK as
+  # jniLibs/<abi>/libffmpeg.so. Replaces the BtbN glibc tarball that could
+  # never exec on Android ("downloads but fails to bundle").
+  ffmpeg:
+    name: Static ffmpeg (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [armeabi-v7a, arm64-v8a]
+    steps:
+      - name: Checkout (workflow reference)
+        uses: actions/checkout@v4
+
+      - name: Host build tools
+        run: sudo apt-get update && sudo apt-get install -y meson nasm ninja-build pkg-config
+
+      - name: Build static ffmpeg for ${{ matrix.abi }}
+        shell: bash
+        run: |
+          set -o pipefail
+          git clone --depth 1 https://github.com/Javernaut/ffmpeg-android-maker.git "$RUNNER_TEMP/fam"
+          cd "$RUNNER_TEMP/fam"
+          # Static libav* so the executable links everything in (single-file
+          # bundle; no versioned .so names for jniLibs to package).
+          sed -i 's/--enable-shared/--disable-shared/; s/--disable-static/--enable-static/' scripts/ffmpeg/build.sh
+          export ANDROID_SDK_HOME="$ANDROID_HOME"
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          # lame + opus (encoders our 4 download commands need) + x264 (mp4 re-encode).
+          ./ffmpeg-android-maker.sh -mp3lame -opus -x264 -android=24 -abis=${{ matrix.abi }}
+
+      - name: Stage jniLibs payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="$RUNNER_TEMP/staging/${{ matrix.abi }}"
+          mkdir -p "$STAGE"
+          SRC="$RUNNER_TEMP/fam/build/ffmpeg/${{ matrix.abi }}/bin/ffmpeg"
+          test -f "$SRC"
+          cp "$SRC" "$STAGE/libffmpeg.so"
+          file "$STAGE/libffmpeg.so"
+          # No text relocations (same rule as ffmpeg-android-maker's own CI).
+          ! readelf --dynamic "$STAGE/libffmpeg.so" | grep -q TEXTREL
+          # Smoke-run under the runner's own glibc just to sanity-check the ELF
+          # executed-and-exited machinery (bionic paths won't match here).
+          ls -la "$STAGE"
+
+      - name: Upload ffmpeg (${{ matrix.abi }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.abi }}
+          path: ${{ runner.temp }}/staging
+          if-no-files-found: error
+          retention-days: 7
+
   build:
+    needs: ffmpeg
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Unpack bundled ffmpeg into jniLibs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ffmpeg-*
+          path: android/app/src/main/jniLibs
+          merge-multiple: true
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4

@@ -69,6 +69,10 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // N9: the bundled ffmpeg executable must exist as a real file in
+        // nativeLibraryDir (execve() target) — AGP's default of loading .so
+        // files straight from the APK would leave nothing on disk to run.
+        jniLibs { useLegacyPackaging = true }
     }
 }
 

@@ -33,9 +33,10 @@ import local.themashup.music.core.domain.formatBytes
 import local.themashup.music.ui.theme.LocalMashupTokens
 
 /**
- * First-run ffmpeg sheet (docs/ANDROID.md N7): one-time ~122 MB GitHub fetch
- * keeps the APK slim. Shown while jobs wait on consent, during the fetch, or
- * when reopened from the header chip. `pending` = workers parked on an answer.
+ * ffmpeg setup sheet (N9): the binary ships BUNDLED inside the APK — this
+ * sheet verifies it on first use. Shown while jobs wait on consent, during
+ * verification, or when reopened from the header chip. `pending` = workers
+ * parked on an answer.
  */
 @Composable
 fun FfmpegSheet(
@@ -84,9 +85,9 @@ fun FfmpegSheet(
 
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "Downloads convert through a static ffmpeg binary (≈122 MB) " +
-                        "fetched once from GitHub and cached on this device — that keeps " +
-                        "the APK slim. MP4 videos that are already MP4 can save without it.",
+                    text = "Downloads convert through a static ffmpeg that ships inside " +
+                        "the app — verified once on this device, no separate download. " +
+                        "MP4 videos that are already MP4 can save without it.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = tokens.textDim,
                 )
@@ -146,11 +147,11 @@ fun FfmpegSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         CircularProgressIndicatorSmall(tokens.accent)
-                        Text("Unpacking…", style = MaterialTheme.typography.bodyMedium, color = tokens.textDim)
+                        Text("Verifying bundled ffmpeg…", style = MaterialTheme.typography.bodyMedium, color = tokens.textDim)
                     }
 
                     is FfmpegState.Failed -> Text(
-                        text = "Fetch failed: ${status.message}",
+                        text = "Setup failed: ${status.message}",
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.error,
                     )
@@ -168,7 +169,7 @@ fun FfmpegSheet(
                         val primary = when (status) {
                             is FfmpegState.Failed -> "Try again"
                             FfmpegState.Ready -> "Done"
-                            else -> "Fetch ffmpeg"
+                            else -> "Verify ffmpeg"
                         }
                         Text(
                             text = primary,
@@ -204,7 +205,7 @@ fun FfmpegSheet(
                     ) {
                         CircularProgressIndicatorSmall(tokens.accent)
                         Text(
-                            text = "Fetching ffmpeg — keep this open",
+                            text = "Verifying bundled ffmpeg — keep this open",
                             style = MaterialTheme.typography.bodySmall,
                             color = tokens.textDim,
                         )
