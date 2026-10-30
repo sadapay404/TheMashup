@@ -16,6 +16,7 @@ class OutputVisualizer {
     private var fft: ByteArray? = null
 
     private var viz: Visualizer? = null
+    @Volatile
     private var bound = false
 
     /** Hard failure (permission/unsupported) — stop polling this session. */
@@ -42,10 +43,9 @@ class OutputVisualizer {
 
     /** Idempotent; RETRY while the audio session id is still unset (0). */
     @Synchronized
-    fun tryBind(player: ExoPlayer): BindOutcome {
+    fun tryBind(sessionId: Int): BindOutcome {
         if (bound) return BindOutcome.BOUND
         if (unavailable) return BindOutcome.UNAVAILABLE
-        val sessionId = audioSessionIdOf(player)
         if (sessionId <= 0) return BindOutcome.RETRY
         return try {
             val fx = Visualizer(sessionId)

@@ -110,7 +110,7 @@ fun ExpandedPlayer(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) engine.visualizer.allowRetry()
+        if (granted) engine.retryVisualizer()
     }
     androidx.compose.runtime.LaunchedEffect(visualizerOn) {
         if (visualizerOn && !askedPermission) {
@@ -135,6 +135,7 @@ fun ExpandedPlayer(
 
     // N9 beat envelope from the visualizer — art breathes, glow surges.
     val beat = remember { mutableStateOf(0f) }
+    androidx.compose.runtime.LaunchedEffect(visualizerOn) { if (!visualizerOn) beat.value = 0f }
     Box(modifier = modifier.fillMaxSize().graphicsLayer { alpha = 1f }) {
         // ── dynamic artwork background — N9: full-vivid (the old theme
         // artOpacity 0.14–0.32 made the screen feel "way too transparent"),

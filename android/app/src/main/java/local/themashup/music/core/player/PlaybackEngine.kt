@@ -92,16 +92,22 @@ class PlaybackEngine(
     private fun startVisualizerPoller(p: ExoPlayer) {
         vizPoller?.cancel()
         vizPoller = scope.launch {
-            withContext(Dispatchers.IO) {
-                while (isActive) {
-                    when (visualizer.tryBind(p)) {
-                        OutputVisualizer.BindOutcome.BOUND -> break
-                        OutputVisualizer.BindOutcome.RETRY -> delay(1_000)
-                        OutputVisualizer.BindOutcome.UNAVAILABLE -> delay(10_000)
-                    }
+            while (isActive) {
+                // ExoPlayer is owned by the main looper; read its session ID here,
+                // then do the potentially slow AudioEffect binding off the UI thread.
+                val sessionId = OutputVisualizer.audioSessionIdOf(p)
+                when (withContext(Dispatchers.IO) { visualizer.tryBind(sessionId) }) {
+                    OutputVisualizer.BindOutcome.BOUND -> break
+                    OutputVisualizer.BindOutcome.RETRY -> delay(1_000)
+                    OutputVisualizer.BindOutcome.UNAVAILABLE -> delay(10_000)
                 }
             }
         }
+    }
+
+    fun retryVisualizer() {
+        visualizer.allowRetry()
+        player?.let(::startVisualizerPoller)
     }
 
     /* ── UI / session commands ───────────────────────────────────────────── */

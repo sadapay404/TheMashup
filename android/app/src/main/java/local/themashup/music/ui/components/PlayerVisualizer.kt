@@ -43,7 +43,13 @@ fun PlayerVisualizer(
 
     // Single rAF-equivalent loop: sample FFT + advance the idle phase on
     // every display frame (web idlePhase += 0.03 per 60fps frame).
-    LaunchedEffect(enabled) {
+    LaunchedEffect(enabled, reduceMotion) {
+        if (reduceMotion) {
+            frame.value = null to 0f
+            pulse.value = 0f
+            onPulse(0f)
+            return@LaunchedEffect
+        }
         var lastNanos = 0L
         var ema = 0f
         var env = 0f
