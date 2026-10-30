@@ -366,7 +366,92 @@ notification/UI update.
 | Status pill / header / theme switcher | `AppTopBar` + `ThemeSwatchPicker` | N5 | ✅ |
 | Downloads progress UI + quality matrix | Downloads page + picker (N7 deviations noted there) | N7 | ✅ |
 | Release APK docs | `android/README.md` signing runbook + conditional `key.properties` signing | N8 | ✅ |
+| Media notification + panel controls (N9 fix) | `POST_NOTIFICATIONS` + latch-after-success + `setSessionActivity` | N9 | ✅ |
+| Auto-next on dead tracks (N9 fix) | `PlaybackEngine.advanceOrPark` (manual=false, forward-only guard) | N9 | ✅ |
+| On-device charts/suggestions (N9 fix) | `NewPipeSource.trending` via `trending_music`/`Trending` kiosks | N9 | ✅ |
+| YouTube sign-in (N9) | `SignInScreen` WebView cookie capture → `YouTubeCookie` interceptor | N9 | ✅ |
+| Bundled ffmpeg (N9, directive reversed) | CI static build → `jniLibs/libffmpeg.so` + probe-only `FfmpegManager` | N9 | ✅ |
+| Player redesign + shuffle emphasis (N9) | alpha-1 art, deck scrim, beat envelope (visualizer), accent pills | N9 | ✅ |
+| APK via GitHub Actions (N9) | `.github/workflows/android.yml` → `TheMashup-debug-apk` artifact | N9 | ✅ |
 | Gateway connection screen / SSE chip | N/A — no gateway exists by design (hard requirement #1) | — | N/A |
+
+### N9 notes (user work order — delivered)
+
+**CI APK factory (user: "build the apk using github actions. i don't wanna
+go back and forth")** — `.github/workflows/android.yml` runs on every push to
+this branch: static-ffmpeg matrix job → unit tests + `assembleDebug` →
+artifact **`TheMashup-debug-apk`** (+ `test-reports`, ffmpeg logs, and
+`::error::` API annotations on failure — log hosts are unreachable from the
+authoring sandbox, so annotations are the diagnostic channel). First fully
+green run: 40989959756.
+
+- **Background playback had no notification** → `POST_NOTIFICATIONS`
+  declared + runtime-requested (Android 13+); `ensureServiceStarted` only
+  latches its flag **after** `startForegroundService` succeeds (a
+  background-start rejection used to disable retries forever); the session
+  gets `setSessionActivity(launchIntent)` so tapping the notification opens
+  the app — play/pause from the panel works.
+- **"Next song doesn't play / big error" (recurring FOSS bug)** →
+  `PlaybackEngine.advanceOrPark(message)`: when a track is dead
+  (candidates + refresh exhausted, or extraction failed) the queue
+  **auto-advances** (`sm.next(snapshot, rng, manual=false)`; shuffle may
+  jump to any unplayed index, linear only forward — wrap/repeat-ONE can't
+  dead-loop). Parks in ERROR only when no forward move exists → the 6 s
+  toast + tap-retry behaviour is preserved. Wired into `onPlayerError` and
+  `resolveAndLoad` onFailure.
+- **Suggestions error forever** → root cause wasn't auth: `NewPipeSource`
+  never implemented `trending()` and the Piped/Invidious `/trending`
+  endpoints are widely dead, so the charts walk always returned empty →
+  "No recommendation data available". Fixed by driving NewPipe's kiosks:
+  `trending_music` (YouTube Charts) first, classic `Trending` second;
+  Piped/Invidious stay as fallbacks.
+- **Sign-in** (chosen: innertune/SimpMusic WebView method) →
+  `SignInScreen` loads innertune's verbatim Google music service-login URL;
+  `doUpdateVisitedHistory` on `music.youtube.com` captures
+  `CookieManager`'s jar → `SettingsRepository.yt_cookie` + process-wide
+  `YouTubeCookie`; `newNetworkClient()` attaches `Cookie` to youtube.com
+  requests (volatile, read per request — applies even though NewPipe inits
+  its client once). Entry = top-bar profile chip (Person + accent when
+  signed in); Sign-out clears WebKit cookies for Google/YouTube/Music.
+  The WebView exists only inside that screen — the shell stays native.
+- **FFmpeg bundled** (directive reversed to "just bundle the ffmpeg") →
+  root cause of "downloads but fails to bundle": the BtbN pin was a
+  **glibc** `linuxarm64` build that can never exec on Android (bionic).
+  CI now builds a **static** FFmpeg per ABI with
+  `Javernaut/ffmpeg-android-maker` (`-mp3lame -opus -x264`; their own CI's
+  method; `--enable-shared/--disable-static` sed-patched so the executable
+  links everything in), stages it as `jniLibs/<abi>/libffmpeg.so`
+  (~11 MB artifact on armeabi-v7a), and `jniLibs.useLegacyPackaging = true`
+  makes it a real executable file in `nativeLibraryDir` — `execve()` works
+  there on every Android version (writable app data does not).
+  `FfmpegManager` now just probes that binary; no network fetch, consent
+  sheet only appears if the probe fails.
+- **Player "wayy too transparent / make it react to the beats"** →
+  artwork now renders at **alpha 1.0** (the theme's `artOpacity` of
+  0.14–0.32 was the transparency), soft-blurred over a deck-solid scrim
+  (0.34 → 0.96 → 1.0) and the lyrics/queue panel is opaque.
+  Beat-reactive: `PlayerVisualizer` derives a spectral onset envelope
+  (mean level vs its EMA — the idle sine never spikes, real hits do) each
+  frame → bars pulse +32 %, the radial accent glow surges alpha + radius,
+  and the background artwork breathes ±3.5 % scale per hit.
+  **Shuffle** already existed (web parity) — shuffle/repeat now show an
+  accent pill + border when active so state is unmistakable.
+- **CI-only test repairs** (first-ever run of two unwired Gradle-only test
+  files): `validate` returns `String?` since N7 (enqueue still throws the
+  gateway message — both asserted now, arg order is container/quality);
+  `instrumental` is non-null `Boolean` (`absent → false`); Invidious
+  parsing includes N7 video-only candidates (2 audio + 1 video-only).
+
+#### FOSS comparison (the five repos from the work order)
+
+| Repo | What the README shows | Our status |
+| --- | --- | --- |
+| fast4x/RiMusic (ViMusic fork) | In-process extraction service, no prominent login, error-surfacing UI | Same extraction shape via NewPipe; login via N9 sign-in instead |
+| Nikita-sud/latentjam | Kotlin-multiplatform, no Google login | N/A |
+| maxrave-dev/SimpMusic | Multi YouTube-account + cookie ("send back to Google") | Cookie sign-in ✓ — multi-account + cookie refresh = future work |
+| PixelPlayerHQ/PixelPlayerOSS | Self-hosted server logins (Navidrome/Jellyfin) | N/A (no servers by design) |
+| z-huang/innertune | **"Login support"** — WebView cookie capture + account info | Ported verbatim (`SignInScreen`) |
+| Recurring bug pattern (all) | Auto-advance when a track errors instead of parking | `advanceOrPark` ✓ — the "next song" trap |
 
 ## Build (your machine)
 

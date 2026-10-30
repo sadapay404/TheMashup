@@ -66,7 +66,7 @@ apps/api            Express gateway :4000 (auth, library, downloads, SSE, proxie
 apps/web            React app (Vite) :8080
 desktop/src-tauri   Tauri shell (Phase 7) — media keys, tray, native save dialogs
 mobile/             Capacitor Android project (Phase 8) — superseded by android/, left untouched
-android/            Native Kotlin/Compose rewrite (phases N1–N8) — no PC required
+android/            Native Kotlin/Compose rewrite (phases N1–N9) — no PC required
 services/resolver   FastAPI :8000 (search/stream/lyrics/downloads, yt-dlp + ffmpeg)
 supabase/migrations Postgres schema (auth, library, embeddings, RLS)
 docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md · MOBILE.md
@@ -97,6 +97,7 @@ docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md · 
 | N6 | Library + lyrics/karaoke + expanded player | ✅ |
 | N7 | Downloads (first-run ffmpeg, scoped storage, progress) | ✅ |
 | N8 | Recommendations + motion/visualizer + release polish | ✅ |
+| N9 | CI APKs, bundled ffmpeg, media notification, auto-next, sign-in, player redesign | ✅ |
 
 > Personal-use build. Streams resolve from YouTube via yt-dlp (ToS risk accepted by
 > the owner); sources are pluggable behind the resolver interface.

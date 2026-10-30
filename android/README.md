@@ -6,12 +6,25 @@ library, recommendations) is on-device.
 
 📖 **Spec, phases, and build steps: [`docs/ANDROID.md`](../docs/ANDROID.md)**
 
+## Debug APK — GitHub Actions (N9, preferred)
+
+Every push to `arena/af3d0d7b-themashup` runs
+`.github/workflows/android.yml`: it builds the static ffmpeg bundle for
+both ABIs, runs the unit tests, assembles the debug APK, and uploads it as
+the **`TheMashup-debug-apk`** artifact (Actions → run → Artifacts). No
+local toolchain needed — download and `adb install`.
+
 ```bash
+# local alternative (needs JDK 17+ and the Android SDK):
 cd android
-./gradlew assembleDebug   # needs JDK 17+ and the Android SDK
+./gradlew assembleDebug
 ./gradlew test
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+> Note: `app/src/main/jniLibs/` is produced by the CI ffmpeg job (git-ignored).
+> A local `assembleDebug` without it still builds — downloads just report
+> "ffmpeg is not bundled for this device ABI" until a CI APK is installed.
 
 ## Release APK (signing — N8)
 
