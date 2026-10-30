@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices.JavaScript;
-using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -54,8 +53,8 @@ internal static partial class BrowserMediaBridge
     /// <summary>Test diagnostic: return an Avalonia control's on-screen rectangle.</summary>
     [JSExport]
     internal static string GetControlBounds(string automationName) {
-        var root = (Application.Current?.ApplicationLifetime as ISingleViewApplicationLifetime)?.MainView as Visual
-            ?? Application.Current?.MainWindow as Visual;
+        // Browser Avalonia uses ISingleViewApplicationLifetime; there is no MainWindow.
+        var root = (Application.Current?.ApplicationLifetime as ISingleViewApplicationLifetime)?.MainView as Visual;
         if (root is null) return "{}";
         foreach (var visual in root.GetSelfAndVisualDescendants()) {
             if ((visual.GetValue(AutomationProperties.NameProperty) as string) != automationName) continue;
@@ -63,11 +62,7 @@ internal static partial class BrowserMediaBridge
             if (transformed is not { } bounds) continue;
             var topLeft = bounds.Bounds.TopLeft * bounds.Transform;
             var bottomRight = bounds.Bounds.BottomRight * bounds.Transform;
-            return JsonSerializer.Serialize(new {
-                x = topLeft.X, y = topLeft.Y,
-                width = bottomRight.X - topLeft.X,
-                height = bottomRight.Y - topLeft.Y,
-            });
+            return $"{{\"x\":{topLeft.X.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"y\":{topLeft.Y.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"width\":{(bottomRight.X - topLeft.X).ToString(System.Globalization.CultureInfo.InvariantCulture)},\"height\":{(bottomRight.Y - topLeft.Y).ToString(System.Globalization.CultureInfo.InvariantCulture)}}}}";
         }
         return "{}";
     }
