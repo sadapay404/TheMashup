@@ -109,15 +109,29 @@ class LibraryRepositoryTest {
 
     @Test
     fun downloadQualityValidationMatchesGatewayContract() {
+        // N7 contract: validate returns null (ok) or the gateway 400 message.
+        Assert.assertEquals(
+            "quality 'mp3_320' invalid for mp3 (allowed: 128k, 320k)",
+            validateDownloadQuality("mp3_320", "mp3"),
+        )
+        Assert.assertNull(validateDownloadQuality("320k", "mp3"))
+        Assert.assertNull(validateDownloadQuality("best", "flac"))
+        Assert.assertNull(validateDownloadQuality("1080p", "mp4"))
+        // The repository still surfaces it as IllegalArgumentException with the
+        // exact message contract (gateway VALIDATION_ERROR parity).
         try {
-            validateDownloadQuality("mp3_320", "mp3")
+            runBlocking {
+                JsonFileStore(
+                    File(tmp.root, "q.json"),
+                    kotlinx.serialization.serializer<local.themashup.music.core.domain.DownloadsData>(),
+                ) { local.themashup.music.core.domain.DownloadsData() }.let { store ->
+                    DownloadsRepository(store).enqueue(track("bad", "Bad", "Artist"), "mp3_320", "mp3")
+                }
+            }
             Assert.fail("expected validation error")
         } catch (e: IllegalArgumentException) {
             Assert.assertEquals("quality 'mp3_320' invalid for mp3 (allowed: 128k, 320k)", e.message)
         }
-        validateDownloadQuality("320k", "mp3")
-        validateDownloadQuality("best", "flac")
-        validateDownloadQuality("1080p", "mp4")
     }
 
     @Test

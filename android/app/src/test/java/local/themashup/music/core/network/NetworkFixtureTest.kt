@@ -95,7 +95,8 @@ class NetworkFixtureTest {
     @Test
     fun invidiousStreamsFilterAudioSortAndPreferRecommended() {
         val (candidates, related) = InvidiousParsing.streams(fixture("invidious_video.json"))
-        Assert.assertEquals("audio-only, url-required", 2, candidates.size)
+        // N7: adaptive video-only formats are included alongside audio.
+        Assert.assertEquals("2 audio (url-required) + 1 video-only", 3, candidates.size)
         Assert.assertEquals(160, candidates[0].bitrateKbps) // 160k > 128k
         Assert.assertEquals("webm", candidates[0].ext)
         Assert.assertEquals(8_400_000L, candidates[0].sizeBytes) // from `size`
@@ -103,6 +104,13 @@ class NetworkFixtureTest {
         Assert.assertEquals("m4a", candidates[1].ext)
         Assert.assertEquals("AUDIO_QUALITY_MEDIUM", candidates[1].quality)
         Assert.assertEquals(7_100_000L, candidates[1].sizeBytes)
+
+        val videoOnly = candidates[2]
+        Assert.assertEquals("invidious", videoOnly.source)
+        Assert.assertTrue(videoOnly.hasVideo)
+        Assert.assertTrue(videoOnly.videoOnly)
+        Assert.assertEquals("mp4", videoOnly.ext)
+        Assert.assertEquals("https://cdn.example/video.mp4", videoOnly.url)
 
         Assert.assertEquals(1, related.size)
         Assert.assertEquals("OPf0YbXqDm0", related[0].id)
@@ -133,7 +141,7 @@ class NetworkFixtureTest {
         Assert.assertNotNull(records[0].syncedLyrics)
         Assert.assertFalse(records[0].instrumental)
         Assert.assertEquals(900002L, records[1].id)
-        Assert.assertNull(records[1].instrumental) // absent → false default
+        Assert.assertFalse(records[1].instrumental) // absent → false default
     }
 
     @Test
