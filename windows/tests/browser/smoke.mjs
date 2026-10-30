@@ -44,11 +44,18 @@ async function load() {
 }
 
 async function clickButton(name, fallbackX, fallbackY) {
+  // Ask the shared Avalonia UI for the control's real rectangle. This avoids
+  // fragile canvas-pixel guesses while still exercising the actual hit target.
+  const rect = await page.evaluate(name => globalThis.themashupMedia.getControlBounds(name), name);
+  if (rect && rect.width > 0 && rect.height > 0) {
+    await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    return;
+  }
   const roleButton = page.getByRole('button', { name, exact: true });
   if (await roleButton.count() && await roleButton.first().isVisible()) {
     await roleButton.first().click({ timeout: 10000 });
   } else {
-    // Avalonia renders to a canvas; not all versions expose a complete ARIA tree.
+    // Last-resort fallback for environments without the geometry bridge.
     await page.mouse.click(fallbackX, fallbackY);
   }
 }

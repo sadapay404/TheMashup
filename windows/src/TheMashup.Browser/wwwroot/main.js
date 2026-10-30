@@ -30,6 +30,7 @@ globalThis.themashupPreferences = {
 const videoHost = document.getElementById('browser-video-host');
 let media = null;
 let emitMedia = null;
+let controlExports = null;
 let videoBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let mediaVolume = 0.8;
 function updateVideoBounds() {
@@ -102,6 +103,7 @@ globalThis.themashupMedia = {
   seek(seconds) { if (media && Number.isFinite(seconds)) { try { media.currentTime = Math.max(0, seconds); } catch { } } },
   volume(value) { mediaVolume = Math.max(0, Math.min(1, value)); if (media) media.volume = mediaVolume; },
   bounds(x, y, width, height, visible) { videoBounds = { x, y, width, height, visible }; updateVideoBounds(); },
+  getControlBounds(name) { try { return JSON.parse(controlExports.TheMashup.Browser.BrowserMediaBridge.GetControlBounds(name)); } catch { return null; } },
 };
 
 try {
@@ -109,6 +111,7 @@ try {
   const config = runtime.getConfig();
   const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
   emitMedia = exports.TheMashup.Browser.BrowserMediaBridge.OnEvent;
+  controlExports = exports;
   await runtime.runMain(config.mainAssemblyName, [globalThis.location.href]);
 } catch (error) {
   const splash = document.getElementById('loading-message');

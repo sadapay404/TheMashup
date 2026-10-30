@@ -1,4 +1,9 @@
 using System.Runtime.InteropServices.JavaScript;
+using System.Text.Json;
+using Avalonia;
+using Avalonia.Automation;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.VisualTree;
 using TheMashup.Core;
 
 namespace TheMashup.Browser;
@@ -45,4 +50,25 @@ internal static partial class BrowserMediaBridge
     [JSExport]
     internal static void OnEvent(double attempt, int signal, double position, double duration) =>
         BrowserMediaDevice.Emit(attempt, signal, position, duration);
+
+    /// <summary>Test diagnostic: return an Avalonia control's on-screen rectangle.</summary>
+    [JSExport]
+    internal static string GetControlBounds(string automationName) {
+        var root = (Application.Current?.ApplicationLifetime as ISingleViewApplicationLifetime)?.MainView as Visual
+            ?? Application.Current?.MainWindow as Visual;
+        if (root is null) return "{}";
+        foreach (var visual in root.GetSelfAndVisualDescendants()) {
+            if ((visual.GetValue(AutomationProperties.NameProperty) as string) != automationName) continue;
+            var transformed = visual.GetTransformedBounds();
+            if (transformed is not { } bounds) continue;
+            var topLeft = bounds.Bounds.TopLeft * bounds.Transform;
+            var bottomRight = bounds.Bounds.BottomRight * bounds.Transform;
+            return JsonSerializer.Serialize(new {
+                x = topLeft.X, y = topLeft.Y,
+                width = bottomRight.X - topLeft.X,
+                height = bottomRight.Y - topLeft.Y,
+            });
+        }
+        return "{}";
+    }
 }
