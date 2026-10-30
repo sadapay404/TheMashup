@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Close
@@ -78,6 +79,8 @@ import local.themashup.music.ui.art.rememberArtAccents
 import local.themashup.music.ui.components.FfmpegSheet
 import local.themashup.music.ui.components.FadeSlideIn
 import local.themashup.music.ui.components.MiniPlayer
+import local.themashup.music.core.network.YouTubeCookie
+import local.themashup.music.ui.screens.SignInScreen
 import local.themashup.music.ui.components.QualityPicker
 import local.themashup.music.ui.components.ThemeSwatchPicker
 import local.themashup.music.ui.logic.DEFAULT_THEME_ID
@@ -139,6 +142,9 @@ private fun MashupShell(container: AppContainer) {
     // N7: track queued for the quality picker (web uiStore.downloadTrack).
     var pendingDownload by remember { mutableStateOf<Track?>(null) }
     var ffmpegManualOpen by remember { mutableStateOf(false) }
+    // N9: YouTube sign-in overlay (innertune-style WebView cookie capture).
+    var signInOpen by rememberSaveable { mutableStateOf(false) }
+    val ytCookie by container.settings.youtubeCookie.collectAsState(initial = "")
     // N8: visualizer toggle (web uiStore.visualizerOn → persisted setting).
     val visualizerOn by container.settings.visualizerOn.collectAsState(initial = true)
     val themeKeyState by container.settings.themeKey.collectAsState(initial = DEFAULT_THEME_ID.storageKey)
@@ -155,6 +161,8 @@ private fun MashupShell(container: AppContainer) {
                     AppTopBar(
                         page = page,
                         themeKey = themeKeyState,
+                        signedIn = ytCookie.isNotBlank(),
+                        onSignIn = { signInOpen = true },
                         onSelectTheme = { theme ->
                             scope.launch { container.settings.setThemeKey(theme.storageKey) }
                         },
@@ -289,6 +297,28 @@ private fun MashupShell(container: AppContainer) {
                     onToggleVisualizer = {
                         scope.launch { container.settings.setVisualizerOn(!visualizerOn) }
                     },
+                )
+            }
+
+            /* ── N9 sign-in overlay (WebView for Google OAuth only) ──── */
+            AnimatedVisibility(
+                visible = signInOpen,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                SignInScreen(
+                    hasCookie = ytCookie.isNotBlank(),
+                    onSaveCookie = { cookie ->
+                        YouTubeCookie.value = cookie
+                        scope.launch { container.settings.setYoutubeCookie(cookie) }
+                    },
+                    onClearCookie = {
+                        YouTubeCookie.value = null
+                        scope.launch { container.settings.setYoutubeCookie("") }
+                    },
+                    onClose = { signInOpen = false },
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
 
@@ -461,6 +491,8 @@ private fun QueueDrawerPanel(
 private fun AppTopBar(
     page: String,
     themeKey: String,
+    signedIn: Boolean,
+    onSignIn: () -> Unit,
     onSelectTheme: (local.themashup.music.ui.logic.ThemeId) -> Unit,
 ) {
     val tokens = LocalMashupTokens.current
@@ -509,20 +541,30 @@ private fun AppTopBar(
             )
         }
         ThemeSwatchPicker(current = current, onSelect = onSelectTheme)
-        // Local profile chip — web AuthArea avatar.
+        // Local profile chip — web AuthArea avatar → N9 YouTube sign-in.
         Box(
             modifier = Modifier
                 .size(30.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(tokens.accent.copy(alpha = 0.18f))
-                .border(BorderStroke(1.dp, tokens.border), RoundedCornerShape(999.dp)),
+                .background(if (signedIn) tokens.accent else tokens.accent.copy(alpha = 0.18f))
+                .border(BorderStroke(1.dp, tokens.border), RoundedCornerShape(999.dp))
+                .clickable(onClick = onSignIn),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = "M",
-                color = tokens.accent,
-                fontSize = 13.sp,
-            )
+            if (signedIn) {
+                Icon(
+                    Icons.Filled.Person,
+                    contentDescription = "Signed in — account",
+                    tint = tokens.accentContrast,
+                    modifier = Modifier.size(16.dp),
+                )
+            } else {
+                Text(
+                    text = "M",
+                    color = tokens.accent,
+                    fontSize = 13.sp,
+                )
+            }
         }
     }
 }

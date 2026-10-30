@@ -44,7 +44,24 @@ jobs:
           export ANDROID_SDK_HOME="$ANDROID_HOME"
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           # lame + opus (encoders our 4 download commands need) + x264 (mp4 re-encode).
-          ./ffmpeg-android-maker.sh -mp3lame -opus -x264 -android=24 -abis=${{ matrix.abi }}
+          ./ffmpeg-android-maker.sh -mp3lame -opus -x264 -android=24 -abis=${{ matrix.abi }} 2>&1 | tee "$RUNNER_TEMP/fam-${{ matrix.abi }}.log"
+
+      - name: Surface ffmpeg build failure as annotation (API-readable)
+        if: failure()
+        shell: bash
+        run: |
+          F="$RUNNER_TEMP/fam-${{ matrix.abi }}.log"
+          if [ -f "$F" ]; then
+            {
+              echo "### ffmpeg build failure (${{ matrix.abi }})"
+              echo '```'
+              tail -n 80 "$F"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::ffmpeg ${{ matrix.abi }} failed :: $(grep -E 'error:|Error [0-9]|undefined|No space|Killed|FAILED' "$F" | tail -n 6 | tr '\n' ' | ')"
+          else
+            echo "::error::ffmpeg ${{ matrix.abi }} failed before producing a log"
+          fi
 
       - name: Stage jniLibs payload
         shell: bash

@@ -4,6 +4,7 @@ import android.content.Context
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.SupervisorJob
 import local.themashup.music.core.domain.DownloadsData
 import local.themashup.music.core.domain.LibraryData
@@ -64,5 +65,12 @@ class AppContainer(private val context: Context) {
         library.startLoad()
         downloads.startLoad()
         downloadEngine.reconcileOnStart()
+        // N9: re-attach a saved YouTube cookie before the first extraction call.
+        appScope.launch {
+            val cookie = settings.youtubeCookie.first().trim()
+            if (cookie.isNotEmpty()) {
+                local.themashup.music.core.network.YouTubeCookie.value = cookie
+            }
+        }
     }
 }

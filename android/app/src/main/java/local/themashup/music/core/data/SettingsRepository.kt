@@ -24,12 +24,16 @@ class SettingsRepository(private val context: Context) {
         val VISUALIZER = booleanPreferencesKey("visualizer_on")
         val AUDIO_QUALITY = stringPreferencesKey("audio_quality")
         val LYRICS_ON = booleanPreferencesKey("lyrics_on")
+        val YT_COOKIE = stringPreferencesKey("yt_cookie")
     }
 
     val themeKey: Flow<String> = context.settingsDataStore.data.map { it[Keys.THEME] ?: DEFAULT_THEME }
     val visualizerOn: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.VISUALIZER] ?: true }
     val audioQuality: Flow<String> = context.settingsDataStore.data.map { it[Keys.AUDIO_QUALITY] ?: "320k" }
     val lyricsOn: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.LYRICS_ON] ?: true }
+
+    /** N9 YouTube sign-in cookie (innertune-style WebView capture); "" = signed out. */
+    val youtubeCookie: Flow<String> = context.settingsDataStore.data.map { it[Keys.YT_COOKIE] ?: "" }
 
     suspend fun setThemeKey(key: String) {
         context.settingsDataStore.edit { it[Keys.THEME] = key }
@@ -45,6 +49,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setLyricsOn(on: Boolean) {
         context.settingsDataStore.edit { it[Keys.LYRICS_ON] = on }
+    }
+
+    suspend fun setYoutubeCookie(cookie: String) {
+        context.settingsDataStore.edit { it[Keys.YT_COOKIE] = cookie }
     }
 
     companion object {
