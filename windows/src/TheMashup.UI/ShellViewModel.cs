@@ -18,11 +18,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     private string _newPlaylistName = "";
     private string _playlistMessage = "";
 
-    public ShellViewModel(ThemeSelection themes, Library library, ISearchService? searchService = null)
+    public ShellViewModel(ThemeSelection themes, Library library, ISearchService? searchService = null,
+        IPlaybackResolver? playbackResolver = null, IMediaDevice? mediaDevice = null)
     {
         _themes = themes ?? throw new ArgumentNullException(nameof(themes));
         _library = library ?? throw new ArgumentNullException(nameof(library));
-        Search = new SearchViewModel(searchService ?? new UnavailableSearchService(), _library);
+        Player = new PlayerViewModel(_library, playbackResolver, mediaDevice);
+        Search = new SearchViewModel(searchService ?? new UnavailableSearchService(), _library, Player);
         NavigateCommand = new ParameterCommand(Navigate);
         SelectThemeCommand = new ParameterCommand(id => _themes.Select(id));
         CreatePlaylistCommand = new ActionCommand(CreatePlaylist);
@@ -37,6 +39,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public SearchViewModel Search { get; }
+    public PlayerViewModel Player { get; }
     public ICommand NavigateCommand { get; }
     public ICommand SelectThemeCommand { get; }
     public ICommand CreatePlaylistCommand { get; }
@@ -137,7 +140,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         {
             PlaylistRows.Clear();
             foreach (var playlist in playlists)
-                PlaylistRows.Add(new PlaylistRowViewModel(_library, playlist));
+                PlaylistRows.Add(new PlaylistRowViewModel(_library, playlist, Player));
         }
         Notify(nameof(HasPlaylists), nameof(HasNoPlaylists), nameof(PlaylistCountText),
             nameof(LibraryStatus), nameof(CanEditLibrary));
@@ -182,7 +185,7 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
     private bool _expanded;
     private string _message = "";
 
-    public PlaylistRowViewModel(Library library, LibraryPlaylistView playlist)
+    public PlaylistRowViewModel(Library library, LibraryPlaylistView playlist, PlayerViewModel? player = null)
     {
         _library = library;
         Id = playlist.Id;
@@ -193,7 +196,9 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
         for (var index = 0; index < playlist.Tracks.Count; index++)
         {
             var position = index;
-            Songs.Add(new SavedTrackRowViewModel(playlist.Tracks[index], () => _library.RemoveFromPlaylist(Id, position)));
+            var track = playlist.Tracks[index];
+            Songs.Add(new SavedTrackRowViewModel(track, () => _library.RemoveFromPlaylist(Id, position),
+                player?.IsAvailable == true ? () => { _ = player.PlayNowAsync(track); } : null));
         }
         ToggleSongsCommand = new ActionCommand(() =>
         {

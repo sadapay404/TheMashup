@@ -78,6 +78,9 @@ public sealed class Library
         .Select(item => new LibraryPlaylistView(item.Id, item.Name, item.Tracks.AsReadOnly())).ToArray();
     public IReadOnlyList<LibraryHistoryEntry> History => _data.History.AsReadOnly();
     public IReadOnlyList<LibraryTrack> Queue => _data.Queue.Items.AsReadOnly();
+    // Runtime-only revision for queue traversal; moving the cursor or writing
+    // history does not invalidate a shuffle cycle.
+    public long QueueVersion { get; private set; }
     public int CurrentQueueIndex => _data.Queue.CurrentIndex;
     public LibraryTrack? CurrentTrack => CurrentQueueIndex >= 0 ? _data.Queue.Items[CurrentQueueIndex] : null;
 
@@ -171,6 +174,7 @@ public sealed class Library
     {
         if (!IsValidTrack(track)) return false;
         _data.Queue.Items.Add(track);
+        QueueVersion++;
         SaveAndNotify();
         return true;
     }
@@ -190,7 +194,18 @@ public sealed class Library
         }
         var position = queue.CurrentIndex >= 0 ? queue.CurrentIndex : 0;
         queue.Items.Insert(position, track);
+        QueueVersion++;
         queue.CurrentIndex = position;
+        SaveAndNotify();
+        return true;
+    }
+
+    /// <summary>Move the queue cursor without inserting or deleting songs.</summary>
+    public bool SetCurrentQueueIndex(int index)
+    {
+        if (index < -1 || index >= _data.Queue.Items.Count) return false;
+        if (_data.Queue.CurrentIndex == index) return true;
+        _data.Queue.CurrentIndex = index;
         SaveAndNotify();
         return true;
     }
@@ -200,6 +215,7 @@ public sealed class Library
         if (index < 0 || index >= _data.Queue.Items.Count) return false;
         var queue = _data.Queue;
         queue.Items.RemoveAt(index);
+        QueueVersion++;
         if (index == queue.CurrentIndex) queue.CurrentIndex = -1;
         else if (index < queue.CurrentIndex) queue.CurrentIndex--;
         SaveAndNotify();

@@ -125,3 +125,42 @@ jobs:
               escaped = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print(f"::error title={os.path.basename(path)}::{escaped}")
           PY
+
+  windows-native:
+    name: Windows x64 native audio fixture (no app EXE)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Compile desktop managed assemblies on Windows
+        shell: pwsh
+        run: |
+          dotnet build src/TheMashup.Desktop/TheMashup.Desktop.csproj -c Release -p:UseAppHost=false --nologo 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/windows-native-build.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $apps = Get-ChildItem src -Recurse -Filter *.exe | Where-Object { $_.FullName -match '[\\/]bin[\\/]' }
+          if ($apps) { Write-Error "Unexpected EXE in desktop build output: $apps"; exit 1 }
+      - name: Test native LibVLC with a generated local audio fixture
+        shell: pwsh
+        run: |
+          dotnet test tests/TheMashup.Windows.Tests/TheMashup.Windows.Tests.csproj -c Release --nologo 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/windows-native-tests.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $summary = Select-String -Path "$env:RUNNER_TEMP/windows-native-tests.log" -Pattern '^Passed!' | Select-Object -Last 1
+          Write-Output "::notice title=Windows native audio fixture::$summary"
+      - name: Surface native failure details
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem "$env:RUNNER_TEMP/windows-native-*.log" | ForEach-Object {
+            $lines = Get-Content $_.FullName | Select-String -Pattern '(?i)error\s+[A-Z]+[0-9]+\s*:|error:|failed|exception|timed?\s*out' | Select-Object -Last 25
+            if ($lines) {
+              $text = ($lines -join "`n").Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+              Write-Output "::error title=$($_.Name)::$text"
+            }
+          }

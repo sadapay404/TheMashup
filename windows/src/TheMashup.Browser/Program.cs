@@ -19,7 +19,11 @@ internal static partial class Program
         // origin and are proxied server-side, never to the viewer's localhost.
         var origin = args.Length > 0 ? new Uri(new Uri(args[0]).GetLeftPart(UriPartial.Authority) + "/")
             : throw new InvalidOperationException("The browser preview origin is missing.");
-        App.SearchService = new GatewaySearchClient(new HttpClient(), _ => Task.FromResult(origin));
+        var http = new HttpClient();
+        App.SearchService = new GatewaySearchClient(http, _ => Task.FromResult(origin));
+        App.PlaybackResolver = new GatewayPlaybackClient(http, _ => Task.FromResult(origin));
+        App.MediaDevice = new BrowserMediaDevice();
+        App.VideoBoundsChanged = BrowserMediaDevice.SetVideoBounds;
         return AppBuilder.Configure<App>()
             .WithInterFont()
             .StartBrowserAppAsync("out", new BrowserPlatformOptions

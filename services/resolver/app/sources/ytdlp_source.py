@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 from typing import Any
 
 from ..config import REQUEST_TIMEOUT
@@ -23,7 +22,6 @@ def _ydl_opts() -> dict[str, Any]:
     }
 
 
-@lru_cache(maxsize=512)
 def extract(video_id: str) -> dict[str, Any]:
     import yt_dlp
 
@@ -46,45 +44,53 @@ def _is_video(fmt: dict) -> bool:
 
 
 def stream_candidates(video_id: str) -> list[dict[str, Any]]:
-    """Ordered audio candidates from yt-dlp (best first). Falls through to
-    Piped/Invidious in main.py when this returns empty or raises."""
-    info = extract(video_id)
-    audio_fmts = [f for f in info.get("formats", []) if _is_audio(f)]
-    audio_fmts.sort(key=lambda f: (f.get("abr") or 0, f.get("tbr") or 0), reverse=True)
+    """Fresh audio and *progressive* video candidates, best first.
 
-    out: list[dict[str, Any]] = []
-    seen_ext: set[str] = set()
-    for fmt in audio_fmts:
-        ext = fmt.get("ext") or "bin"
-        url = fmt.get("url")
-        if not url:
-            continue  # formats needing URL refresh aren't usable here
-        # One candidate per container first, then fill with higher bitrates.
-        key = ext
-        if key in seen_ext and len(out) >= 2:
-            continue
-        seen_ext.add(key)
+    YouTube often serves video and audio separately; those video-only URLs
+    cannot be played with sound on their own and are deliberately excluded.
+    The gateway requests a mode and will fall back to other providers if a
+    progressive video is unavailable. Never retain signed URLs forever.
+    """
+    info = extract(video_id)
+    formats = [f for f in info.get("formats", []) if _is_audio(f) and f.get("url")]
+    audio = [f for f in formats if not _is_video(f)]
+    video = [f for f in formats if _is_video(f)]
+    audio.sort(key=lambda f: (f.get("abr") or 0, f.get("tbr") or 0), reverse=True)
+    video.sort(key=lambda f: (f.get("height") or 0, f.get("tbr") or 0), reverse=True)
+
+    def convert(fmt: dict[str, Any]) -> dict[str, Any]:
+        ext = str(fmt.get("ext") or "bin")
+        url = str(fmt["url"])
+        has_video = _is_video(fmt)
         acodec = fmt.get("acodec") or ext
         abr = fmt.get("abr")
-        out.append(
-            {
-                "source": "ytdlp",
-                "url": url,
-                "mime": fmt.get("mime_type") or f"audio/{ext}",
-                "ext": ext,
-                "quality": f"{acodec} {int(abr)}k" if abr else str(fmt.get("format_note") or ext),
-                "bitrate_kbps": int(abr) if abr else None,
-                "has_video": False,
-                "size_bytes": int(fmt["filesize"] or fmt["filesize_approx"])
-                if (fmt.get("filesize") or fmt.get("filesize_approx"))
-                else None,
-                "expires_at": expires_iso(url),
-                "http_headers": fmt.get("http_headers") or {},
-            }
-        )
-        if len(out) >= 3:
-            break
-    return out
+        size = fmt.get("filesize") or fmt.get("filesize_approx")
+        return {
+            "source": "ytdlp",
+            "url": url,
+            "mime": fmt.get("mime_type") or f"{'video' if has_video else 'audio'}/{ext}",
+            "ext": ext,
+            "quality": str(fmt.get("format_note") or (f"{acodec} {int(abr)}k" if abr else ext)),
+            "bitrate_kbps": int(abr) if abr else None,
+            "has_video": has_video,
+            "size_bytes": int(size) if size else None,
+            "expires_at": expires_iso(url),
+            "http_headers": fmt.get("http_headers") or {},
+        }
+
+    # Prefer different containers before a second rendition of the same type,
+    # but keep more than one candidate so codec/network failure can fail over.
+    def diverse(items: list[dict[str, Any]], limit: int = 4) -> list[dict[str, Any]]:
+        first: list[dict[str, Any]] = []
+        rest: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in items:
+            ext = str(item.get("ext") or "bin")
+            (rest if ext in seen else first).append(item)
+            seen.add(ext)
+        return (first + rest)[:limit]
+
+    return [convert(fmt) for fmt in diverse(audio) + diverse(video)]
 
 
 def format_manifest(video_id: str) -> dict[str, Any]:

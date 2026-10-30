@@ -15,6 +15,11 @@ internal static class Program
         using var host = new LocalSearchHost();
         using var http = new HttpClient();
         App.SearchService = new GatewaySearchClient(http, host.GetEndpointAsync);
+        App.PlaybackResolver = new GatewayPlaybackClient(http, host.GetEndpointAsync);
+        var media = new VlcMediaDevice();
+        App.MediaDevice = media;
+        App.VideoSurfaceFactory = media.CreateVideoSurface;
+        App.DesktopTransportFactory = WindowsTransport.TryAttach;
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 

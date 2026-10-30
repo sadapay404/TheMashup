@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -14,6 +15,11 @@ public partial class App : Application
     public static IThemeStore? ThemeStore { get; set; }
     public static ILibraryStore? LibraryStore { get; set; }
     public static ISearchService? SearchService { get; set; }
+    public static IPlaybackResolver? PlaybackResolver { get; set; }
+    public static IMediaDevice? MediaDevice { get; set; }
+    public static Func<Control>? VideoSurfaceFactory { get; set; }
+    public static Action<double, double, double, double, bool>? VideoBoundsChanged { get; set; }
+    public static Func<Window, PlaybackController, IDisposable?>? DesktopTransportFactory { get; set; }
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -25,12 +31,19 @@ public partial class App : Application
         selection.Changed += (_, _) => ApplyTheme(selection.Current);
         var library = new Library(LibraryStore ??
             throw new InvalidOperationException("A platform library store is required."));
-        var model = new ShellViewModel(selection, library, SearchService);
+        var model = new ShellViewModel(selection, library, SearchService, PlaybackResolver, MediaDevice);
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow { DataContext = model };
-            desktop.Exit += (_, _) => model.Search.Dispose();
+            var window = new MainWindow { DataContext = model };
+            desktop.MainWindow = window;
+            IDisposable? transport = null;
+            window.Opened += (_, _) =>
+            {
+                if (model.Player.Controller is { } controller)
+                    transport = DesktopTransportFactory?.Invoke(window, controller);
+            };
+            desktop.Exit += (_, _) => { transport?.Dispose(); model.Search.Dispose(); model.Player.Dispose(); };
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime browser)
             browser.MainView = new MainView { DataContext = model };

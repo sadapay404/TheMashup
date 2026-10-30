@@ -28,7 +28,7 @@ export interface ResolverClient {
     warnings: string[];
   }>;
   suggest(query: string, limit: number): Promise<string[]>;
-  streams(videoId: string): Promise<ResolverStreamsResponse>;
+  streams(videoId: string, options?: { mode?: "audio" | "video"; after?: "" | "ytdlp" | "piped" | "invidious"; refresh?: boolean }): Promise<ResolverStreamsResponse>;
   formats(videoId: string): Promise<FormatManifest>;
   meta(videoId: string): Promise<Track>;
   related(videoId: string): Promise<Track[]>;
@@ -93,7 +93,14 @@ export const httpResolver: ResolverClient = {
     );
     return r.suggestions ?? [];
   },
-  streams: (videoId) => callResolver(`/streams/${encodeURIComponent(videoId)}`),
+  streams: (videoId, options = {}) => {
+    const query = new URLSearchParams();
+    if (options.mode) query.set("mode", options.mode);
+    if (options.after) query.set("after", options.after);
+    if (options.refresh) query.set("refresh", "true");
+    const suffix = query.toString();
+    return callResolver(`/streams/${encodeURIComponent(videoId)}${suffix ? `?${suffix}` : ""}`);
+  },
   formats: (videoId) => callResolver(`/formats/${encodeURIComponent(videoId)}`),
   meta: (videoId) => callResolver(`/meta/${encodeURIComponent(videoId)}`),
   related: async (videoId) => {

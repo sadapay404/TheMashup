@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import struct
 
 from .config import MOCK_PUBLIC_URL
@@ -93,7 +94,7 @@ def streams(video_id: str) -> dict:
         raise KeyError(f"unknown mock track {video_id}")
     base = f"{MOCK_PUBLIC_URL}/mock/audio/{video_id}"
     headers = {"User-Agent": "TheMashup-Mock/0.1", "Referer": "https://www.youtube.com/"}
-    return {
+    result = {
         "candidates": [
             {
                 "source": "ytdlp",
@@ -130,6 +131,19 @@ def streams(video_id: str) -> dict:
         "related": [f for f in [_to_track(x, "video") for x in _FIXTURES] if f["id"] != video_id],
         "raw": {"mock": True},
     }
+
+    # A small synthetic A/V file is used only in explicit fixture tests.
+    if os.getenv("THEMASHUP_FIXTURE_VIDEO") == "1":
+        result["candidates"].append({
+            "source": "ytdlp", "url": f"{base}?fmt=video", "mime": "video/webm",
+            "ext": "webm", "quality": "synthetic video", "has_video": True, "http_headers": headers,
+        })
+    # Exercise dead-candidate → next-candidate in the actual browser player.
+    if os.getenv("THEMASHUP_FIXTURE_DEAD_FIRST") == "1":
+        candidates = result["candidates"]
+        dead = [c for c in candidates if c.get("quality") == "broken 64k"]
+        result["candidates"] = dead + [c for c in candidates if c not in dead]
+    return result
 
 
 def formats(video_id: str) -> dict:
@@ -176,7 +190,7 @@ def artist(channel_id: str) -> dict:
 _wav_cache: dict[str, bytes] = {}
 
 
-def wav(video_id: str, fmt: str = "opus", seconds: int = 6, rate: int = 8000) -> bytes:
+def wav(video_id: str, fmt: str = "opus", seconds: int = 30, rate: int = 8000) -> bytes:
     key = f"{video_id}:{fmt}"
     cached = _wav_cache.get(key)
     if cached:

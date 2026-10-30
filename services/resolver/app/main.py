@@ -8,6 +8,9 @@ Every public endpoint degrades gracefully and reports which source answered.
 from __future__ import annotations
 
 import time
+import os
+from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -119,86 +122,68 @@ def suggest(q: str = Query(min_length=1, max_length=200), limit: int = Query(8, 
 # ── streams (primary: yt-dlp → piped → invidious) ────────────────────────────
 
 @app.get("/streams/{video_id}")
-def streams(video_id: str) -> dict:
-    key = ("streams", video_id)
-    cached = cache.get(key)
+def streams(video_id: str, mode: Literal["audio", "video"] = "audio",
+            after: Literal["", "ytdlp", "piped", "invidious"] = "",
+            refresh: bool = False) -> dict:
+    """Resolve in strict priority order, including after *playback* failure.
+
+    `after` is used only after all candidates from that source have failed;
+    it does not turn a fallback into the primary source. Signed URLs have a
+    short cache lifetime and can be refreshed explicitly after a failure.
+    """
+    key = ("streams", video_id, mode, after)
+    cached = None if refresh else cache.get(key)
     if cached:
         return cached
-
-    warnings: list[str] = []
     started = time.monotonic()
+    warnings: list[str] = []
 
     if config.MOCK:
         try:
             raw = mock.streams(video_id)
         except KeyError as exc:
-            raise HTTPException(404, detail=str(exc)) from exc
-        out = {
-            "video_id": video_id,
-            "candidates": raw["candidates"],
-            "resolution_ms": int((time.monotonic() - started) * 1000),
-            "degraded": False,
-            "warnings": ["mock_mode"],
-            "related": raw["related"],
-        }
-        cache.set(key, out, ttl=300)
+            raise HTTPException(404, detail="Unknown fixture track") from exc
+        # Video exists only when the explicit synthetic A/V fixture is enabled.
+        candidates = [c for c in raw["candidates"] if bool(c.get("has_video")) == (mode == "video")]
+        if after or not candidates:
+            raise HTTPException(502, detail={"code": "STREAM_RESOLUTION_FAILED", "warnings": ["mock_mode"]})
+        out = {"video_id": video_id, "candidates": candidates,
+               "resolution_ms": int((time.monotonic() - started) * 1000),
+               "degraded": False, "warnings": ["mock_mode"], "related": raw["related"]}
+        cache.set(key, out, ttl=60)
         return out
 
-    # 1) yt-dlp direct (PRIMARY)
-    try:
-        candidates = ytdlp_source.stream_candidates(video_id)
-        if candidates:
-            out = {
-                "video_id": video_id,
-                "candidates": candidates,
-                "resolution_ms": int((time.monotonic() - started) * 1000),
-                "degraded": False,
-                "warnings": [],
-            }
-            # Short TTL: googlevideo URLs expire (usually ~6h).
-            cache.set(key, out, ttl=60 * 60)
+    sources = (
+        ("ytdlp", lambda: {"candidates": ytdlp_source.stream_candidates(video_id)}),
+        ("piped", lambda: piped.streams(video_id)),
+        ("invidious", lambda: invidious.streams(video_id)),
+    )
+    start = config.SOURCE_PRIORITY.index(after) + 1 if after else 0
+    for name, resolve in sources[start:]:
+        try:
+            raw = resolve()
+            candidates = raw.get("candidates") or []
+            if mode == "video":
+                candidates = [c for c in candidates if c.get("has_video") is True]
+            else:
+                # Audio-only first. A progressive stream is still usable for
+                # audio when the player disables its video output.
+                candidates = sorted(candidates, key=lambda c: bool(c.get("has_video")))
+            if not candidates:
+                warnings.append(f"{name}_empty")
+                continue
+            out = {"video_id": video_id, "candidates": candidates,
+                   "resolution_ms": int((time.monotonic() - started) * 1000),
+                   "degraded": name != "ytdlp", "warnings": warnings + ([f"{name}_fallback"] if name != "ytdlp" else [])}
+            if raw.get("related") is not None:
+                out["related"] = raw["related"]
+            # Do not retain signed URLs for an hour or forever. Refresh on a
+            # subsequent playback attempt; URLs may expire early upstream.
+            cache.set(key, out, ttl=60)
             return out
-        warnings.append("ytdlp_empty")
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"ytdlp_failed: {exc}")
-
-    # 2) Piped mirrors
-    try:
-        raw = piped.streams(video_id)
-        if raw["candidates"]:
-            out = {
-                "video_id": video_id,
-                "candidates": raw["candidates"],
-                "resolution_ms": int((time.monotonic() - started) * 1000),
-                "degraded": True,
-                "warnings": warnings + ["piped_fallback"],
-                "related": raw["related"],
-            }
-            cache.set(key, out, ttl=30 * 60)
-            return out
-        warnings.append("piped_empty")
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"piped_failed: {exc}")
-
-    # 3) Invidious mirrors
-    try:
-        raw = invidious.streams(video_id)
-        if raw["candidates"]:
-            out = {
-                "video_id": video_id,
-                "candidates": raw["candidates"],
-                "resolution_ms": int((time.monotonic() - started) * 1000),
-                "degraded": True,
-                "warnings": warnings + ["invidious_fallback"],
-                "related": raw["related"],
-            }
-            cache.set(key, out, ttl=30 * 60)
-            return out
-        warnings.append("invidious_empty")
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"invidious_failed: {exc}")
-
-    raise HTTPException(502, detail={"code": "STREAM_RESOLUTION_FAILED", "video_id": video_id, "warnings": warnings})
+        except Exception:  # noqa: BLE001 — do not expose upstream URLs or headers in warnings
+            warnings.append(f"{name}_failed")
+    raise HTTPException(502, detail={"code": "STREAM_RESOLUTION_FAILED", "warnings": warnings})
 
 
 # ── formats / metadata / related / artist / charts ───────────────────────────
@@ -349,7 +334,14 @@ def mock_audio(request: Request, video_id: str, fmt: str = "opus") -> Response:
         raise HTTPException(404)
     if fmt == "dead":
         raise HTTPException(404, detail="deliberately dead mock candidate")
-    blob = mock.wav(video_id, fmt)
+    if fmt == "video":
+        if os.getenv("THEMASHUP_FIXTURE_VIDEO") != "1":
+            raise HTTPException(404)
+        blob = (Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "synthetic-av.webm").read_bytes()
+        media_type = "video/webm"
+    else:
+        blob = mock.wav(video_id, fmt)
+        media_type = "audio/wav"
     total = len(blob)
     headers = {"Accept-Ranges": "bytes", "Cache-Control": "no-store"}
     range_header = request.headers.get("range")
@@ -365,9 +357,9 @@ def mock_audio(request: Request, video_id: str, fmt: str = "opus") -> Response:
         chunk = blob[start : end + 1]
         headers["Content-Range"] = f"bytes {start}-{end}/{total}"
         headers["Content-Length"] = str(len(chunk))
-        return Response(chunk, status_code=206, media_type="audio/wav", headers=headers)
+        return Response(chunk, status_code=206, media_type=media_type, headers=headers)
     headers["Content-Length"] = str(total)
-    return Response(blob, media_type="audio/wav", headers=headers)
+    return Response(blob, media_type=media_type, headers=headers)
 
 
 # ── download manager (Phase 5) ───────────────────────────────────────────────

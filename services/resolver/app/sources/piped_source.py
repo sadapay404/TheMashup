@@ -82,8 +82,27 @@ class PipedSource:
                     "http_headers": {"User-Agent": "Mozilla/5.0 (TheMashup)", "Referer": "https://www.youtube.com/"},
                 }
             )
-        # Highest bitrate first.
+        # Piped's videoStreams include both video-only and progressive streams.
+        # Only explicitly multiplexed streams can play audio and picture together.
         candidates.sort(key=lambda c: c.get("bitrate_kbps") or 0, reverse=True)
+        videos = []
+        for v in data.get("videoStreams") or []:
+            if v.get("videoOnly") is not False or not v.get("url"):
+                continue
+            url = v["url"]
+            mime = v.get("mimeType") or "video/mp4"
+            bitrate = v.get("bitrate")
+            videos.append({
+                "source": "piped", "url": url, "mime": mime,
+                "ext": "webm" if "webm" in mime else "mp4",
+                "quality": str(v.get("quality") or "video"),
+                "bitrate_kbps": int(bitrate // 1000) if isinstance(bitrate, (int, float)) and bitrate > 0 else None,
+                "has_video": True,
+                "size_bytes": int(v["contentLength"]) if str(v.get("contentLength") or "").isdigit() else None,
+                "expires_at": expires_iso(url),
+                "http_headers": {"User-Agent": "Mozilla/5.0 (TheMashup)", "Referer": "https://www.youtube.com/"},
+            })
+        candidates.extend(videos[:4])
         related = [t for t in (_item_to_track(i, "video") for i in data.get("relatedStreams") or []) if t]
         return {"candidates": candidates, "related": related, "raw": data}
 

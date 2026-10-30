@@ -1,15 +1,17 @@
-// Private, search-only Express head. The browser reaches it only through the
-// same-origin host; no auth, downloads, library or stream endpoints are exposed.
+// Private Express head. The browser reaches search/playback only through the
+// same-origin host; no auth, downloads or library endpoints are exposed.
 import express from "express";
 import { httpResolver } from "./services/resolverClient.js";
 import { searchRouter } from "./routes/search.js";
 import { lyricsRouter } from "./routes/lyrics.js";
+import { windowsPlaybackRouter } from "./routes/windowsPlayback.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.js";
 
 const app = express();
 app.disable("x-powered-by");
 app.use("/api/search", searchRouter(httpResolver));
 app.use("/api/lyrics", lyricsRouter(httpResolver));
+app.use("/api/playback", express.json({ limit: "2kb", strict: true }), windowsPlaybackRouter(httpResolver));
 app.use(notFoundHandler);
 app.use(errorHandler);
 const server = app.listen(0, "127.0.0.1", () => {

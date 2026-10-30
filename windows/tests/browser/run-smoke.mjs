@@ -8,7 +8,7 @@ const webroot = process.argv[2];
 if (!webroot) throw new Error('Browser webroot is required');
 const host = spawn(process.execPath, ['services/host.mjs', '--preview', '--webroot', webroot, '--bind', '127.0.0.1', '--port', '8080'], {
   cwd: process.cwd(),
-  env: { ...process.env, RESOLVER_MOCK: '1', MOCK_UPSTREAM: '1' },
+  env: { ...process.env, RESOLVER_MOCK: '1', MOCK_UPSTREAM: '1', THEMASHUP_FIXTURE_DEAD_FIRST: '1', THEMASHUP_FIXTURE_VIDEO: '1' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 host.stderr.pipe(process.stderr);

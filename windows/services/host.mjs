@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Development host for the Avalonia browser/desktop heads. Python and Express
-// bind to loopback on OS-assigned ports; only four GET routes are proxied.
+// bind to loopback on OS-assigned ports; only explicitly allowed routes are proxied.
 // Final Windows distribution must bundle these runtimes/dependencies; this
 // development script does not produce an EXE or perform that packaging.
 import { spawn } from 'node:child_process';
 import { createReadStream } from 'node:fs';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
@@ -31,6 +32,7 @@ const tsx = path.join(repo, 'apps/api/node_modules/tsx/dist/cli.mjs');
 const children = [];
 let server;
 let closing = false;
+const sessionToken = randomBytes(24).toString('base64url');
 
 function shutdown(code = 0) {
   if (closing) return;
@@ -87,8 +89,9 @@ const mime = {
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ico': 'image/x-icon',
 };
 function error(res, status) {
-  if (!res.headersSent) res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(status === 404 ? 'Not found' : status === 405 ? 'Method not allowed' : 'Service unavailable');
+  if (res.headersSent) return res.destroy();
+  res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(status === 404 ? 'Not found' : status === 405 ? 'Method not allowed' : status === 403 ? 'Forbidden' : status === 413 ? 'Request too large' : status === 400 ? 'Bad request' : 'Service unavailable');
 }
 
 try {
@@ -103,25 +106,78 @@ try {
       ALLOW_DEV_AUTH: '0', LOG_LEVEL: 'error' },
   }, 'THEMASHUP_GATEWAY_PORT');
 
-  server = http.createServer(async (req, res) => {
+  async function handleRequest(req, res) {
     let url;
     try { url = new URL(req.url || '/', 'http://local.invalid'); }
     catch { return error(res, 404); }
+    // A desktop loopback server must reject DNS-rebinding hostnames. Preview
+    // uses the caller's proxied host and is protected by the session token.
+    if (!preview) {
+      const address = server.address();
+      if (!address || typeof address === 'string' || req.headers.host !== `127.0.0.1:${address.port}`)
+        return error(res, 403);
+    }
     if (url.pathname.startsWith('/api/')) {
-      if (!allowedApi.has(url.pathname)) return error(res, 404);
-      if (req.method !== 'GET') return error(res, 405);
-      // Never forward cookies, authorization or browser-supplied proxy headers.
-      const upstream = http.request({ hostname: '127.0.0.1', port: gatewayPort, method: 'GET',
-        path: `${url.pathname}${url.search}`, headers: { Accept: 'application/json' }, timeout: 35_000 }, (result) => {
-        res.writeHead(result.statusCode || 502, {
-          'Content-Type': result.headers['content-type'] || 'application/json', 'Cache-Control': 'no-store',
+      if (url.pathname === '/api/playback/session' && req.method === 'GET' && !url.search) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ session: sessionToken }));
+        return;
+      }
+      const resolving = url.pathname === '/api/playback/resolve' && req.method === 'POST' && !url.search;
+      const streaming = /^\/api\/playback\/stream\/[A-Za-z0-9_-]{24}$/.test(url.pathname) &&
+        ['GET', 'HEAD'].includes(req.method || '') && !url.search;
+      if (resolving) {
+        const token = req.headers['x-themashup-session'];
+        if (typeof token !== 'string' || Buffer.byteLength(token) !== Buffer.byteLength(sessionToken) ||
+            !timingSafeEqual(Buffer.from(token), Buffer.from(sessionToken))) return error(res, 403);
+        if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) return error(res, 403);
+      } else if (!streaming) {
+        if (!allowedApi.has(url.pathname)) return error(res, 404);
+        if (req.method !== 'GET') return error(res, 405);
+      }
+      const headers = resolving ? { 'Content-Type': 'application/json' } :
+        streaming ? (typeof req.headers.range === 'string' ? { Range: req.headers.range } : {}) : { Accept: 'application/json' };
+      // Do not forward browser cookies, auth, origin or proxy headers. A
+      // resolution POST has a small bounded body; stream responses remain
+      // streaming and retain Range metadata through this outer host.
+      const forward = (body) => {
+        const upstream = http.request({ hostname: '127.0.0.1', port: gatewayPort,
+          method: req.method, path: `${url.pathname}${url.search}`, headers, timeout: 35_000 }, (result) => {
+          upstream.setTimeout(0); // timeout applies to response headers, not the media body
+          const outgoing = { 'Cache-Control': 'no-store' };
+          for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'x-content-type-options']) {
+            if (result.headers[name]) outgoing[name] = result.headers[name];
+          }
+          res.writeHead(result.statusCode || 502, outgoing);
+          result.on('error', () => res.destroy());
+          result.pipe(res);
         });
-        result.pipe(res);
+        upstream.on('timeout', () => upstream.destroy());
+        upstream.on('error', () => { if (!res.destroyed) error(res, 502); });
+        req.on('aborted', () => upstream.destroy());
+        res.on('close', () => upstream.destroy());
+        upstream.end(body);
+      };
+      if (!resolving) { forward(); return; }
+      let length = 0;
+      let tooLarge = false;
+      const chunks = [];
+      // Use flowing mode rather than an async iterator: exiting an iterator on
+      // an oversized/aborted upload destroys the socket before a 413 is sent,
+      // and an unhandled iterator rejection can terminate the host.
+      req.on('data', chunk => {
+        if (tooLarge) return; // drain the remainder without buffering it
+        length += chunk.length;
+        if (length > 2048) {
+          tooLarge = true;
+          chunks.length = 0;
+          if (!res.destroyed) error(res, 413);
+        } else chunks.push(chunk);
       });
-      upstream.on('timeout', () => upstream.destroy());
-      upstream.on('error', () => error(res, 502));
-      req.on('aborted', () => upstream.destroy());
-      upstream.end();
+      req.once('error', () => { if (!res.destroyed) error(res, 400); });
+      req.once('end', () => {
+        if (!tooLarge && !res.destroyed && !req.aborted) forward(Buffer.concat(chunks));
+      });
       return;
     }
     if (!webroot || !['GET', 'HEAD'].includes(req.method || '')) return error(res, 404);
@@ -138,6 +194,9 @@ try {
       if (req.method === 'HEAD') return res.end();
       createReadStream(actual).on('error', () => res.destroy()).pipe(res);
     } catch { error(res, 404); }
+  }
+  server = http.createServer((req, res) => {
+    void handleRequest(req, res).catch(() => { if (!res.destroyed) error(res, 500); });
   });
   await new Promise((resolve, reject) => {
     server.once('error', reject);

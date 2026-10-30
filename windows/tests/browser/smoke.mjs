@@ -8,6 +8,11 @@ const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 const errors = [];
 const expectedRendererFallbacks = [];
+const failedFixtureStreams = [];
+page.on('response', response => {
+  if (response.url().includes('/api/playback/stream/') && response.status() === 410)
+    failedFixtureStreams.push(response.url());
+});
 let testStage = 'initial render and themes';
 page.on('pageerror', error => errors.push(error.message));
 page.on('console', message => {
@@ -17,7 +22,10 @@ page.on('console', message => {
   // The test still verifies that a real, interactive UI renders afterward.
   if (/^Failed to create render target for mode [23] : HTMLCanvasElement\.getContext returned null\.$/.test(text))
     expectedRendererFallbacks.push(text);
-  else errors.push(text);
+  else if (testStage.startsWith('fixture playback') &&
+      /^Failed to load resource: the server responded with a status of 410/.test(text)) {
+    // The integration fixture intentionally supplies one dead stream first.
+  } else errors.push(text);
 });
 await mkdir('tests/browser/screenshots', { recursive: true });
 
@@ -157,6 +165,88 @@ try {
   await page.waitForTimeout(600);
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/search.png' });
 
+  testStage = 'fixture playback search';
+  if (await searchInput.count() && await searchInput.first().isVisible()) {
+    await searchInput.first().fill('midnight');
+  } else {
+    await page.mouse.click(450, 207);
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('midnight');
+  }
+  const playbackSearchReply = page.waitForResponse(response =>
+    response.url().includes('/api/search?') && response.url().includes('midnight'), { timeout: 30000 });
+  await clickButton('Search music action', 1300, 207);
+  assert.equal((await playbackSearchReply).status(), 200);
+  await page.waitForTimeout(1200);
+
+  testStage = 'fixture playback audio failover';
+  const libraryKey = 'themashup.windows.library';
+  let searchRowY = null;
+  const playResult = page.getByRole('button', { name: 'Play search result', exact: true });
+  if (await playResult.count() && await playResult.first().isVisible()) {
+    const box = await playResult.first().boundingBox();
+    searchRowY = box ? box.y + box.height / 2 : null;
+    await playResult.first().click();
+  } else {
+    // Avalonia's canvas does not expose every accessibility node on every
+    // browser version. Click only in the title column until play-now persists.
+    for (const y of [440, 470, 500, 530, 560, 590, 620]) {
+      await page.mouse.click(470, y);
+      await page.waitForTimeout(400);
+      const queued = await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}').queue?.items?.length || 0, libraryKey);
+      if (queued) { searchRowY = y; break; }
+    }
+  }
+  await page.waitForFunction(key => JSON.parse(localStorage.getItem(key) || '{}').history?.length === 1, libraryKey, { timeout: 30_000 });
+  await page.waitForFunction(() => {
+    const video = document.querySelector('#browser-video-host video');
+    return video && !video.paused && video.currentTime > 0 && video.readyState >= 2;
+  }, null, { timeout: 30_000 });
+  assert.ok(failedFixtureStreams.length >= 1, 'the dead first stream must be tried before successful audio');
+  const audio = await page.evaluate(() => {
+    const video = document.querySelector('#browser-video-host video');
+    return { src: video.currentSrc, attempt: video.dataset.attempt, time: video.currentTime };
+  });
+  assert.equal(new URL(audio.src).origin, new URL(url).origin);
+  assert.match(new URL(audio.src).pathname, /^\/api\/playback\/stream\//);
+
+  testStage = 'fixture playback explicit queue';
+  const addResult = page.getByRole('button', { name: 'Add song to queue', exact: true });
+  if (await addResult.count() && await addResult.first().isVisible()) await addResult.first().click();
+  else {
+    assert.notEqual(searchRowY, null, 'the title-row position is needed for the canvas queue control');
+    await page.mouse.click(1320, searchRowY);
+  }
+  await page.waitForFunction(key => JSON.parse(localStorage.getItem(key) || '{}').queue?.items?.length === 2, libraryKey, { timeout: 10_000 });
+  const afterQueue = await page.evaluate(key => ({
+    library: JSON.parse(localStorage.getItem(key)),
+    attempt: document.querySelector('#browser-video-host video')?.dataset.attempt,
+  }), libraryKey);
+  assert.equal(afterQueue.library.queue.currentIndex, 0);
+  assert.equal(afterQueue.library.history.length, 1);
+  assert.equal(afterQueue.attempt, audio.attempt, 'adding one queue item must not interrupt playback');
+
+  testStage = 'fixture playback video mode';
+  await clickButton('Switch audio or video', 1245, 875);
+  await page.waitForFunction(() => {
+    const host = document.getElementById('browser-video-host');
+    const video = host?.querySelector('video');
+    const bounds = host?.getBoundingClientRect();
+    return video && !video.paused && video.videoWidth > 0 && video.videoHeight > 0 &&
+      getComputedStyle(host).display !== 'none' && bounds.width > 0 && bounds.height > 0;
+  }, null, { timeout: 30_000 });
+  testStage = 'fixture playback pause and resume';
+  await clickButton('Play or pause', 1229, 827);
+  await page.waitForFunction(() => document.querySelector('#browser-video-host video')?.paused, null, { timeout: 10_000 });
+  await clickButton('Play or pause', 1229, 827);
+  await page.waitForFunction(() => {
+    const video = document.querySelector('#browser-video-host video');
+    return video && !video.paused;
+  }, null, { timeout: 10_000 });
+  testStage = 'fixture playback next queued song';
+  await clickButton('Next song', 1279, 827);
+  await page.waitForFunction(key => JSON.parse(localStorage.getItem(key) || '{}').queue?.currentIndex === 1, libraryKey, { timeout: 10_000 });
+
   await page.setViewportSize({ width: 760, height: 600 });
   await page.waitForTimeout(800);
   const canvas = await page.locator('#out canvas').first().boundingBox();
@@ -164,8 +254,8 @@ try {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/compact.png' });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join(' | ')}`);
   if (expectedRendererFallbacks.length) console.log(`Software renderer fallback used (${expectedRendererFallbacks.length} WebGL attempts unavailable).`);
-  console.log('PASS: Avalonia browser starts; themes and playlists persist; fixture search uses the preview origin; viewport resizes.');
-  console.log('::notice title=Windows browser checks::Five themes, playlist CRUD, same-origin fixture search and viewport resize passed (not a live-provider test).');
+  console.log('PASS: shared browser UI; themes/playlists; fixture search, actual audio failover, explicit queue, history, video, pause/resume and next; viewport resize.');
+  console.log('::notice title=Windows browser checks::Themes, playlists, fixture search, audio failover, queue/history, video and controls passed (not a live-provider or Windows runtime test).');
 } catch (error) {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');

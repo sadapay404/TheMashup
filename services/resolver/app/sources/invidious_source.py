@@ -66,6 +66,24 @@ class InvidiousSource:
                 }
             )
         candidates.sort(key=lambda c: c.get("bitrate_kbps") or 0, reverse=True)
+        # Invidious formatStreams are progressive (adaptiveFormats are not).
+        for f in (data.get("formatStreams") or [])[:4]:
+            url = f.get("url")
+            mime = str(f.get("type") or "")
+            if not url or not mime.startswith("video/"):
+                continue
+            bitrate = f.get("bitrate")
+            size = f.get("contentLength") or f.get("size")
+            candidates.append({
+                "source": "invidious", "url": url, "mime": mime,
+                "ext": "webm" if "webm" in mime else "mp4",
+                "quality": str(f.get("qualityLabel") or f.get("quality") or "video"),
+                "bitrate_kbps": int(bitrate // 1000) if isinstance(bitrate, (int, float)) and bitrate > 0 else None,
+                "has_video": True,
+                "size_bytes": int(size) if str(size or "").isdigit() else None,
+                "expires_at": expires_iso(url),
+                "http_headers": {"User-Agent": "Mozilla/5.0 (TheMashup)", "Referer": "https://www.youtube.com/"},
+            })
         related_items = data.get("recommendedVideos") or data.get("recommendations") or []
         related = [t for t in (_item_to_track(i) for i in related_items) if t]
         return {"candidates": candidates, "related": related, "raw": data}

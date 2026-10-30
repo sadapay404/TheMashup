@@ -1,13 +1,18 @@
 # TheMashup for Windows — separate rebuild
 
-**Status: phase W3 development.** The Avalonia Windows/browser UI has local
-playlists, likes and an explicit queue, plus a real catalog/search integration,
-suggestions, lyric-line discovery and LRCLIB lyrics lookup. Playback, Home
-recommendations and downloads are not connected yet. Search does not start music
-or autoqueue results. The Windows managed build is a development build, not a
-self-contained Windows distribution: its search host still needs Node, Python and
-the installed monorepo dependencies until future packaging work. No executable,
-installer, Android build or APK is produced here.
+**Status: phase W4 development.** The shared Avalonia UI has local playlists,
+likes, an explicit queue, catalog/lyrics search and a playback controller. Search
+results can play one song or add that song to the queue separately. The desktop
+head uses a native LibVLC player and Windows media-control integration; the
+browser head uses an HTML media element as a shared-UI preview. These are not
+equivalent platforms: browser fixture tests do not prove native video, audio
+hardware, media keys or live provider behavior on a Windows laptop.
+
+The Windows managed build is a development build, not a self-contained Windows
+distribution. Its local search/playback host still needs Node, Python and the
+installed monorepo dependencies until future packaging work. Home account
+recommendations, radio and downloads are not yet implemented in this Windows
+rebuild. No app executable, installer, Android build or APK is produced here.
 
 The new Windows app will be developed under this top-level `windows/` directory,
 separately from `android/`, the legacy `desktop/` wrapper, and the existing
@@ -71,8 +76,8 @@ rather than silently overwriting them. Save failures are reported in the UI.
 Playlist deletion asks for confirmation and does not delete liked tracks. Search
 can explicitly like a result, add it to a playlist, or add exactly that result
 to the manual queue; none of these actions starts playback. History is recorded
-only by a future playback engine, not by search or queue actions. No track is
-presented as playing just because it is in a saved queue.
+only when the W4 player reports that playback started, not by search or queue
+actions. No track is presented as playing just because it is in a saved queue.
 
 To reduce visual clutter the inactive player/now-playing placeholders are hidden
 until there is real playback. This is a layout simplification, not a measured
@@ -90,12 +95,12 @@ performance claim; responsiveness and playback must be profiled on Windows later
   Genius can change/block this unofficial endpoint and its terms apply. Search
   text is sent to the relevant catalog, suggestion and lyric-search providers.
 - Lyrics for a selected result are requested from LRCLIB by metadata. Plain and
-  timestamped lines can be displayed, but playback-driven highlighting is not
-  implemented until the player exists. A provider outage is distinct from a
-  successful empty result.
-- The browser calls its own origin only. A preview host starts a search-only
-  Express gateway and FastAPI resolver on loopback and proxies four read-only
-  endpoints; it does not expose the monorepo's download, account or stream APIs.
+  timestamped lines can be displayed. In W4 the active timestamped line follows
+  the current playing song and seeks; plain lyrics remain plain. A provider
+  outage is distinct from a successful empty result.
+- The browser calls its own origin only. A preview host starts an Express gateway
+  and FastAPI resolver on loopback. W4 adds the narrowly scoped playback endpoints
+  described below; it does not expose the monorepo's download or account APIs.
   The desktop development head starts this host on demand without requiring a
   separate PC/LAN gateway or manual service startup. **Bundling and lifecycle/
   security validation of the runtimes on Windows remain future work.** Without
@@ -104,6 +109,49 @@ performance claim; responsiveness and playback must be profiled on Windows later
   They test behavior and wiring, not live YouTube, Genius, LRCLIB, fallback
   availability, Windows execution or performance. The user deferred the next
   preview; do not describe fixture data as live music.
+
+## W4 playback boundaries
+
+- The player resolves YouTube extraction (`yt-dlp`) first. After failed candidates
+  it requests Piped, then Invidious; it retries candidates from each source before
+  moving on. Provider limitations, account/region restrictions and upstream
+  changes can prevent playback. A stalled/failed track is bounded and may advance
+  to explicitly queued songs rather than looping forever.
+- Video currently means a **progressive single stream containing both video and
+  audio**. If none can be found, the player reports the issue and attempts audio.
+  Separate adaptive video/audio tracks, downloads and quality selection are not
+  implemented yet. Switching modes aims to preserve the position.
+- Clicking a search result plays only that track, putting the previously current
+  song immediately after it. Queue adds exactly one track without interrupting
+  playback. The current track appears in the queue; history is written after an
+  actual player `Playing` event. Saved/queued/history rows can be played.
+- Desktop uses LibVLCSharp plus the Windows x64 `VideoLAN.LibVLC.Windows` runtime,
+  with an Avalonia video surface and an HWND-bound Windows media-controls adapter.
+  The browser uses a same-origin HTML media element and is a preview, not a
+  Windows WebView or a substitute for device testing. Browser autoplay restrictions
+  can require the user to press Play. Desktop media keys, audio devices, native
+  video composition, GPU behavior and actual Windows 10/11 execution still need
+  real-device validation; a synthetic native audio fixture is not a full app test.
+- The gateway issues short-lived opaque stream URLs; it keeps provider URLs and
+  request headers server-side, accepts only selected media hosts, restricts any
+  upstream redirects to those same approved hosts, forwards a single bounded-form Range header, and applies session,
+  same-origin and loopback Host checks to resolution. Tokens are bearer URLs for
+  playback and should not be logged/shared. The desktop backend is a child of the
+  app, not a separate PC or LAN gateway. Final runtime packaging remains W6/W7.
+- The deterministic browser integration uses synthetic WAV and VP8/Vorbis media,
+  including an intentionally dead first candidate. Fixture test flags cannot make
+  this content appear in a normal live resolver. Passing fixtures does **not**
+  establish live-provider availability or prove performance on a Windows laptop.
+
+### Third-party distribution review (before packaging)
+
+LibVLCSharp is LGPL-2.1; the selected non-GPL `VideoLAN.LibVLC.Windows` NuGet
+package is its LGPL-oriented Windows runtime, with native codec/plugin licenses
+that must also be inventoried. Before distributing anything, include the required
+license notices, corresponding-source/access and replaceability/relinking
+information, verify every shipped native plugin and codec, and separately review
+any bundled FFmpeg build and other dependencies. These notes are not a completed
+legal compliance review; no executable or installer is authorized in W4.
 
 ## Google Cloud Shell preview (deferred)
 
@@ -117,7 +165,7 @@ preview is the actual shared Avalonia UI, not a separate mockup. No EXE is built
 When a preview is requested, first check that `/tmp` has several gigabytes free
 and that Node.js, npm and Python 3 (with `venv`) are available. The script
 installs the existing API and resolver dependencies in temporary storage and
-starts their local search-only host automatically. This setup installs the SDK and
+starts their local search/playback host automatically. This setup installs the SDK and
 its WebAssembly workload outside the home directory:
 
 ```bash

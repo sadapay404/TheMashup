@@ -8,12 +8,15 @@
       <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
               BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,0,0,8">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-          <StackPanel Spacing="3" VerticalAlignment="Center">
-            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-            <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
-            <TextBlock Text="{Binding Snippet}" IsVisible="{Binding HasSnippet}" Classes="subtle" FontSize="11" TextWrapping="Wrap" />
-            <TextBlock Text="No matching catalog track yet" IsVisible="{Binding IsUnmatched}" Classes="subtle" FontSize="11" />
-          </StackPanel>
+          <Button Classes="track-title" Command="{Binding PlayCommand}" IsEnabled="{Binding CanPlay}"
+                  VerticalAlignment="Center" AutomationProperties.Name="Play search result">
+            <StackPanel Spacing="3">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{Binding Snippet}" IsVisible="{Binding HasSnippet}" Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+              <TextBlock Text="No matching catalog track yet" IsVisible="{Binding IsUnmatched}" Classes="subtle" FontSize="11" />
+            </StackPanel>
+          </Button>
           <WrapPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
             <Button Classes="secondary" Content="Lyrics" Command="{Binding LyricsCommand}" Margin="3,3"
                     AutomationProperties.Name="View song lyrics" />
@@ -31,18 +34,21 @@
       <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
               BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,7">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-          <StackPanel Spacing="2" VerticalAlignment="Center">
-            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-            <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
-          </StackPanel>
+          <Button Classes="track-title" Command="{Binding PlayCommand}" IsEnabled="{Binding CanPlay}"
+                  VerticalAlignment="Center" AutomationProperties.Name="Play saved song">
+            <StackPanel Spacing="2">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+          </Button>
           <Button Grid.Column="1" Classes="secondary" Content="Remove" Command="{Binding RemoveCommand}"
-                  AutomationProperties.Name="Remove saved song" />
+                  IsVisible="{Binding CanRemove}" AutomationProperties.Name="Remove saved song" />
         </Grid>
       </Border>
     </DataTemplate>
   </UserControl.Resources>
-  <Grid>
-    <Grid>
+  <Grid RowDefinitions="*,Auto,Auto">
+    <Grid Grid.Row="0">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="{Binding SidebarWidth}" />
         <ColumnDefinition Width="*" />
@@ -187,7 +193,7 @@
                   </StackPanel>
                 </Border>
               </Grid>
-              <TextBlock Text="Search is available in the development preview. Playback, recommendations, and downloads are still being built."
+              <TextBlock Text="Search and playback are available in development. Account recommendations and downloads are still being built."
                          Classes="subtle" FontSize="11" TextWrapping="Wrap" />
             </StackPanel>
 
@@ -302,8 +308,19 @@
                        AutomationProperties.Name="Queued songs">
                 <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
               </ListBox>
-              <TextBlock Text="Adding a song to the queue does not start playback. Listening history will appear after the player is connected."
+              <TextBlock Text="Adding a song to the queue never interrupts playback. The current song is included above."
                          Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+              <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding Search.HasHistoryTracks}">
+                <TextBlock Text="Recently played" FontSize="18" FontWeight="Bold" />
+                <Button Grid.Column="1" Classes="secondary" Content="Clear history" Command="{Binding Search.ClearHistoryCommand}"
+                        IsEnabled="{Binding CanEditLibrary}" AutomationProperties.Name="Clear listening history" />
+              </Grid>
+              <ListBox ItemsSource="{Binding Search.HistoryTracks}" IsVisible="{Binding Search.HasHistoryTracks}"
+                       ItemTemplate="{StaticResource SavedTrackTemplate}" MaxHeight="280" Background="Transparent"
+                       BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       AutomationProperties.Name="Listening history">
+                <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
+              </ListBox>
             </StackPanel>
 
             <!-- Actual search: independent catalog, suggestions, lyric search and lyric text. -->
@@ -358,6 +375,10 @@
                     <Button Grid.Column="1" Classes="secondary" Content="Close" Command="{Binding Search.CloseLyricsCommand}" AutomationProperties.Name="Close lyrics" />
                   </Grid>
                   <TextBlock Text="{Binding Search.LyricsStatus}" Classes="muted" FontSize="12" TextWrapping="Wrap" />
+                  <Border IsVisible="{Binding Search.HasActiveLyric}" Background="{DynamicResource RaisedSurface}" CornerRadius="10" Padding="12">
+                    <TextBlock Text="{Binding Search.ActiveLyric}" Foreground="{DynamicResource Accent}" FontWeight="Bold"
+                               TextWrapping="Wrap" AutomationProperties.Name="Current lyric line" />
+                  </Border>
                   <ScrollViewer MaxHeight="300" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                     <TextBlock Text="{Binding Search.LyricsText}" FontSize="13" LineHeight="22" TextWrapping="Wrap" AutomationProperties.Name="Song lyrics" />
                   </ScrollViewer>
@@ -384,7 +405,7 @@
                        AutomationProperties.Name="Lyric search results">
                 <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
               </ListBox>
-              <TextBlock Text="Playback is not connected yet. Queue adds only the selected song; it does not start music."
+              <TextBlock Text="Select a result to play it. Queue adds only that song without interrupting playback."
                          Classes="subtle" FontSize="11" TextWrapping="Wrap" />
             </StackPanel>
 
@@ -497,5 +518,44 @@
       </Grid>
 
     </Grid>
+    <!-- Native desktop video view; browser head positions an HTML video over
+         the same shared rectangle. No browser WebView is used on Windows. -->
+    <Border Grid.Row="1" IsVisible="{Binding Player.ShowVideo}" Height="220" Margin="12,8,12,0"
+            Background="#000000" CornerRadius="10" ClipToBounds="True">
+      <ContentControl x:Name="VideoSurface" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+    </Border>
+    <Border Grid.Row="2" IsVisible="{Binding Player.HasTrack}" Background="{DynamicResource SidebarBackground}"
+            BorderBrush="{DynamicResource Outline}" BorderThickness="0,1,0,0" Padding="18,9,18,10">
+      <Grid RowDefinitions="Auto,Auto" RowSpacing="7">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel VerticalAlignment="Center" Spacing="2">
+            <TextBlock Text="{Binding Player.Title}" FontWeight="Bold" FontSize="13" TextTrimming="CharacterEllipsis" />
+            <TextBlock Text="{Binding Player.Artist}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+            <TextBlock Text="{Binding Player.Status}" Classes="subtle" FontSize="10" TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+            <Button Classes="transport" Content="‹‹" Command="{Binding Player.PreviousCommand}" AutomationProperties.Name="Previous song" />
+            <Button Classes="action" Content="{Binding Player.PlayPauseText}" Command="{Binding Player.PlayPauseCommand}"
+                    IsEnabled="{Binding Player.CanToggle}" Padding="13,7" AutomationProperties.Name="Play or pause" />
+            <Button Classes="transport" Content="››" Command="{Binding Player.NextCommand}" AutomationProperties.Name="Next song" />
+            <Button Classes="transport" Content="{Binding Player.ShuffleText}" Command="{Binding Player.ShuffleCommand}"
+                    AutomationProperties.Name="Toggle shuffle" />
+            <Button Classes="transport" Content="{Binding Player.RepeatText}" Command="{Binding Player.RepeatCommand}"
+                    AutomationProperties.Name="Cycle repeat" />
+          </StackPanel>
+        </Grid>
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
+          <TextBlock Text="{Binding Player.TimeText}" Classes="muted" FontSize="10" VerticalAlignment="Center" MinWidth="76" />
+          <Slider Grid.Column="1" Minimum="0" Maximum="{Binding Player.DurationMaximum}" Value="{Binding Player.SeekPosition, Mode=TwoWay}"
+                  VerticalAlignment="Center" AutomationProperties.Name="Playback position" />
+          <Button Grid.Column="2" Classes="transport" Content="{Binding Player.VideoText}" Command="{Binding Player.VideoCommand}"
+                  AutomationProperties.Name="Switch audio or video" />
+          <Slider Grid.Column="3" Minimum="0" Maximum="100" Value="{Binding Player.Volume, Mode=TwoWay}" Width="80"
+                  VerticalAlignment="Center" AutomationProperties.Name="Volume" />
+          <Button Grid.Column="4" Classes="transport" Content="Queue" Command="{Binding NavigateCommand}" CommandParameter="library"
+                  AutomationProperties.Name="Open playback queue" />
+        </Grid>
+      </Grid>
+    </Border>
   </Grid>
 </UserControl>
