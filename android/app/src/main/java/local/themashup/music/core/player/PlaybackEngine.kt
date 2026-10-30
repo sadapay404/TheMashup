@@ -183,6 +183,33 @@ class PlaybackEngine(
         }
     }
 
+    /**
+     * N9 product rule: an unplayable track must not wedge the queue (FOSS
+     * parity — RiMusic/InnerTune-style auto-skip). Advances when a forward
+     * move exists (shuffle: any other index); otherwise parks in ERROR so the
+     * toast shows and tap-to-retry still works. Guards: no wrap at the end,
+     * no repeat-ONE loop on a dead track.
+     */
+    private fun advanceOrPark(message: String) {
+        val snapshot = _state.value
+        val (advanced, effect) = sm.next(snapshot, rng, manual = false)
+        val progressed = if (snapshot.shuffle) {
+            advanced.cursor != snapshot.cursor
+        } else {
+            advanced.cursor > snapshot.cursor
+        }
+        if (progressed && effect != null) {
+            _state.value = advanced
+            applyPlayerMirrors(advanced)
+            execute(effect)
+            return
+        }
+        val (parked, fail) = sm.onResolveFailed(snapshot, message, snapshot.warnings)
+        _state.value = parked
+        applyPlayerMirrors(parked)
+        fail?.let { execute(it) }
+    }
+
     private fun resolveAndLoad(effect: PlayerEffect.Resolve) {
         val track = effect.track
         scope.launch {
@@ -190,13 +217,8 @@ class PlaybackEngine(
                 withContext(Dispatchers.IO) { extraction().streams(track.id) }
             }
             outcome.onFailure { t ->
-                val (s, e) = sm.onResolveFailed(
-                    _state.value,
-                    t.message ?: "Extraction failed",
-                    _state.value.warnings,
-                )
-                _state.value = s
-                e?.let { execute(it) }
+                // N9: dead track → auto-advance; park only with no forward move.
+                advanceOrPark(t.message ?: "Extraction failed")
                 return@launch
             }
             val result = outcome.getOrThrow()
@@ -249,12 +271,12 @@ class PlaybackEngine(
 
     private fun ensureServiceStarted() {
         if (serviceStarted) return
-        serviceStarted = true
         try {
             appContext.startService(Intent(appContext, TheMashupPlayerService::class.java))
+            serviceStarted = true
         } catch (_: Exception) {
-            // If the app is backgrounded, media3 restarts the service with the
-            // notification; playback from foreground is the supported path.
+            // Background-start restriction — retry on the next command instead
+            // of latching the flag and never starting the notification service.
         }
     }
 
@@ -279,6 +301,11 @@ class PlaybackEngine(
 
         override fun onPlayerError(error: PlaybackException) {
             val (next, effect) = sm.onCandidateFailed(_state.value)
+            if (next.status == local.themashup.music.core.player.PlayStatus.ERROR) {
+                // N9: never wedge the queue — auto-skip to the next track.
+                advanceOrPark(next.error ?: error.message ?: "Playback failed")
+                return
+            }
             _state.value = next
             applyPlayerMirrors(next)
             effect?.let { execute(it) }

@@ -37,8 +37,12 @@ class TheMashupPlayerService : MediaSessionService() {
             audioAttributes,
         )
         engine.attachPlayer(player)
+        val sessionPi = packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
+            android.app.PendingIntent.getActivity(this, 0, launch, android.app.PendingIntent.FLAG_IMMUTABLE)
+        }
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(SessionCallback(engine))
+            .apply { sessionPi?.let { setSessionActivity(it) } }
             .build()
     }
 

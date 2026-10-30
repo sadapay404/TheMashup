@@ -64,6 +64,38 @@ jobs:
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           done
 
+      - name: Surface failing tests as annotations (API-readable)
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY' > "$RUNNER_TEMP/fails.txt" 2>&1 || true
+          import glob, xml.etree.ElementTree as ET, pathlib
+          rows = []
+          for f in glob.glob("android/app/build/test-results/**/*.xml", recursive=True):
+              try:
+                  root = ET.parse(f).getroot()
+              except Exception:
+                  continue
+              for tc in root.iter("testcase"):
+                  bad = tc.find("failure")
+                  if bad is None:
+                      bad = tc.find("error")
+                  if bad is not None:
+                      msg = (bad.get("message") or "").replace("\n", " ")[:200]
+                      rows.append(f'{tc.get("classname")}#{tc.get("name")}: {msg}')
+          if rows:
+              print("FAILING TESTS (from JUnit XML):")
+              for r in rows[:80]:
+                  print(" -", r)
+              print("::error::" + " || ".join(rows[:8]))
+          else:
+              print("no junit failures parsed — failure before/at test execution")
+          for f in sorted(pathlib.Path("android/app/build").rglob("*.html"))[:0]:
+              pass
+          PY
+          cat "$RUNNER_TEMP/fails.txt" >> "$GITHUB_STEP_SUMMARY"
+          grep "^::error::" "$RUNNER_TEMP/fails.txt" || true
+
       - name: Upload test reports (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
