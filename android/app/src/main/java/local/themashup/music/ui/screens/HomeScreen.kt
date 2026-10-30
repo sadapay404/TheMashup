@@ -2,11 +2,20 @@ package local.themashup.music.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -15,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -46,18 +57,19 @@ import local.themashup.music.core.domain.buildRadioQueue
 import local.themashup.music.core.network.ExtractionService
 import local.themashup.music.core.network.YouTubeMusicHome
 import local.themashup.music.core.network.MusicHomeShelf
+import local.themashup.music.core.network.MusicHomeItem
 import local.themashup.music.core.player.PlaybackEngine
 import local.themashup.music.core.player.PlayerSnapshot
 import local.themashup.music.ui.components.FadeSlideIn
 import local.themashup.music.ui.components.ShelfSection
+import local.themashup.music.ui.components.TrackCard
+import local.themashup.music.ui.components.Artwork
 import local.themashup.music.ui.theme.LocalMashupTokens
 import local.themashup.music.ui.theme.LocalArtAccents
 
 /**
- * Home — web `HomePage.tsx`: welcome hero + shelf grid
- * (listen_again · quick · discover · trending). Charts pool = native
- * trending walk (Piped/Invidious); listen_again/discover = local Recommend
- * domain over the on-device library (web AUTHED order — local profile).
+ * Home displays the connected YouTube Music account's recommendations.
+ * Tracks are played by TheMashup's native player, not by the sign-in WebView.
  */
 @Composable
 fun HomeScreen(
@@ -73,15 +85,12 @@ fun HomeScreen(
     val accents = LocalArtAccents.current
     val scope = rememberCoroutineScope()
     var retryTick by remember { mutableIntStateOf(0) }
-    var charts by remember { mutableStateOf<List<Track>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-
     var personalized by remember { mutableStateOf<List<MusicHomeShelf>>(emptyList()) }
     val musicHome = remember { YouTubeMusicHome() }
     LaunchedEffect(retryTick, youtubeCookie) {
         personalized = emptyList()
-        charts = emptyList()
         error = null
         if (youtubeCookie.isBlank()) {
             loading = false
@@ -89,86 +98,122 @@ fun HomeScreen(
             loading = true
             val result = withContext(Dispatchers.IO) { runCatching { musicHome.load(youtubeCookie) } }
             personalized = result.getOrDefault(emptyList())
-            charts = personalized.flatMap { it.tracks }.distinctBy { it.id }
             error = result.exceptionOrNull()?.message
             loading = false
         }
     }
 
-
-    val chartShelvesLoaded = !loading && error == null
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-    ) {
-        // Web hero entrance: initial y −8, ease-out ~350 ms.
-        FadeSlideIn(offsetYDp = (-8).dp) {
-            WelcomeHero(
-                accent = accents.first,
-                accentAlt = accents.second,
+    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item {
+            FadeSlideIn(offsetYDp = (-8).dp) { WelcomeHero(accent = accents.first, accentAlt = accents.second) }
+        }
+        if (loading) {
+            items(2) { i ->
+                ShelfSection(
+                    title = "Loading recommendations", kindPill = "FOR YOU", tracks = emptyList(),
+                    loading = true, modifier = Modifier.padding(top = if (i == 0) 28.dp else 20.dp),
+                )
+            }
+        }
+        if (error != null && !loading) {
+            item {
+                ChartsErrorCard(message = error.orEmpty(), onRetry = { retryTick++ })
+                TextButton(onClick = onConnect, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Manage connection") }
+            }
+        }
+        if (youtubeCookie.isBlank()) {
+            item { TextButton(onClick = onConnect, modifier = Modifier.padding(16.dp)) {
+                Text("Connect your YouTube account to see your recommendations")
+            } }
+        }
+        itemsIndexed(personalized, key = { index, shelf -> "$index:${shelf.title}" }) { _, shelf ->
+            RecommendationShelf(
+                shelf = shelf, cookie = youtubeCookie, musicHome = musicHome,
+                playerState = playerState,
+                onPlay = { track ->
+                    engine.playNow(track, context = "home")
+                    scope.launch { library.recordPlay(track, context = "home") }
+                },
+                onQueue = { engine.addToEnd(it) },
             )
         }
+    }
+}
 
-        if (loading && charts.isEmpty()) {
-            // Chart shelves skeleton (web shows two shimmer shelves).
-            repeat(2) { i ->
-                ShelfSection(
-                    title = if (i == 0) "Quick picks" else "Trending now",
-                    kindPill = if (i == 0) "quick" else "trending",
-                    tracks = emptyList(),
-                    loading = true,
-                    modifier = Modifier.padding(top = if (i == 0) 28.dp else 20.dp),
-                )
+/** YouTube albums and playlists expand here on Home; neither expansion nor playback auto-fills a queue. */
+@Composable
+private fun RecommendationShelf(
+    shelf: MusicHomeShelf,
+    cookie: String,
+    musicHome: YouTubeMusicHome,
+    playerState: PlayerSnapshot,
+    onPlay: (Track) -> Unit,
+    onQueue: (Track) -> Unit,
+) {
+    val tokens = LocalMashupTokens.current
+    var selected by remember(shelf) { mutableStateOf<MusicHomeItem.Collection?>(null) }
+    var tracks by remember(shelf) { mutableStateOf<List<Track>>(emptyList()) }
+    var loading by remember(shelf) { mutableStateOf(false) }
+    var error by remember(shelf) { mutableStateOf<String?>(null) }
+    LaunchedEffect(selected, cookie) {
+        val choice = selected
+        tracks = emptyList()
+        error = null
+        if (choice != null) {
+            loading = true
+            val result = withContext(Dispatchers.IO) { runCatching { musicHome.loadCollection(cookie, choice.browseId) } }
+            tracks = result.getOrDefault(emptyList())
+            error = result.exceptionOrNull()?.message
+            loading = false
+        } else loading = false
+    }
+    Column(Modifier.fillMaxWidth().padding(top = 26.dp)) {
+        Text(
+            shelf.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(horizontal = 16.dp),
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+        LazyRow(
+            modifier = Modifier.padding(top = 12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            itemsIndexed(shelf.items) { _, item ->
+                when (item) {
+                    is MusicHomeItem.Song -> TrackCard(
+                        track = item.track, contextQueue = emptyList(),
+                        isCurrent = playerState.current?.id == item.track.id,
+                        isPlaying = playerState.status == local.themashup.music.core.player.PlayStatus.PLAYING,
+                        onPlay = { onPlay(item.track) }, onQueue = { onQueue(item.track) }, onRadio = {}, showRadio = false,
+                    )
+                    is MusicHomeItem.Collection -> Column(
+                        Modifier.width(164.dp).clip(RoundedCornerShape(12.dp)).clickable {
+                            selected = if (selected == item) null else item
+                        },
+                    ) {
+                        Artwork(src = item.artwork, label = item.title, corner = 12.dp,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(1f))
+                        Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+                        Text(if (selected == item) "Hide songs" else "Show songs", style = MaterialTheme.typography.bodySmall,
+                            color = tokens.textDim)
+                    }
+                }
             }
         }
-
-        if (error != null && !loading) {
-            ChartsErrorCard(message = error.orEmpty(), onRetry = { retryTick++ })
-        }
-
-        if (youtubeCookie.isBlank()) {
-            TextButton(onClick = onConnect, modifier = Modifier.padding(16.dp)) {
-                Text("Connect your YouTube account to see your recommendations")
-            }
-        }
-        personalized.forEachIndexed { i, shelf ->
-            FadeSlideIn(delayMillis = minOf(i * 40, 320)) {
-                ShelfSection(
-                    title = shelf.title,
-                    kindPill = "FOR YOU",
-                    showRadio = false,
-                    tracks = shelf.tracks,
+        val choice = selected
+        if (choice != null) {
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.padding(16.dp).size(24.dp), strokeWidth = 2.dp)
+            } else if (error != null || tracks.isEmpty()) {
+                Text(error ?: "No playable songs were returned for this collection.",
+                    color = tokens.textDim, modifier = Modifier.padding(16.dp))
+            } else {
+                ShelfSection(title = choice.title, kindPill = "SONGS", tracks = tracks,
                     currentTrackId = playerState.current?.id,
                     isPlaying = playerState.status == local.themashup.music.core.player.PlayStatus.PLAYING,
-                    modifier = Modifier.padding(top = 26.dp),
-                    onCardPlay = { track, queue ->
-                        engine.playNow(track, context = "home")
-                        scope.launch { library.recordPlay(track, context = "home") }
-                    },
-                    onCardQueue = { track -> engine.addToEnd(track) },
-                    onCardRadio = { track, queue ->
-                        engine.playNow(track, context = "home")
-                    },
-                )
-            }
-        }
-
-        // A "see all" affordance is unnecessary: shelves are full horizontal lists.
-        if (youtubeCookie.isNotBlank() && chartShelvesLoaded && personalized.isEmpty() && error == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Nothing on the charts yet — play something to seed your feed.",
-                    color = tokens.textDim,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                    showRadio = false, modifier = Modifier.padding(top = 16.dp),
+                    onCardPlay = { track, _ -> onPlay(track) }, onCardQueue = onQueue)
             }
         }
     }
@@ -213,8 +258,7 @@ private fun WelcomeHero(accent: androidx.compose.ui.graphics.Color, accentAlt: a
                 modifier = Modifier.padding(top = 6.dp),
             )
             Text(
-                text = "Aggregated streams, lyric search and endless radio — all resolved " +
-                    "on-device with automatic source failover.",
+                text = "Your recommendations, your queue, and your music — all in TheMashup.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = tokens.textDim,
                 modifier = Modifier.padding(top = 8.dp),

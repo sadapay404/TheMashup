@@ -3,18 +3,18 @@ package local.themashup.music.core.download
 import android.content.Context
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeoutOrNull
 import local.themashup.music.core.data.DownloadsRepository
 import local.themashup.music.core.domain.DownloadJob
 import local.themashup.music.core.domain.DownloadStatus
@@ -39,9 +38,7 @@ import local.themashup.music.core.download.logic.pickAudio
 import local.themashup.music.core.download.logic.pickVideo
 import local.themashup.music.core.network.ExtractionService
 import local.themashup.music.core.domain.StreamCandidate
-import okhttp3.Call
 import okhttp3.OkHttpClient
-import okhttp3.Request
 
 /** Jobs parked until the user answers the first-run ffmpeg sheet. */
 data class ConsentRequest(val jobIds: List<String>)
@@ -69,7 +66,8 @@ class DownloadEngine(
     private val workRoot = workDir.apply { mkdirs() }
     private val semaphore = Semaphore(MAX_PARALLEL)
     private val running = ConcurrentHashMap<String, Job>()
-    private val calls = ConcurrentHashMap<String, Call>()
+    private val transfers = ConcurrentHashMap<String, ResumableTransfer>()
+    private val cancelling = ConcurrentHashMap.newKeySet<String>()
 
     private val _consent = MutableStateFlow<ConsentRequest?>(null)
     /** Non-null → the first-run ffmpeg sheet must be shown. */
@@ -97,12 +95,22 @@ class DownloadEngine(
         }
     }
 
-    /** Web parity: cancel removes the row and kills the in-flight work. */
+    /** Cancellation closes every active range and removes temporary files after the worker stops. */
+    @Synchronized
     fun cancel(jobId: String) {
-        running.remove(jobId)?.cancel()
-        calls.remove(jobId)?.cancel()
-        scope.launch { repository.remove(jobId) }
-        cleanupTemps(jobId)
+        cancelling.add(jobId)
+        val worker = running.remove(jobId)
+        worker?.cancel()
+        transfers[jobId]?.cancel()
+        scope.launch {
+            try {
+                worker?.join()
+                cleanupTemps(jobId)
+                repository.remove(jobId)
+            } finally {
+                cancelling.remove(jobId)
+            }
+        }
     }
 
     /** Sheet Accept — capture the parked cycle first, then fetch to disk. */
@@ -137,31 +145,40 @@ class DownloadEngine(
         }
     }
 
+    @Synchronized
     private fun launchWorker(job: DownloadJob) {
-        if (running[job.id]?.isActive == true) return
-        val worker = scope.launch {
+        if (job.id in cancelling || repository.job(job.id) == null || running[job.id]?.isActive == true) return
+        val worker = scope.launch(start = CoroutineStart.LAZY) {
             semaphore.withPermit { runJob(job) }
         }
         running[job.id] = worker
         worker.invokeOnCompletion { running.remove(job.id, worker) }
+        worker.start()
     }
 
     private suspend fun runJob(job: DownloadJob) {
-        try {
-            repository.updateStatus(job.id, DownloadStatus.DOWNLOADING)
-            val outcome = extraction.streams(job.videoId)
-            val candidates = outcome.candidates
-            if (candidates.isEmpty()) {
-                fail(job, "No streams available for this track")
+        var attempts = 0
+        while (true) {
+            try {
+                repository.updateStatus(job.id, DownloadStatus.DOWNLOADING)
+                val candidates = extraction.streams(job.videoId).candidates
+                if (candidates.isEmpty()) throw IOException("No streams available for this track")
+                if (job.container == "mp4") runVideoJob(job, candidates) else runAudioJob(job, candidates)
+                return
+            } catch (e: CancellationException) {
+                cleanupTemps(job.id)
+                throw e
+            } catch (e: IOException) {
+                if (++attempts < 3) {
+                    delay(1000L * attempts)
+                } else {
+                    fail(job, e.message ?: "Download interrupted")
+                    return
+                }
+            } catch (e: Exception) {
+                fail(job, e.message ?: e.javaClass.simpleName)
                 return
             }
-            if (job.container == "mp4") runVideoJob(job, candidates) else runAudioJob(job, candidates)
-        } catch (e: CancellationException) {
-            cleanupTemps(job.id)
-            throw e
-        } catch (e: Exception) {
-            // Keep partial source files for resume after a transient error.
-            fail(job, e.message ?: e.javaClass.simpleName)
         }
     }
 
@@ -240,7 +257,7 @@ class DownloadEngine(
         // A fetch started by an earlier accept — follow it instead of asking again.
         val ongoing = ffmpeg.status.value
         if (ongoing is FfmpegState.Downloading || ongoing is FfmpegState.Extracting) {
-            val terminal = ffmpeg.status.first { it is FfmpegState.Ready || it is FfmpegState.Failed }
+            val terminal = ffmpeg.status.first { it is FfmpegState.Ready || it is FfmpegState.Failed || it is FfmpegState.Missing }
             return if (terminal is FfmpegState.Ready) ffmpeg.binaryPath() else null
         }
         val request = _consent.value
@@ -273,123 +290,21 @@ class DownloadEngine(
         repository.updateStatus(job.id, DownloadStatus.FAILED, error = message)
     }
 
-    /** Range-enabled sources are split into four independent resumable segments.
-     * Each segment is checked against Content-Range before bytes are appended. */
     private suspend fun downloadStream(candidate: StreamCandidate, dest: File, job: DownloadJob, fromPct: Int, toPct: Int) {
-        fun request(range: String? = null): Request {
-            val builder = Request.Builder().url(candidate.url)
-            candidate.httpHeaders.forEach { (k, v) -> builder.header(k, v) }
-            builder.header("Accept-Encoding", "identity")
-            if (range != null) builder.header("Range", range)
-            return builder.build()
+        coroutineContext.ensureActive()
+        val transfer = ResumableTransfer(client)
+        transfers[job.id] = transfer
+        try {
+            coroutineContext.ensureActive()
+            transfer.download(candidate, job.videoId, dest) { bytes, total, speed ->
+                val local = total?.let { downloadPercent(bytes, it) } ?: 0
+                repository.updateProgress(job.id, fromPct + (local.coerceAtLeast(0) * (toPct - fromPct)) / 98,
+                    speedBps = speed, etaSec = if (total != null && speed != null) etaSeconds(bytes, total, speed) else null)
+            }
+        } finally {
+            transfers.remove(job.id, transfer)
         }
-        val probe = client.newCall(request("bytes=0-0")).execute().use { response ->
-            val range = response.header("Content-Range")
-            if (response.code == 206 && range?.startsWith("bytes 0-0/") == true) {
-                range.substringAfter('/').toLongOrNull()?.takeIf { it > 0 }
-            } else null
-        }
-        if (probe == null) {
-            // Server does not support byte ranges: a restart is necessary on failure.
-            val call = client.newCall(request())
-            calls[job.id] = call
-            try {
-                call.execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("HTTP ${response.code} fetching stream")
-                    val body = response.body ?: throw IOException("empty stream body")
-                    dest.parentFile?.mkdirs()
-                    body.byteStream().use { input -> dest.outputStream().buffered().use { out ->
-                        val buf = ByteArray(128 * 1024)
-                        while (true) {
-                            coroutineContext.ensureActive()
-                            val n = input.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                        }
-                    } }
-                }
-            } finally { calls.remove(job.id, call) }
-            repository.updateProgress(job.id, toPct, speedBps = null, etaSec = null)
-            return
-        }
-        val total = probe
-        val signature = MessageDigest.getInstance("SHA-256").digest(candidate.url.toByteArray())
-            .joinToString("") { "%02x".format(it.toInt() and 255) }
-        val meta = File(dest.path + ".ranges")
-        val complete = File(dest.path + ".complete")
-        val marker = "$signature:$total"
-        if (complete.isFile && complete.readText() == marker && dest.isFile && dest.length() == total) {
-            repository.updateProgress(job.id, toPct, speedBps = null, etaSec = null)
-            return
-        }
-        val parts = (0 until 4).map { File(dest.path + ".part$it") }
-        if (!meta.isFile || meta.readText() != marker) {
-            parts.forEach { it.delete() }
-            meta.writeText(marker)
-        }
-        val written = AtomicLong(0)
-        val ranges = (0 until 4).map { i ->
-            val start = total * i / 4
-            val end = total * (i + 1) / 4 - 1
-            val file = parts[i]
-            if (file.length() > end - start + 1) file.delete()
-            written.addAndGet(file.length())
-            Triple(start, end, file)
-        }
-        val startedAt = System.currentTimeMillis()
-        val initial = written.get()
-        coroutineScope {
-            ranges.map { (start, end, part) -> async(Dispatchers.IO) {
-                if (end < start) return@async
-                var failures = 0
-                while (part.length() < end - start + 1) {
-                    coroutineContext.ensureActive()
-                    val offset = start + part.length()
-                    try {
-                        client.newCall(request("bytes=$offset-$end")).execute().use { response ->
-                            val expected = "bytes $offset-$end/$total"
-                            if (response.code != 206 || response.header("Content-Range") != expected)
-                                throw IOException("Server did not honour download range (HTTP ${response.code})")
-                            val body = response.body ?: throw IOException("empty range response")
-                            body.byteStream().use { input -> part.outputStreamAppend().buffered().use { out ->
-                                var received = part.length()
-                                val buf = ByteArray(128 * 1024)
-                                while (true) {
-                                    coroutineContext.ensureActive()
-                                    val n = input.read(buf)
-                                    if (n < 0) break
-                                    if (received + n > end - start + 1) throw IOException("range exceeds expected size")
-                                    out.write(buf, 0, n)
-                                    received += n
-                                    written.addAndGet(n.toLong())
-                                }
-                            } }
-                            if (part.length() != end - start + 1) throw IOException("incomplete range")
-                        }
-                    } catch (e: IOException) {
-                        if (++failures >= 4) throw e
-                        delay(500L * failures)
-                    }
-                    val got = written.get()
-                    val elapsed = (System.currentTimeMillis() - startedAt).coerceAtLeast(1)
-                    val speed = (got - initial) * 1000 / elapsed
-                    val local = downloadPercent(got, total)
-                    repository.updateProgress(job.id, fromPct + (local.coerceAtLeast(0) * (toPct - fromPct)) / 98,
-                        speedBps = speed, etaSec = etaSeconds(got, total, speed))
-                }
-            } }.awaitAll()
-        }
-        dest.outputStream().buffered().use { out -> parts.forEach { part ->
-            if (part.exists()) part.inputStream().buffered().use { it.copyTo(out) }
-        } }
-        if (dest.length() != total) throw IOException("Download size mismatch")
-        parts.forEach { it.delete() }
-        meta.delete()
-        complete.writeText(marker)
-        repository.updateProgress(job.id, toPct, speedBps = null, etaSec = null)
     }
-
-    private fun File.outputStreamAppend() = java.io.FileOutputStream(this, true)
 
     /**
      * argv attempts from [buildTranscodeCommands] — first exit-0 wins;
@@ -408,12 +323,32 @@ class DownloadEngine(
         for (cmd in cmds) {
             val proc = ProcessBuilder(cmd).redirectErrorStream(true).start()
             try {
-                val err = withTimeoutOrNull(TRANSCODE_TIMEOUT_MS) {
-                    proc.inputStream.bufferedReader().use { it.readText() }
-                } ?: throw IOException("ffmpeg timed out")
-                val exit = proc.waitFor()
-                if (exit == 0 && out.isFile && out.length() > 0) return
-                lastErr = err.trim().take(300)
+                val result = coroutineScope {
+                    // Drain the pipe concurrently but retain only a small error tail.
+                    val output = async(Dispatchers.IO) {
+                        proc.inputStream.bufferedReader().use { reader ->
+                            val tail = StringBuilder()
+                            while (true) {
+                                val line = reader.readLine() ?: break
+                                tail.append(line).append('\n')
+                                if (tail.length > 2048) tail.delete(0, tail.length - 2048)
+                            }
+                            tail.toString()
+                        }
+                    }
+                    try {
+                        val finished = runInterruptible(Dispatchers.IO) {
+                            proc.waitFor(TRANSCODE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                        }
+                        if (!finished) throw IOException("ffmpeg timed out")
+                        proc.exitValue() to output.await()
+                    } finally {
+                        // Close the pipe before coroutineScope waits for its reader.
+                        if (proc.isAlive) proc.destroyForcibly()
+                    }
+                }
+                if (result.first == 0 && out.isFile && out.length() > 0) return
+                lastErr = result.second.trim().takeLast(300)
             } finally {
                 if (proc.isAlive) proc.destroyForcibly()
             }

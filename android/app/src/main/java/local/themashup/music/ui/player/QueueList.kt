@@ -74,7 +74,7 @@ fun QueueList(
                 modifier = Modifier.padding(top = 10.dp),
             )
             Text(
-                text = "Play a track or hit “Start radio” on any card.",
+                text = "Play a track or use “Add to queue” on a song.",
                 style = MaterialTheme.typography.bodySmall,
                 color = tokens.textFaint,
                 modifier = Modifier.padding(top = 4.dp),

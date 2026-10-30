@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Search
@@ -157,7 +158,7 @@ fun SearchScreen(
     }
     val showArtists = filter == "all" || filter == "artists"
 
-    fun playTrack(track: Track, queue: List<Track>, context: String = "search") {
+    fun playTrack(track: Track, context: String = "search") {
         engine.playNow(track, context = context)
         scope.launch { library.recordPlay(track, context = context) }
     }
@@ -377,7 +378,7 @@ fun SearchScreen(
                             TrackRow(
                                 track = track,
                                 isCurrent = playerState.current?.id == track.id,
-                                onClick = { playTrack(track, tracks) },
+                                onClick = { playTrack(track) },
                                 modifier = Modifier.padding(vertical = 3.dp),
                                 onDownload = onDownload,
                                 onQueue = { engine.addToEnd(track) },
@@ -389,7 +390,8 @@ fun SearchScreen(
                             LyricRowCard(
                                 match = row.match,
                                 extraction = extraction,
-                                onResolve = { resolved, queue -> playTrack(resolved, queue) },
+                                onResolve = { resolved -> playTrack(resolved) },
+                                onQueue = { resolved -> engine.addToEnd(resolved) },
                             )
                         }
                     }
@@ -474,33 +476,27 @@ fun SearchScreen(
 private fun LyricRowCard(
     match: LyricMatchRow,
     extraction: ExtractionService,
-    onResolve: (Track, List<Track>) -> Unit,
+    onResolve: (Track) -> Unit,
+    onQueue: (Track) -> Unit,
 ) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
+    fun resolve(onResult: (Track) -> Unit) {
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching { extraction.search("${match.trackName} ${match.artistName}".trim(), limit = 5) }
+            }
+            outcome.getOrNull()?.tracks?.firstOrNull()?.let(onResult)
+        }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(11.dp))
             .background(tokens.surface2.copy(alpha = 0.5f))
-            .clickable {
-                // Web: resolve "title artist" → play the top hit.
-                scope.launch {
-                    val outcome = withContext(Dispatchers.IO) {
-                        runCatching {
-                            extraction.search(
-                                "${match.trackName} ${match.artistName}".trim(),
-                                limit = 5,
-                            )
-                        }
-                    }
-                    val top = outcome.getOrNull()?.tracks?.firstOrNull() ?: return@launch
-                    val queue = outcome.getOrNull()?.tracks ?: listOf(top)
-                    onResolve(top, queue)
-                }
-            }
+            .clickable { resolve(onResolve) }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -550,6 +546,9 @@ private fun LyricRowCard(
                     )
                 }
             }
+        }
+        androidx.compose.material3.IconButton(onClick = { resolve(onQueue) }, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Filled.PlaylistAdd, contentDescription = "Add lyric match to queue", tint = tokens.textDim)
         }
         Box(
             modifier = Modifier

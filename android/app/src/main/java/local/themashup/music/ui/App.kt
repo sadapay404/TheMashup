@@ -79,7 +79,6 @@ import local.themashup.music.ui.art.rememberArtAccents
 import local.themashup.music.ui.components.FfmpegSheet
 import local.themashup.music.ui.components.FadeSlideIn
 import local.themashup.music.ui.components.MiniPlayer
-import local.themashup.music.core.network.YouTubeCookie
 import local.themashup.music.ui.screens.SignInScreen
 import local.themashup.music.ui.components.QualityPicker
 import local.themashup.music.ui.components.ThemeSwatchPicker
@@ -312,15 +311,11 @@ private fun MashupShell(container: AppContainer) {
                 SignInScreen(
                     hasCookie = ytCookie.isNotBlank(),
                     onSaveCookie = { cookie ->
-                        YouTubeCookie.value = cookie
+                        container.settings.setYoutubeCookie(cookie)
                         page = "home"
                         signInOpen = false
-                        scope.launch { container.settings.setYoutubeCookie(cookie) }
                     },
-                    onClearCookie = {
-                        YouTubeCookie.value = null
-                        scope.launch { container.settings.setYoutubeCookie("") }
-                    },
+                    onClearCookie = { container.settings.setYoutubeCookie("") },
                     onClose = { signInOpen = false },
                     modifier = Modifier.fillMaxSize(),
                 )

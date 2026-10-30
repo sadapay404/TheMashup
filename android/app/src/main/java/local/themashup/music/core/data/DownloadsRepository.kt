@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import local.themashup.music.core.domain.DownloadJob
 import local.themashup.music.core.domain.DownloadStatus
 import local.themashup.music.core.domain.DownloadsData
@@ -26,12 +28,13 @@ class DownloadsRepository(
 ) {
     private val _state = MutableStateFlow(DownloadsData())
     val state: StateFlow<DownloadsData> = _state.asStateFlow()
+    private val stateMutex = Mutex()
 
     fun startLoad() {
         scope.launch { load() }
     }
 
-    suspend fun load() {
+    suspend fun load() = stateMutex.withLock {
         _state.value = store.read()
     }
 
@@ -53,7 +56,7 @@ class DownloadsRepository(
             createdAt = now,
             updatedAt = now,
         )
-        _state.value = store.update { it.copy(jobs = it.jobs + job) }
+        stateMutex.withLock { _state.value = store.update { it.copy(jobs = it.jobs + job) } }
         return job
     }
 
@@ -98,7 +101,7 @@ class DownloadsRepository(
     }
 
     suspend fun remove(jobId: String) {
-        _state.value = store.update { it.copy(jobs = it.jobs.filterNot { j -> j.id == jobId }) }
+        stateMutex.withLock { _state.value = store.update { it.copy(jobs = it.jobs.filterNot { j -> j.id == jobId }) } }
     }
 
     fun job(jobId: String): DownloadJob? = _state.value.jobs.firstOrNull { it.id == jobId }
@@ -112,8 +115,10 @@ class DownloadsRepository(
         }
 
     private suspend fun mutateJob(jobId: String, fn: (DownloadJob) -> DownloadJob) {
-        _state.value = store.update { data ->
-            data.copy(jobs = data.jobs.map { if (it.id == jobId) fn(it) else it })
+        stateMutex.withLock {
+            _state.value = store.update { data ->
+                data.copy(jobs = data.jobs.map { if (it.id == jobId) fn(it) else it })
+            }
         }
     }
 

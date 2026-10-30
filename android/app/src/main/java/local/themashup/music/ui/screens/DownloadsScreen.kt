@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -81,61 +83,44 @@ fun DownloadsScreen(
     val audio = state.jobs.filter { it.status == DownloadStatus.COMPLETED && it.container != "mp4" }
     val videos = state.jobs.filter { it.status == DownloadStatus.COMPLETED && it.container == "mp4" }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().widthIn(max = 768.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(modifier = Modifier.widthIn(max = 768.dp).fillMaxWidth()) {
-                // Keep status controls on their own line on narrow screens.
-                Text(
-                    text = if (active.isNotEmpty()) "${active.size} in progress" else "Everything you download, in one place",
-                    style = MaterialTheme.typography.bodyMedium, color = tokens.textDim,
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
-                FfmpegPill(
-                    ready = ffmpegStatus == FfmpegState.Ready,
-                    working = ffmpegStatus is FfmpegState.Downloading || ffmpegStatus is FfmpegState.Extracting,
-                    onClick = { if (ffmpegStatus != FfmpegState.Ready) onOpenSetup() },
-                )
-                Spacer(Modifier.height(20.dp))
-
-                if (active.isNotEmpty()) {
-                    SectionTitle("In progress")
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        active.forEach { job ->
-                            ProgressRow(job = job, onCancel = { engine.cancel(job.id) })
-                        }
-                    }
-                    Spacer(Modifier.height(26.dp))
+            item {
+                Column {
+                    Text(
+                        text = if (active.isNotEmpty()) "${active.size} in progress" else "Everything you download, in one place",
+                        style = MaterialTheme.typography.bodyMedium, color = tokens.textDim,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                    FfmpegPill(
+                        ready = ffmpegStatus == FfmpegState.Ready,
+                        working = ffmpegStatus is FfmpegState.Downloading || ffmpegStatus is FfmpegState.Extracting,
+                        onClick = { if (ffmpegStatus != FfmpegState.Ready) onOpenSetup() },
+                    )
+                    Spacer(Modifier.height(16.dp))
                 }
-
-                if (failed.isNotEmpty()) {
-                    SectionTitle("Needs attention")
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        failed.forEach { job -> FinishedRow(job = job, onRetry = { engine.retry(job.id) }) }
-                    }
-                    Spacer(Modifier.height(26.dp))
-                }
-                if (audio.isNotEmpty()) {
-                    SectionTitle("Downloaded songs")
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        audio.forEach { job -> FinishedRow(job = job, onRetry = { engine.retry(job.id) }) }
-                    }
-                    Spacer(Modifier.height(26.dp))
-                }
-                // The video section exists only once a video has finished downloading.
-                if (videos.isNotEmpty()) {
-                    SectionTitle("Downloaded videos")
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        videos.forEach { job -> FinishedRow(job = job, onRetry = { engine.retry(job.id) }) }
-                    }
-                }
-                if (state.jobs.isEmpty()) EmptyDownloads(onFindSomething = onFindSomething)
             }
+            if (active.isNotEmpty()) {
+                item { SectionTitle("In progress") }
+                items(active, key = { "active-" + it.id }) { job -> ProgressRow(job, onCancel = { engine.cancel(job.id) }) }
+            }
+            if (failed.isNotEmpty()) {
+                item { SectionTitle("Needs attention") }
+                items(failed, key = { "failed-" + it.id }) { job -> FinishedRow(job, onRetry = { engine.retry(job.id) }) }
+            }
+            if (audio.isNotEmpty()) {
+                item { SectionTitle("Downloaded songs") }
+                items(audio, key = { "audio-" + it.id }) { job -> FinishedRow(job, onRetry = { engine.retry(job.id) }) }
+            }
+            if (videos.isNotEmpty()) {
+                item { SectionTitle("Downloaded videos") }
+                items(videos, key = { "video-" + it.id }) { job -> FinishedRow(job, onRetry = { engine.retry(job.id) }) }
+            }
+            if (state.jobs.isEmpty()) item { EmptyDownloads(onFindSomething) }
         }
     }
 }
@@ -348,27 +333,8 @@ private fun FinishedRow(job: DownloadJob, onRetry: () -> Unit) {
             )
         }
         if (failed) {
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(7.dp))
-                    .border(1.dp, tokens.border, RoundedCornerShape(7.dp))
-                    .clickable(onClick = onRetry)
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    Icons.Outlined.Refresh,
-                    contentDescription = "Resume download",
-                    tint = tokens.textDim,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = "Retry",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
-                    color = tokens.textDim,
-                )
+            IconButton(onClick = onRetry, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Outlined.Refresh, contentDescription = "Resume download", tint = tokens.textDim)
             }
         }
     }

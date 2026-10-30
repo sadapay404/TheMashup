@@ -2,8 +2,8 @@
 
 One local-first music player: **aggregated streaming, smart search, synced lyrics,
 downloads, radio and personalized recommendations** — Express gateway + Python
-resolver + React web, in a pnpm monorepo. Desktop (Tauri) and Android (Capacitor)
-shells wrap the same web UI in later phases.
+resolver + React web, in a pnpm monorepo. Desktop uses Tauri; the current
+Android app is a separate native Kotlin/Compose build in `android/`.
 
 ## Quick start
 
@@ -33,7 +33,7 @@ pnpm --filter @themashup/web dev
 - Sandbox/offline mode: `RESOLVER_MOCK=1` + `MOCK_UPSTREAM=1` make every flow
   (including downloads) fully testable without YouTube egress.
 
-## What's inside
+## What's inside (web/desktop)
 
 | Area | Highlights |
 |---|---|
@@ -41,7 +41,7 @@ pnpm --filter @themashup/web dev
 | Search | Typeahead + hybrid search: free text **or** pasted lyrics → fuzzy-matched lyric rows |
 | Lyrics | LRCLIB synced/plain lyrics with karaoke highlighting |
 | Recommendations | Charts shelves for guests; **Listen Again** + taste-vector **Discover** when signed in |
-| Downloads | Quality picker (MP3 128/320, FLAC, Opus, MP4 360p→4K), live SSE progress, bundled static ffmpeg, files survive resolver restarts |
+| Downloads | Quality picker (MP3 128/320, FLAC, Opus, MP4 360p→4K), live SSE progress, server-side ffmpeg, files survive resolver restarts |
 | Themes | 5 persistent themes (frosted, paper-ink, neon, aurora, vinyl) + dynamic album-art colors |
 | Library | Likes, playlists (drag-reorder), history, follows — Supabase RLS or local JSON fallback |
 | **Native Android** | **Full Kotlin/Compose rewrite in `android/` — no PC required, same design (see docs/ANDROID.md)** |
@@ -97,7 +97,7 @@ docs/               ARCHITECTURE.md · API.md · SETUP_AUTH.md · DESKTOP.md · 
 | N6 | Library + lyrics/karaoke + expanded player | ✅ |
 | N7 | Downloads (first-run ffmpeg, scoped storage, progress) | ✅ |
 | N8 | Recommendations + motion/visualizer + release polish | ✅ |
-| N9 | CI APKs, bundled ffmpeg, media notification, auto-next, sign-in, player redesign | ✅ |
+| N9 | CI APKs, bundled ffmpeg, media notification, auto-next, sign-in, player redesign | Implemented; device verification pending |
 
 > Personal-use build. Streams resolve from YouTube via yt-dlp (ToS risk accepted by
 > the owner); sources are pluggable behind the resolver interface.

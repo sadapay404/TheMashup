@@ -46,6 +46,7 @@ class PlaybackEngine(
 
     private var player: ExoPlayer? = null
     private var serviceStarted = false
+    private var resolveGeneration = 0L
 
     /** Web parity: `Math.random()`-style rng for shuffle picks. */
     private var rng: () -> Double = { Random.nextDouble() }
@@ -58,6 +59,11 @@ class PlaybackEngine(
         player = p
         p.addListener(playerListener)
         applyPlayerMirrors(_state.value)
+        // Resolution can finish before the service attaches its player.
+        val snapshot = _state.value
+        if (snapshot.status == PlayStatus.LOADING) {
+            snapshot.failover?.active?.let { loadCandidate(PlayerEffect.LoadCandidate(it, snapshot.positionMs)) }
+        }
         startVisualizerPoller(p)
     }
 
@@ -218,11 +224,12 @@ class PlaybackEngine(
 
     private fun resolveAndLoad(effect: PlayerEffect.Resolve) {
         val track = effect.track
+        val generation = ++resolveGeneration
         scope.launch {
             val outcome = runCatching {
                 withContext(Dispatchers.IO) { extraction().streams(track.id) }
             }
-            if (_state.value.current?.id != track.id) return@launch
+            if (generation != resolveGeneration || _state.value.current?.id != track.id) return@launch
             outcome.onFailure { t ->
                 // N9: dead track → auto-advance; park only with no forward move.
                 advanceOrPark(t.message ?: "Extraction failed")

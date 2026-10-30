@@ -28,7 +28,10 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,13 +43,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import local.themashup.music.core.network.YouTubeMusicHome
 import local.themashup.music.ui.theme.LocalMashupTokens
 
 /**
  * N9 sign-in — the innertune/SimpMusic WebView method the user pointed at:
  * sign into Google on the YouTube Music service, capture the session cookie
- * once ([CookieManager] → settings → process-wide holder), and every
- * extraction request afterwards carries it.
+ * once, verify it with the account endpoint, and save it for Home requests.
+ * The native player does not use this WebView to play music.
  *
  * The WebView exists ONLY inside this screen for the OAuth flow; the app
  * itself remains native (the standing "no WebView" rule covers the shell).
@@ -55,16 +63,47 @@ import local.themashup.music.ui.theme.LocalMashupTokens
 @Suppress("SetJavaScriptEnabled") // JS only inside this sign-in WebView
 fun SignInScreen(
     hasCookie: Boolean,
-    onSaveCookie: (String) -> Unit,
-    onClearCookie: () -> Unit,
+    onSaveCookie: suspend (String) -> Unit,
+    onClearCookie: suspend () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
-    var signedIn by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val musicHome = remember { YouTubeMusicHome() }
     var webView by remember { mutableStateOf<WebView?>(null) }
-    val signed = signedIn || hasCookie
+    var checking by remember { mutableStateOf(false) }
+    var clearing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var pendingCookie by remember { mutableStateOf<String?>(null) }
+    val signed = hasCookie
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webView?.stopLoading()
+            webView?.destroy()
+            webView = null
+        }
+    }
+    fun verifyAndSave(cookie: String) {
+        if (checking) return
+        pendingCookie = cookie
+        checking = true
+        error = null
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { musicHome.verify(cookie) }
+                onSaveCookie(cookie)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = "Could not verify or securely save this account. Check your connection and try again."
+            } finally {
+                checking = false
+            }
+        }
+    }
 
     // Back walks the WebView history first; leaves the screen only at its root.
     BackHandler(enabled = true) {
@@ -135,7 +174,11 @@ fun SignInScreen(
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    text = if (signed) "YouTube session saved" else "Not signed in yet",
+                    text = when {
+                        signed -> "YouTube session saved"
+                        checking -> "Verifying account…"
+                        else -> "Sign in to connect recommendations"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (signed) scheme.onBackground else tokens.textDim,
                     modifier = Modifier.weight(1f),
@@ -148,13 +191,18 @@ fun SignInScreen(
                         color = tokens.accent,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                signedIn = false
-                                onClearCookie()
-                                CookieManager.getInstance().apply {
-                                    removeAllCookies {
-                                        flush()
-                                        webView?.loadUrl(GOOGLE_LOGIN_URL)
+                            .clickable(enabled = !clearing) {
+                                clearing = true
+                                scope.launch {
+                                    try {
+                                        onClearCookie()
+                                        CookieManager.getInstance().removeAllCookies {
+                                            CookieManager.getInstance().flush()
+                                            clearing = false
+                                        }
+                                    } catch (e: Exception) {
+                                        clearing = false
+                                        error = "Could not clear the saved account. Please try again."
                                     }
                                 }
                             }
@@ -163,6 +211,14 @@ fun SignInScreen(
                 }
             }
 
+            if (error != null) {
+                Text(error.orEmpty(), color = scheme.error, style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                if (pendingCookie != null && !signed) TextButton(
+                    onClick = { pendingCookie?.let(::verifyAndSave) }, enabled = !checking,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) { Text("Retry verification") }
+            }
             Spacer(Modifier.height(12.dp))
 
             // ── the sign-in flow itself ──
@@ -174,7 +230,7 @@ fun SignInScreen(
                     .clip(RoundedCornerShape(16.dp))
                     .border(1.dp, tokens.border, RoundedCornerShape(16.dp)),
             ) {
-                if (!signed) AndroidView(
+                if (!signed && !clearing) AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { context ->
                         WebView(context).apply {
@@ -188,10 +244,10 @@ fun SignInScreen(
                                     // holds the signed-in session (innertune verbatim).
                                     if (url != null && url.startsWith(YOUTUBE_MUSIC_URL_PREFIX)) {
                                         val cookie = CookieManager.getInstance().getCookie(url)
-                                        if (!cookie.isNullOrBlank() && cookie.split(';').any { it.trim().startsWith("SAPISID=") && it.trim().length > 8 }) {
+                                        if (!cookie.isNullOrBlank() && YouTubeMusicHome.sessionId(cookie) != null &&
+                                            cookie != pendingCookie && !checking) {
                                             CookieManager.getInstance().flush()
-                                            onSaveCookie(cookie)
-                                            signedIn = true
+                                            verifyAndSave(cookie)
                                         }
                                     }
                                 }
@@ -199,6 +255,7 @@ fun SignInScreen(
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             CookieManager.getInstance().setAcceptCookie(true)
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             webView = this
                             loadUrl(GOOGLE_LOGIN_URL)
                         }

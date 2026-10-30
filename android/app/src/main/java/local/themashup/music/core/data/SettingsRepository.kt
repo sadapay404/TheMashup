@@ -7,6 +7,17 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -32,8 +43,39 @@ class SettingsRepository(private val context: Context) {
     val audioQuality: Flow<String> = context.settingsDataStore.data.map { it[Keys.AUDIO_QUALITY] ?: "320k" }
     val lyricsOn: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.LYRICS_ON] ?: true }
 
-    /** N9 YouTube sign-in cookie (innertune-style WebView capture); "" = signed out. */
-    val youtubeCookie: Flow<String> = context.settingsDataStore.data.map { it[Keys.YT_COOKIE] ?: "" }
+    private val sessionStore = EncryptedSessionStore(context)
+    private val sessionMutex = Mutex()
+    private val sessionReady = CompletableDeferred<Unit>()
+    private val cookieState = MutableStateFlow("")
+    /** The credential is never included in settings backups or general network requests. */
+    val youtubeCookie: Flow<String> = cookieState.asStateFlow()
+
+    init {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                sessionMutex.withLock {
+                    val legacy = context.settingsDataStore.data.first()[Keys.YT_COOKIE].orEmpty()
+                    var cookie = try {
+                        sessionStore.read()
+                    } catch (_: Exception) {
+                        // Keystore keys may be invalidated by a device restore/reset.
+                        // Remove the unusable ciphertext and let the user reconnect.
+                        sessionStore.resetUnreadable()
+                        ""
+                    }
+                    if (cookie.isEmpty() && legacy.isNotEmpty()) {
+                        sessionStore.write(legacy)
+                        cookie = legacy
+                    }
+                    if (legacy.isNotEmpty()) context.settingsDataStore.edit { it.remove(Keys.YT_COOKIE) }
+                    cookieState.value = cookie
+                }
+                sessionReady.complete(Unit)
+            } catch (e: Exception) {
+                sessionReady.completeExceptionally(e)
+            }
+        }
+    }
 
     suspend fun setThemeKey(key: String) {
         context.settingsDataStore.edit { it[Keys.THEME] = key }
@@ -52,7 +94,13 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setYoutubeCookie(cookie: String) {
-        context.settingsDataStore.edit { it[Keys.YT_COOKIE] = cookie }
+        sessionReady.await()
+        withContext(Dispatchers.IO) {
+            sessionMutex.withLock {
+                sessionStore.write(cookie)
+                cookieState.value = cookie
+            }
+        }
     }
 
     companion object {

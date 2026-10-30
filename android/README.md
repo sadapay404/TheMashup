@@ -6,6 +6,23 @@ library, recommendations) is on-device.
 
 📖 **Spec, phases, and build steps: [`docs/ANDROID.md`](../docs/ANDROID.md)**
 
+## Current Home, queue, and downloads
+
+- Connect a YouTube account once using the sign-in-only WebView. The app
+  verifies the account and displays the Music Home feed in the native Home
+  screen; playback is handled by TheMashup. Session credentials are encrypted
+  with Android Keystore and excluded from backup. Google can change or block
+  the sign-in or the unofficial endpoint.
+- Tapping a song plays it without adding a list of search results. The prior
+  song stays immediately behind the new one. Use an individual song's queue
+  button to add it without interrupting playback.
+- Downloads use parallel byte ranges and retain partial segments where the
+  source supports safe resume; non-range servers require starting over.
+  Speed is source-dependent. Completed videos appear in a separate section
+  only when present; completed audio remains under songs.
+- CI tests/builds do **not** prove actual account login, playback, FFmpeg
+  execution, device performance or download speed. Validate those on a device.
+
 ## Debug APK — GitHub Actions (N9, preferred)
 
 Every push to `arena/af3d0d7b-themashup` runs

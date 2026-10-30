@@ -45,6 +45,18 @@ class PlaybackStateMachineTest {
     }
 
     @Test
+    fun manualQueueAndPlayNowDoNotAddSearchResults() {
+        val (jhol, _) = PlaybackStateMachine.playNow(PlayerSnapshot(), track("jhol"), "search")
+        val queued = PlaybackStateMachine.enqueue(jhol, track("later"), InsertMode.END)
+        Assert.assertEquals(listOf("jhol", "later"), queued.queue.map { it.id })
+        Assert.assertEquals("jhol", queued.current?.id)
+        val (galSun, effect) = PlaybackStateMachine.playNow(queued, track("gal-sun"), "search")
+        Assert.assertEquals(listOf("gal-sun", "jhol", "later"), galSun.queue.map { it.id })
+        Assert.assertEquals("gal-sun", (effect as PlayerEffect.Resolve).track.id)
+        Assert.assertEquals(PlayStatus.LOADING, galSun.status)
+    }
+
+    @Test
     fun playQueueStartsResolvingAtRequestedIndex() {
         val (s, e) = PlaybackStateMachine.playQueue(PlayerSnapshot(), q3, startIndex = 1, startAtMs = 1234)
         Assert.assertEquals(PlayStatus.LOADING, s.status)

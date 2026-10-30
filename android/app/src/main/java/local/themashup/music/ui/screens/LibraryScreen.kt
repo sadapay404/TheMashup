@@ -93,7 +93,6 @@ fun LibraryScreen(
     var newName by rememberSaveable { mutableStateOf("") }
 
     fun playContext(track: Track, queue: List<Track>, context: String) {
-        val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         engine.playNow(track, context = context)
         scope.launch { library.recordPlay(track, context = context) }
     }
@@ -168,7 +167,7 @@ fun LibraryScreen(
                             shape = RoundedCornerShape(999.dp),
                         ) {
                             Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Text("  Play all", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("  Play first", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
                             onClick = {

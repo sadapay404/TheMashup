@@ -1,12 +1,30 @@
 # TheMashup — Native Android (Kotlin + Jetpack Compose)
 
-> **Status:** All 8 phases delivered (N1–N8) — full native app, feature
-> parity matrix in the N8 notes below. This is a **full rewrite** of the
-> app as a true native Android application: **no PC, no gateway, no LAN —
-> ever.** Everything (YouTube extraction, streaming, lyrics, downloads,
-> library, recommendations) runs on the phone. The existing web/desktop code
-> (`apps/`, `packages/`, `services/`, `desktop/`, `mobile/`) stays untouched
-> beside it; this app lives in `android/`.
+> **Current status:** The native app is built and unit-tested in GitHub Actions,
+> but the latest Home, downloads, playback controls, FFmpeg execution, and Google
+> sign-in have **not been verified on a physical Android device**. The notes
+> for older phases below are historical and may describe superseded designs.
+> Android runs on the phone without a PC, gateway, or LAN; the web/desktop
+> applications remain alongside it in the repository.
+>
+> **Current behavior (post-N9 review):** YouTube Music is the source of the
+> recommendations rendered directly on the native Home screen. Sign-in uses a
+> WebView only for the account flow; playback uses the native player. Tapping a
+> song plays only that song, retains the previous track immediately after it,
+> and does not enqueue a result list. Explicit queue buttons add individual
+> songs without interrupting playback. The Home feed handles song, album and
+> playlist recommendations; collections expand into individual songs on Home.
+> The feed currently loads its first response page, not every continuation.
+>
+> Download transfers use four concurrent byte ranges when the source supports
+> them, validate ranges and HTTP validators, preserve segments for retries and
+> app restarts, and fall back to a full download when ranges are unsupported.
+> A changed source or a server that ignores ranges may require a restart; actual
+> throughput depends on the source and connection. Downloaded videos appear in
+> their own section only when at least one has completed.
+> The session is stored with Android Keystore encryption in no-backup storage;
+> the legacy settings file is excluded from backup during migration. The music
+> endpoints and WebView sign-in depend on Google and can change or be blocked.
 
 ## Hard requirements (user-locked)
 
@@ -19,13 +37,9 @@
    synced lyrics + hybrid search, quality downloads, recommendations,
    library (likes/playlists/history), persistent themes, background/lock-screen
    playback, polished animations.
-4. **Downloads encoder = first-run download**: the APK stays slim; on first
-   download the app fetches a pinned static ffmpeg build once (~122 MB,
-   from GitHub `BtbN/FFmpeg-Builds`,
-   `ffmpeg-n8.1-latest-linuxarm64-gpl-8.1.tar.xz` — the planned n9.0 arm64
-   asset was not on the live release feed at N7 build time; swap the single
-   `FfmpegManager.FFMPEG_URL` constant if it reappears)
-   into app storage and caches it. No transcoder code bundled in the APK.
+4. **Downloads encoder = bundled FFmpeg**: N9 superseded the earlier first-run
+   download requirement. CI builds ARM binaries and packages them in the APK;
+   execution and codec behavior still require device verification.
 5. **PC/server code untouched** — Tauri desktop + Express gateway + Python
    resolver remain as they are.
 6. **Phased delivery with hard gates** — report after each phase, stop, wait
@@ -40,12 +54,12 @@
 | SDKs | minSdk 26 (Android 8), compileSdk/targetSdk 35 | Covers Media3 + notification channels; edge-to-edge handled by Compose `WindowInsets` |
 | Playback | Media3 ExoPlayer + `MediaSessionService` | Real lock-screen/notification controls, background play, audio focus, seekbar — native, not a WebView trick |
 | YouTube | **NewPipe Extractor v0.26.5** (JitPack) | Battle-tested keyless extraction: search, stream candidates, related/radio, exact audio formats; direct stream URLs handed to ExoPlayer with proper headers |
-| HTTP | OkHttp 4.12 + kotlinx-serialization 1.7.3 | LRCLIB lyrics, Piped/Invidious fallbacks, ffmpeg fetch |
+| HTTP | OkHttp 4.12 + kotlinx-serialization 1.7.3 | LRCLIB, YouTube Music Home, Piped/Invidious fallbacks |
 | Images | Coil 2.7.0 | Artwork loading + caching |
 | Local data | kotlinx-serialization **JSON file repositories** (`JsonFileStore`: mutex + atomic tmp/rename + corrupt→`.bak` fallback) — same contract as the web's `data/*.json`; **KSP/Room deliberately avoided** (toolchain risk, no schema migrations needed at personal scale) | Likes, playlists (ordered), history, plays, download jobs |
 | Themes persistence | DataStore Preferences | Survives restart (same contract as the web `localStorage` persist) |
 | Color extraction | Palette (`androidx.palette`) | Dynamic album-art accent colors (port of `lib/colors.ts`) |
-| Transcoder | Static ffmpeg binary, first-run download → `filesDir` | User decision: slim APK, one-time ~128 MB fetch, exact MP3/FLAC/Opus output |
+| Transcoder | FFmpeg built for ARM and bundled by CI | N9 user decision; device execution and codecs need validation |
 | Syntax gate | `tree-sitter-kotlin` (`scripts/check_android_syntax.py`) | Authoring sandbox cannot compile Android/Kotlin — every phase must pass this parse + XML/TOML validation before commit |
 
 ### Known authoring constraints (honesty contract)
@@ -80,7 +94,7 @@
 | Hybrid smart search (web Ph4) | Same behavior: free text ⇄ pasted-lyrics fuzzy match (ported scorer) | N6 |
 | Auth + library (web Ph4) | Local profile: likes, playlists with drag-reorder, history, follows | N2/N6 |
 | Downloads + quality picker (web Ph5) | MediaStore scoped-storage writer, first-run ffmpeg, SSE-equivalent progress via Flow | N7 |
-| Recommendations (web Ph5) | Ported scoring: quick/trending/discover/listen-again shelves | N8 |
+| Recommendations | Authenticated YouTube Music Home feed rendered in the native Home screen | N9 review |
 | 5 persistent themes + dynamic art colors (web Ph3/6) | Theme system in Compose, tokens ported from `apps/web/src/styles/index.css`, DataStore persistence | N5 |
 | Animations/visualizer (web Ph6) | Compose motion + `android.media.audiofx.Visualizer`-driven canvas | N8 |
 | Desktop shell (web Ph7) | *(PC code untouched — not applicable to native app)* | — |
@@ -117,9 +131,8 @@ quality ordering) → `PlayerController.play(candidates)` → ExoPlayer with
 lock-screen/notification and the Compose UI.
 
 **Data flow (download):** quality sheet → `DownloadRepository.enqueue()` →
-JSON `DownloadJob` row + Flow progress → network fetch of chosen stream URL → if a
-transcode is needed, first ensure ffmpeg (show the one-time download sheet
-with progress) → run transcode via `ProcessBuilder` → write finished file
+JSON `DownloadJob` row + Flow progress → ranged/resumable fetch where supported →
+probe the bundled FFmpeg → run transcode via `ProcessBuilder` → write finished file
 into `MediaStore.Downloads` (scoped storage, no permissions on 10+) →
 notification/UI update.
 
@@ -369,13 +382,13 @@ notification/UI update.
 | Media notification + panel controls (N9 fix) | `POST_NOTIFICATIONS` + latch-after-success + `setSessionActivity` | N9 | ✅ |
 | Auto-next on dead tracks (N9 fix) | `PlaybackEngine.advanceOrPark` (manual=false, forward-only guard) | N9 | ✅ |
 | On-device charts/suggestions (N9 fix) | `NewPipeSource.trending` via `trending_music`/`Trending` kiosks | N9 | ✅ |
-| YouTube sign-in (N9) | `SignInScreen` WebView cookie capture → `YouTubeCookie` interceptor | N9 | ✅ |
+| YouTube sign-in + Home recommendations | Verified account session → encrypted store → authenticated Music Home request | N9 review | Implemented; device test pending |
 | Bundled ffmpeg (N9, directive reversed) | CI static build → `jniLibs/libffmpeg.so` + probe-only `FfmpegManager` | N9 | ✅ |
 | Player redesign + shuffle emphasis (N9) | alpha-1 art, deck scrim, beat envelope (visualizer), accent pills | N9 | ✅ |
 | APK via GitHub Actions (N9) | `.github/workflows/android.yml` → `TheMashup-debug-apk` artifact | N9 | ✅ |
 | Gateway connection screen / SSE chip | N/A — no gateway exists by design (hard requirement #1) | — | N/A |
 
-### N9 notes (user work order — delivered)
+### N9 historical notes (superseded where the current-status section differs)
 
 **CI APK factory (user: "build the apk using github actions. i don't wanna
 go back and forth")** — `.github/workflows/android.yml` runs on every push to
@@ -405,15 +418,13 @@ green run: 40989959756.
   "No recommendation data available". Fixed by driving NewPipe's kiosks:
   `trending_music` (YouTube Charts) first, classic `Trending` second;
   Piped/Invidious stay as fallbacks.
-- **Sign-in** (chosen: innertune/SimpMusic WebView method) →
-  `SignInScreen` loads innertune's verbatim Google music service-login URL;
-  `doUpdateVisitedHistory` on `music.youtube.com` captures
-  `CookieManager`'s jar → `SettingsRepository.yt_cookie` + process-wide
-  `YouTubeCookie`; `newNetworkClient()` attaches `Cookie` to youtube.com
-  requests (volatile, read per request — applies even though NewPipe inits
-  its client once). Entry = top-bar profile chip (Person + accent when
-  signed in); Sign-out clears WebKit cookies for Google/YouTube/Music.
-  The WebView exists only inside that screen — the shell stays native.
+- **Sign-in and recommendations (revised)** → `SignInScreen` captures a
+  Music session only in the login WebView, checks the account-menu response,
+  and closes after saving it with Android Keystore encryption. The credential is
+  sent only to the authenticated Music API, without following redirects. Home
+  browses `FEmusic_home` and renders songs, albums and playlists natively;
+  collection songs and search results enter the queue only on explicit action.
+  The WebView is not used for listening. Live-account behavior remains untested.
 - **FFmpeg bundled** (directive reversed to "just bundle the ffmpeg") →
   root cause of "downloads but fails to bundle": the BtbN pin was a
   **glibc** `linuxarm64` build that can never exec on Android (bionic).
@@ -422,8 +433,8 @@ green run: 40989959756.
   method; `--enable-shared/--disable-static` sed-patched so the executable
   links everything in), stages it as `jniLibs/<abi>/libffmpeg.so`
   (~11 MB artifact on armeabi-v7a), and `jniLibs.useLegacyPackaging = true`
-  makes it a real executable file in `nativeLibraryDir` — `execve()` works
-  there on every Android version (writable app data does not).
+  extracts it into `nativeLibraryDir`. Execution there is device-dependent
+  and has not been verified on a physical device.
   `FfmpegManager` now just probes that binary; no network fetch, consent
   sheet only appears if the probe fails.
 - **Player "wayy too transparent / make it react to the beats"** →
@@ -450,7 +461,7 @@ green run: 40989959756.
 | Nikita-sud/latentjam | Kotlin-multiplatform, no Google login | N/A |
 | maxrave-dev/SimpMusic | Multi YouTube-account + cookie ("send back to Google") | Cookie sign-in ✓ — multi-account + cookie refresh = future work |
 | PixelPlayerHQ/PixelPlayerOSS | Self-hosted server logins (Navidrome/Jellyfin) | N/A (no servers by design) |
-| z-huang/innertune | **"Login support"** — WebView cookie capture + account info | Ported verbatim (`SignInScreen`) |
+| z-huang/innertune | WebView cookie capture, account check, authenticated Music Home browse | Adapted in `SignInScreen` and `YouTubeMusicHome`; live behavior unverified |
 | Recurring bug pattern (all) | Auto-advance when a track errors instead of parking | `advanceOrPark` ✓ — the "next song" trap |
 
 ## Build (your machine)
@@ -463,6 +474,6 @@ cd android
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-First run needs **JitPack + Google Maven + Maven Central** access (AGP,
-Compose, Media3, NewPipe Extractor). The ffmpeg engine download happens on
-first use of Downloads (GitHub releases).
+The build needs **JitPack + Google Maven + Maven Central** access (AGP,
+Compose, Media3, NewPipe Extractor). GitHub Actions builds and packages the
+FFmpeg binaries; the app does not download FFmpeg on first use.
