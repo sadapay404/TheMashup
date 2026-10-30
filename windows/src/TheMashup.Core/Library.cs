@@ -13,10 +13,13 @@ public sealed class LibraryPlaylist
     public List<LibraryTrack> Tracks { get; set; } = [];
 }
 
+/// <summary>Read-only playlist projection; all edits go through Library methods.</summary>
+public sealed record LibraryPlaylistView(string Id, string Name, IReadOnlyList<LibraryTrack> Tracks);
+
 public sealed class LibraryHistoryEntry
 {
-    public LibraryTrack? Track { get; set; }
-    public DateTimeOffset PlayedAt { get; set; }
+    public LibraryTrack? Track { get; init; }
+    public DateTimeOffset PlayedAt { get; init; }
 }
 
 public sealed class LibraryQueue
@@ -70,12 +73,13 @@ public sealed class Library
     public LibraryLoadStatus LoadStatus { get; private set; } = LibraryLoadStatus.Ready;
     public bool CanEdit => LoadStatus == LibraryLoadStatus.Ready;
     public bool LastWriteSucceeded { get; private set; } = true;
-    public IReadOnlyList<LibraryTrack> LikedTracks => _data.LikedTracks;
-    public IReadOnlyList<LibraryPlaylist> Playlists => _data.Playlists;
-    public IReadOnlyList<LibraryHistoryEntry> History => _data.History;
-    public IReadOnlyList<LibraryTrack> Queue => _data.Queue.Items;
+    public IReadOnlyList<LibraryTrack> LikedTracks => _data.LikedTracks.AsReadOnly();
+    public IReadOnlyList<LibraryPlaylistView> Playlists => _data.Playlists
+        .Select(item => new LibraryPlaylistView(item.Id, item.Name, item.Tracks.AsReadOnly())).ToArray();
+    public IReadOnlyList<LibraryHistoryEntry> History => _data.History.AsReadOnly();
+    public IReadOnlyList<LibraryTrack> Queue => _data.Queue.Items.AsReadOnly();
     public int CurrentQueueIndex => _data.Queue.CurrentIndex;
-    public LibraryTrack? CurrentTrack => CurrentQueueIndex >= 0 ? Queue[CurrentQueueIndex] : null;
+    public LibraryTrack? CurrentTrack => CurrentQueueIndex >= 0 ? _data.Queue.Items[CurrentQueueIndex] : null;
 
     public bool CreatePlaylist(string? name, out string? id)
     {
@@ -129,7 +133,7 @@ public sealed class Library
         return true;
     }
 
-    public bool IsLiked(LibraryTrack track) => _data.LikedTracks.Any(item => SameTrack(item, track));
+    public bool IsLiked(LibraryTrack? track) => track is not null && _data.LikedTracks.Any(item => SameTrack(item, track));
 
     public bool SetLiked(LibraryTrack track, bool liked)
     {

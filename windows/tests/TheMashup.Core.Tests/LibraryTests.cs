@@ -30,6 +30,22 @@ public sealed class LibraryTests
     }
 
     [Fact]
+    public void ReadOnlyViewsCannotBypassPersistenceOrMutateTheLibrary()
+    {
+        var store = new MemoryStore();
+        var library = new Library(store);
+        Assert.True(library.CreatePlaylist("Private list", out var id));
+        Assert.True(library.AddToPlaylist(id!, Track("one")));
+        Assert.True(library.AddToQueue(Track("one")));
+        var playlist = Assert.Single(library.Playlists);
+        Assert.Throws<NotSupportedException>(() => ((IList<LibraryTrack>)playlist.Tracks).Add(Track("unsaved")));
+        Assert.Throws<NotSupportedException>(() => ((IList<LibraryTrack>)library.Queue).Clear());
+        Assert.Single(new Library(store).Playlists[0].Tracks);
+        Assert.Single(library.Queue);
+        Assert.False(library.IsLiked(null));
+    }
+
+    [Fact]
     public void InvalidPlaylistNamesNeverWriteOrCreateRows()
     {
         var store = new MemoryStore();

@@ -125,9 +125,18 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     private void RefreshLibrary()
     {
-        PlaylistRows.Clear();
-        foreach (var playlist in _library.Playlists)
-            PlaylistRows.Add(new PlaylistRowViewModel(_library, playlist));
+        var playlists = _library.Playlists;
+        var sameRows = PlaylistRows.Count == playlists.Count;
+        for (var i = 0; sameRows && i < playlists.Count; i++)
+            sameRows = PlaylistRows[i].Id == playlists[i].Id && PlaylistRows[i].Name == playlists[i].Name &&
+                PlaylistRows[i].SongCount == playlists[i].Tracks.Count;
+        // Queue/history changes should not recreate the whole playlist view.
+        if (!sameRows)
+        {
+            PlaylistRows.Clear();
+            foreach (var playlist in playlists)
+                PlaylistRows.Add(new PlaylistRowViewModel(_library, playlist));
+        }
         Notify(nameof(HasPlaylists), nameof(HasNoPlaylists), nameof(PlaylistCountText),
             nameof(LibraryStatus), nameof(CanEditLibrary));
     }
@@ -170,13 +179,14 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
     private bool _confirmingDelete;
     private string _message = "";
 
-    public PlaylistRowViewModel(Library library, LibraryPlaylist playlist)
+    public PlaylistRowViewModel(Library library, LibraryPlaylistView playlist)
     {
         _library = library;
         Id = playlist.Id;
         Name = playlist.Name;
         _draftName = Name;
-        SongCountText = playlist.Tracks.Count == 1 ? "1 song" : $"{playlist.Tracks.Count} songs";
+        SongCount = playlist.Tracks.Count;
+        SongCountText = SongCount == 1 ? "1 song" : $"{SongCount} songs";
         BeginRenameCommand = new ActionCommand(() => { _editing = true; _confirmingDelete = false; UpdateState(); });
         SaveNameCommand = new ActionCommand(SaveName);
         CancelRenameCommand = new ActionCommand(() => { _editing = false; DraftName = Name; UpdateState(); });
@@ -188,6 +198,7 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Id { get; }
     public string Name { get; }
+    public int SongCount { get; }
     public string SongCountText { get; }
     public bool IsEditing => _editing;
     public bool IsConfirmingDelete => _confirmingDelete;
