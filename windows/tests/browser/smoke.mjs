@@ -196,7 +196,7 @@ try {
   } else {
     // Avalonia's canvas does not expose every accessibility node on every
     // browser version. Click only in the title column until play-now persists.
-    for (const y of [440, 470, 500, 530, 560, 590, 620]) {
+    for (const y of [420, 430, 440, 470, 500, 530, 560, 590, 620]) {
       await page.mouse.click(470, y);
       await page.waitForTimeout(400);
       const queued = await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}').queue?.items?.length || 0, libraryKey);
