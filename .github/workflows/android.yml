@@ -1,11 +1,9 @@
 name: Android APK
 
-# One-shot APK factory: every push to this branch runs unit tests and
-# produces a debug APK artifact — no local build round-trips.
-
+# Temporarily paused for the Windows rebuild at the user's request.
+# Do not dispatch an Android build without their permission. When Android work
+# resumes, restore the push trigger for arena/af3d0d7b-themashup.
 on:
-  push:
-    branches: [arena/af3d0d7b-themashup]
   workflow_dispatch:
 
 # Limit the workflow token to checkout and artifact reads.
