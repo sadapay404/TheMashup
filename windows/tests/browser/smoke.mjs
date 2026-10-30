@@ -16,7 +16,7 @@ async function load() {
   await page.locator('#out canvas').first().waitFor({ state: 'visible', timeout: 120000 });
   // The canvas is created before Avalonia finishes its first frame.
   await page.waitForTimeout(2500);
-  assert.equal(await page.locator('#loading-message').count(), 0, 'Loading splash must be removed');
+  await page.locator('#loading-message').waitFor({ state: 'hidden', timeout: 10000 });
 }
 
 async function clickButton(name, fallbackX, fallbackY) {

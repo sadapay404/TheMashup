@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Controls;
 using TheMashup.Core;
 
 namespace TheMashup.UI;
