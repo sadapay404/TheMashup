@@ -26,7 +26,7 @@ public sealed class PlaybackTests
         Assert.Single(library.History);
         library.AddToQueue(queued);
         Assert.Equal(previous, library.CurrentTrack);
-        Assert.Equal(1, device.Opened.Count);
+        Assert.Single(device.Opened);
         await player.PlayNowAsync(selected);
         Assert.Equal(new[] { selected, previous, queued }, library.Queue);
         Assert.Equal(0, library.CurrentQueueIndex);

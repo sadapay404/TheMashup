@@ -397,7 +397,8 @@ public sealed class SearchViewModel : INotifyPropertyChanged, IDisposable
     {
         var controller = _player?.Controller;
         var line = "";
-        if (_showLyrics && controller?.Track?.Id == _lyricsTrackId && _timedLines.Length > 0)
+        if (_showLyrics && controller is not null && _lyricsTrackId is not null &&
+            controller.Track?.Id == _lyricsTrackId && _timedLines.Length > 0)
         {
             // Find the last line whose timestamp has started, including after seeking.
             var left = 0; var right = _timedLines.Length - 1; var match = -1;

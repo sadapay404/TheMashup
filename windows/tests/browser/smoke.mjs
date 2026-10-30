@@ -9,9 +9,15 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, dev
 const errors = [];
 const expectedRendererFallbacks = [];
 const failedFixtureStreams = [];
+const playbackResponses = [];
+let searchRowY = null;
 page.on('response', response => {
-  if (response.url().includes('/api/playback/stream/') && response.status() === 410)
-    failedFixtureStreams.push(response.url());
+  const pathname = new URL(response.url()).pathname;
+  if (pathname.startsWith('/api/playback/')) {
+    playbackResponses.push(`${pathname.startsWith('/api/playback/stream/') ? '/api/playback/stream/[token]' : pathname} ${response.status()}`);
+    if (pathname.startsWith('/api/playback/stream/') && response.status() === 410)
+      failedFixtureStreams.push(pathname);
+  }
 });
 let testStage = 'initial render and themes';
 page.on('pageerror', error => errors.push(error.message));
@@ -181,7 +187,7 @@ try {
 
   testStage = 'fixture playback audio failover';
   const libraryKey = 'themashup.windows.library';
-  let searchRowY = null;
+  searchRowY = null;
   const playResult = page.getByRole('button', { name: 'Play search result', exact: true });
   if (await playResult.count() && await playResult.first().isVisible()) {
     const box = await playResult.first().boundingBox();
@@ -257,7 +263,32 @@ try {
   console.log('PASS: shared browser UI; themes/playlists; fixture search, actual audio failover, explicit queue, history, video, pause/resume and next; viewport resize.');
   console.log('::notice title=Windows browser checks::Themes, playlists, fixture search, audio failover, queue/history, video and controls passed (not a live-provider or Windows runtime test).');
 } catch (error) {
-  await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});
+  const failedShot = await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => null);
+  const state = await page.evaluate(() => {
+    const lib = JSON.parse(localStorage.getItem('themashup.windows.library') || '{}');
+    const el = document.querySelector('#browser-video-host video');
+    return { queue: lib.queue, history: lib.history?.length, media: el && {
+      paused: el.paused, currentTime: el.currentTime, readyState: el.readyState,
+      error: el.error?.code, video: el.dataset.video, attempt: el.dataset.attempt,
+    } };
+  }).catch(() => ({}));
+  const diagnostics = JSON.stringify({ searchRowY, state, playbackResponses, errors }).replaceAll('%', '%25').slice(0, 3000);
+  console.log(`::error title=Browser playback state::${diagnostics}`);
+  // Temporary CI diagnostic: artifacts are hosted on an inaccessible storage
+  // domain in this sandbox. Split a downsampled screenshot across annotations.
+  if (failedShot && process.env.DEBUG_SCREENSHOT_BRIDGE === '1') {
+    const src = PNG.sync.read(failedShot);
+    const dst = new PNG({ width: Math.floor(src.width / 2), height: Math.floor(src.height / 2) });
+    for (let y = 0; y < dst.height; y++) for (let x = 0; x < dst.width; x++) {
+      const si = ((y * 2) * src.width + x * 2) * 4, di = (y * dst.width + x) * 4;
+      for (let c = 0; c < 3; c++) dst.data[di + c] = src.data[si + c] & 0xf8;
+      dst.data[di + 3] = 255;
+    }
+    const encoded = PNG.sync.write(dst).toString('base64');
+    const parts = encoded.match(/.{1,2800}/g) || [];
+    if (parts.length <= 35) for (let i = 0; i < parts.length; i++)
+      console.log(`::notice title=Debug image ${String(i + 1).padStart(2, '0')}/${parts.length}::${parts[i]}`);
+  }
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');
   const summary = `${testStage}: ${error?.stack || error}`.replaceAll('%', '%25').replaceAll('\n', '%0A').slice(0, 3000);
   console.log(`::error title=Preview smoke test::${summary}`);

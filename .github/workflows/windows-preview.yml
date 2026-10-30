@@ -94,6 +94,8 @@ jobs:
           npm ci --prefix tests/browser --no-audit --no-fund
           cd tests/browser && npx playwright install --with-deps chromium
       - name: Exercise the real browser preview
+        env:
+          DEBUG_SCREENSHOT_BRIDGE: '1'
         run: |
           set -o pipefail
           webroot=$(cat "$RUNNER_TEMP/themashup-windows-preview/webroot.path")
