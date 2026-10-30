@@ -275,19 +275,15 @@ try {
   const diagnostics = JSON.stringify({ searchRowY, state, playbackResponses, errors }).replaceAll('%', '%25').slice(0, 3000);
   console.log(`::error title=Browser playback state::${diagnostics}`);
   // Temporary CI diagnostic: artifacts are hosted on an inaccessible storage
-  // domain in this sandbox. Split a downsampled screenshot across annotations.
+  // domain in this sandbox. Split a clipped screenshot across annotations.
   if (failedShot && process.env.DEBUG_SCREENSHOT_BRIDGE === '1') {
-    const src = PNG.sync.read(failedShot);
-    const dst = new PNG({ width: Math.floor(src.width / 2), height: Math.floor(src.height / 2) });
-    for (let y = 0; y < dst.height; y++) for (let x = 0; x < dst.width; x++) {
-      const si = ((y * 2) * src.width + x * 2) * 4, di = (y * dst.width + x) * 4;
-      for (let c = 0; c < 3; c++) dst.data[di + c] = src.data[si + c] & 0xf8;
-      dst.data[di + 3] = 255;
+    const clip = await page.screenshot({ type: 'png', clip: { x: 0, y: 760, width: 1440, height: 140 } }).catch(() => null);
+    if (clip) {
+      const encoded = PNG.sync.write(clip).toString('base64');
+      const parts = encoded.match(/.{1,1000}/g) || [];
+      for (let i = 0; i < parts.length; i++)
+        console.log(`::notice title=Debug clip ${String(i + 1).padStart(2, '0')}/${parts.length}::${parts[i]}`);
     }
-    const encoded = PNG.sync.write(dst).toString('base64');
-    const parts = encoded.match(/.{1,2800}/g) || [];
-    if (parts.length <= 35) for (let i = 0; i < parts.length; i++)
-      console.log(`::notice title=Debug image ${String(i + 1).padStart(2, '0')}/${parts.length}::${parts[i]}`);
   }
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');
   const summary = `${testStage}: ${error?.stack || error}`.replaceAll('%', '%25').replaceAll('\n', '%0A').slice(0, 3000);
