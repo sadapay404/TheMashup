@@ -25,10 +25,16 @@ class YouTubeMusicHomeTest {
         Assert.assertTrue(result.exceptionOrNull() is IOException)
     }
 
+    @Test fun emptyOrNullAccountHeadersAreNotSignedIn() {
+        for (body in listOf("""{"activeAccountHeaderRenderer":null}""", """{"activeAccountHeaderRenderer":{}}""")) {
+            Assert.assertTrue(runCatching { YouTubeMusicHome(client(body)).verify("SAPISID=secret") }.isFailure)
+        }
+    }
+
     @Test fun verifiedAccountUsesOnlyAuthenticatedMusicEndpoint() {
         var host = ""
         var authorization = ""
-        val home = YouTubeMusicHome(client("""{"header":{"activeAccountHeaderRenderer":{}}}""") {
+        val home = YouTubeMusicHome(client("""{"header":{"activeAccountHeaderRenderer":{"accountName":{"runs":[{"text":"Account"}]}}}}""") {
             host = it.url.host
             authorization = it.header("Authorization").orEmpty()
             Assert.assertEquals("SAPISID=secret", it.header("Cookie"))

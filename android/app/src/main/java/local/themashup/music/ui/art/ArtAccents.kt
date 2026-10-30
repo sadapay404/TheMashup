@@ -13,6 +13,9 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.palette.graphics.Palette
 import coil.imageLoader
 import coil.request.ImageRequest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import local.themashup.music.ui.logic.artAccentFallback
 import local.themashup.music.ui.theme.ArtAccents
 
@@ -35,30 +38,32 @@ fun rememberArtAccents(url: String?, seed: String): ArtAccents {
 
     if (url != null) {
         LaunchedEffect(url, safeSeed) {
-            runCatching {
+            try {
                 val request = ImageRequest.Builder(context)
                     .data(url)
                     .allowHardware(false)
                     .build()
                 val drawable = context.imageLoader.execute(request).drawable
                     ?: error("no artwork")
-                val palette = Palette.from(drawable.toBitmap()).generate()
-                val fb1 = fallback.first.toArgb()
-                val fb2 = fallback.second.toArgb()
-                // Web: hue buckets ranked by population, gray/black/white skipped.
-                val ranked = palette.swatches
-                    .filter { s ->
-                        s.population > 0 &&
-                            webPass((s.rgb shr 16) and 0xFF, (s.rgb shr 8) and 0xFF, s.rgb and 0xFF)
-                    }
-                    .sortedByDescending { it.population }
-                val c1 = ranked.getOrNull(0)?.rgb ?: fb1
-                val c2 = ranked.getOrNull(1)?.rgb ?: fb2
-                accents = ArtAccents(
-                    first = Color(c1),
-                    second = if (c2 == c1) Color(fb2) else Color(c2),
-                )
-            }.onFailure {
+                // Palette extraction and bitmap scaling are CPU work, not UI work.
+                val selected = withContext(Dispatchers.Default) {
+                    val palette = Palette.from(drawable.toBitmap(width = 128, height = 128)).generate()
+                    val fb1 = fallback.first.toArgb()
+                    val fb2 = fallback.second.toArgb()
+                    val ranked = palette.swatches
+                        .filter { s ->
+                            s.population > 0 &&
+                                webPass((s.rgb shr 16) and 0xFF, (s.rgb shr 8) and 0xFF, s.rgb and 0xFF)
+                        }
+                        .sortedByDescending { it.population }
+                    val c1 = ranked.getOrNull(0)?.rgb ?: fb1
+                    val c2 = ranked.getOrNull(1)?.rgb ?: fb2
+                    ArtAccents(first = Color(c1), second = if (c2 == c1) Color(fb2) else Color(c2))
+                }
+                accents = selected
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
                 accents = fallback
             }
         }

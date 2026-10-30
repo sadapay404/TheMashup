@@ -25,6 +25,14 @@ class MusicHomeParserTest {
         Assert.assertEquals("A song", result.single().title)
         Assert.assertEquals("An artist", result.single().artistNames)
     }
+    @Test fun albumTracksInheritAlbumArtworkAndArtist() {
+        val body = """{"musicResponsiveHeaderRenderer":{"title":{"runs":[{"text":"Album title"}]},"subtitle":{"runs":[{"text":"Album"}]},"straplineTextOne":{"runs":[{"text":"Album artist"}]},"thumbnail":{"thumbnails":[{"url":"https://example.com/album"}]}},"musicPlaylistShelfRenderer":{"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"text":{"runs":[{"text":"Song"}]}}],"playlistItemData":{"videoId":"abc123def45"}}}]}}"""
+        val track = MusicHomeParser.parseCollection(kotlinx.serialization.json.Json.parseToJsonElement(body)).single()
+        Assert.assertEquals("Album artist", track.artistNames)
+        Assert.assertEquals("Album title", track.album)
+        Assert.assertEquals("https://example.com/album", track.artwork)
+    }
+
     @Test fun quickPicksCanUseTitleRunWatchEndpoint() {
         val body = """{"musicCarouselShelfRenderer":{"contents":[{"musicResponsiveListItemRenderer":{"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Quick pick","navigationEndpoint":{"watchEndpoint":{"videoId":"abc123def45"}}}]}}}]}}]}}"""
         val song = MusicHomeParser.parse(body).single().items.single() as MusicHomeItem.Song

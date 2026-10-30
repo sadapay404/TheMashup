@@ -4,6 +4,7 @@ import java.io.IOException
 import java.security.MessageDigest
 import kotlinx.serialization.json.*
 import local.themashup.music.core.domain.Track
+import local.themashup.music.core.domain.ArtistRef
 import local.themashup.music.core.network.logic.TrackNormalize
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -17,7 +18,7 @@ class YouTubeMusicHome(client: okhttp3.OkHttpClient = newNetworkClient()) {
     /** A SAPISID alone can exist in an anonymous cookie jar; check the account menu. */
     fun verify(cookie: String) {
         val response = post(cookie, "account/account_menu", """{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"$CLIENT_VERSION","hl":"en"}}}""")
-        if (!containsKey(response, "activeAccountHeaderRenderer"))
+        if (!hasAccountIdentity(response))
             throw IOException("Could not verify the signed-in YouTube account. Please sign in again.")
     }
 
@@ -80,9 +81,21 @@ class YouTubeMusicHome(client: okhttp3.OkHttpClient = newNetworkClient()) {
         }
     }
 
-    private fun containsKey(node: JsonElement, key: String): Boolean = when (node) {
-        is JsonObject -> key in node || node.values.any { containsKey(it, key) }
-        is JsonArray -> node.any { containsKey(it, key) }
+    private fun hasAccountIdentity(node: JsonElement): Boolean = when (node) {
+        is JsonObject -> {
+            val account = node["activeAccountHeaderRenderer"] as? JsonObject
+            (account != null && listOf("accountName", "email", "channelHandle").any {
+                account[it]?.let(::hasNonblankText) == true
+            }) || node.values.any(::hasAccountIdentity)
+        }
+        is JsonArray -> node.any(::hasAccountIdentity)
+        else -> false
+    }
+
+    private fun hasNonblankText(node: JsonElement): Boolean = when (node) {
+        is JsonObject -> (node["text"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true ||
+            (node["simpleText"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true || node.values.any(::hasNonblankText)
+        is JsonArray -> node.any(::hasNonblankText)
         else -> false
     }
 
@@ -142,7 +155,25 @@ object MusicHomeParser {
     fun parseCollection(root: JsonElement): List<Track> {
         val result = mutableListOf<MusicHomeItem>()
         collectItems(root, result)
-        return result.filterIsInstance<MusicHomeItem.Song>().map { it.track }.distinctBy { it.id }
+        val header = findObject(root, "musicResponsiveHeaderRenderer") ?: findObject(root, "musicDetailHeaderRenderer")
+        val isAlbum = header?.get("subtitle")?.let(::findText)?.contains("Album", ignoreCase = true) == true
+        val albumArtist = if (isAlbum) header?.get("straplineTextOne")?.let(::findText) else null
+        val albumTitle = if (isAlbum) header?.get("title")?.let(::findText) else null
+        val albumArt = if (isAlbum) header?.get("thumbnail")?.let(::findThumbnail) else null
+        return result.filterIsInstance<MusicHomeItem.Song>().map { song ->
+            val track = song.track
+            val art = track.artwork ?: albumArt ?: "https://i.ytimg.com/vi/${track.id}/hqdefault.jpg"
+            val artist = albumArtist?.takeIf { track.artistNames == "Unknown artist" }
+            track.copy(artwork = art, artworkBest = art, album = track.album ?: albumTitle,
+                artistNames = artist ?: track.artistNames,
+                artists = if (artist != null) listOf(ArtistRef(name = artist)) else track.artists)
+        }.distinctBy { it.id }
+    }
+
+    private fun findObject(node: JsonElement, key: String): JsonObject? = when (node) {
+        is JsonObject -> (node[key] as? JsonObject) ?: node.values.firstNotNullOfOrNull { findObject(it, key) }
+        is JsonArray -> node.firstNotNullOfOrNull { findObject(it, key) }
+        else -> null
     }
 
     private fun collectItems(node: JsonElement, items: MutableList<MusicHomeItem>) {
