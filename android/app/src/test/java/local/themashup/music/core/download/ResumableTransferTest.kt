@@ -1,17 +1,19 @@
 package local.themashup.music.core.download
 
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpServer
+import java.io.BufferedReader
 import java.io.File
-import java.net.InetSocketAddress
+import java.io.InputStreamReader
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
 import java.util.Collections
-import java.util.concurrent.Executors
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import local.themashup.music.core.domain.StreamCandidate
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -19,8 +21,9 @@ import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
 
+/** Real local HTTP responses, including broken connections; no Android-only server API. */
 class ResumableTransferTest {
-    private lateinit var server: HttpServer
+    private lateinit var server: ServerSocket
     private lateinit var dir: File
     private val executor = Executors.newCachedThreadPool()
     private val requests = Collections.synchronizedList(mutableListOf<String>())
@@ -34,44 +37,67 @@ class ResumableTransferTest {
 
     @Before fun setup() {
         dir = kotlin.io.path.createTempDirectory("download-test").toFile()
-        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.executor = executor
-        server.createContext("/media") { exchange -> serve(exchange) }
-        server.start()
+        server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+        executor.execute {
+            while (!server.isClosed) {
+                val socket = try { server.accept() } catch (_: Exception) { break }
+                executor.execute { serve(socket) }
+            }
+        }
     }
 
-    @After fun cleanup() { server.stop(0); executor.shutdownNow(); dir.deleteRecursively() }
+    @After fun cleanup() {
+        server.close()
+        executor.shutdownNow()
+        dir.deleteRecursively()
+    }
 
-    private fun serve(exchange: HttpExchange) {
-        val data = bytes
-        val range = exchange.requestHeaders.getFirst("Range")
-        requests.add(range ?: "full")
-        exchange.responseHeaders.add("ETag", tag)
-        if (range == null || ignoreRanges) {
-            exchange.sendResponseHeaders(200, data.size.toLong())
-            exchange.responseBody.use { it.write(data) }
-            return
-        }
-        val parts = range.removePrefix("bytes=").split("-")
-        val start = parts[0].toInt()
-        val end = parts[1].toInt()
-        exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${data.size}")
-        exchange.sendResponseHeaders(206, (end - start + 1).toLong())
+    private fun serve(socket: Socket) {
         try {
-            exchange.responseBody.use { output ->
-                val count = if (interrupt && end > start) minOf(4096, end - start + 1) else end - start + 1
-                output.write(data, start, count)
+            socket.use { peer ->
+                val reader = BufferedReader(InputStreamReader(peer.getInputStream(), Charsets.ISO_8859_1))
+                if (reader.readLine() == null) return
+                var range: String? = null
+                while (true) {
+                    val line = reader.readLine() ?: return
+                    if (line.isEmpty()) break
+                    if (line.startsWith("Range:", ignoreCase = true)) range = line.substringAfter(':').trim()
+                }
+                requests.add(range ?: "full")
+                val data = bytes
+                val currentTag = tag
+                val output = peer.getOutputStream()
+                if (range == null || ignoreRanges) {
+                    val headers = "HTTP/1.1 200 OK\r\nContent-Length: ${data.size}\r\nETag: $currentTag\r\nConnection: close\r\n\r\n"
+                    output.write(headers.toByteArray(Charsets.ISO_8859_1))
+                    output.write(data)
+                    output.flush()
+                    return
+                }
+                val bounds = range.removePrefix("bytes=").split("-")
+                val start = bounds[0].toInt()
+                val end = bounds[1].toInt()
+                val length = end - start + 1
+                val headers = "HTTP/1.1 206 Partial Content\r\nContent-Length: $length\r\n" +
+                    "Content-Range: bytes $start-$end/${data.size}\r\nETag: $currentTag\r\nConnection: close\r\n\r\n"
+                output.write(headers.toByteArray(Charsets.ISO_8859_1))
                 output.flush()
                 if (stall && end > start) {
                     rangeStarted.countDown()
                     Thread.sleep(10_000)
                 }
+                val count = if (interrupt && end > start) minOf(4096, length) else length
+                output.write(data, start, count)
+                output.flush()
+                // Closing before Content-Length has been sent emulates a dropped connection.
             }
-        } catch (_: Exception) { exchange.close() }
+        } catch (_: Exception) {
+            // A client may cancel or close the probe before reading the response body.
+        }
     }
 
     private fun candidate() = StreamCandidate(
-        id = "audio", source = "test", url = "http://127.0.0.1:${server.address.port}/media",
+        id = "audio", source = "test", url = "http://127.0.0.1:${server.localPort}/media",
         mime = "audio/mp4", ext = "m4a", quality = "128k",
     )
 
@@ -105,7 +131,6 @@ class ResumableTransferTest {
 
     @Test fun cancellationClosesActiveRangeConnections() = runBlocking {
         stall = true
-        interrupt = true
         val transfer = ResumableTransfer(OkHttpClient())
         val job = launch(Dispatchers.IO) { transfer.download(candidate(), "video", File(dir, "song")) { _, _, _ -> } }
         Assert.assertTrue("range request never started", rangeStarted.await(5, TimeUnit.SECONDS))
