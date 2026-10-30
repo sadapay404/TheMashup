@@ -172,6 +172,22 @@ jobs:
               print("::error::" + " || ".join(rows[:8]))
           else:
               print("no junit failures parsed — failure before/at test execution")
+          # Kotlin/Gradle compile errors — surface them as annotations too.
+          import re
+          elines = []
+          for logf in ("$RUNNER_TEMP/test.log", "$RUNNER_TEMP/assemble.log"):
+              try:
+                  with open(logf, "r", errors="replace") as fh:
+                      for line in fh:
+                          if re.match(r"^(e: |FAILURE: |\* What went wrong)", line):
+                              elines.append(line.strip()[:400])
+              except OSError:
+                  pass
+          if elines:
+              print("COMPILE/RUNTIME ERRORS:")
+              for line in elines[:40]:
+                  print(" -", line)
+              print("::error::" + " || ".join(elines[:6]))
           for f in sorted(pathlib.Path("android/app/build").rglob("*.html"))[:0]:
               pass
           PY
