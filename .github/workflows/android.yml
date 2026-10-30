@@ -8,6 +8,11 @@ on:
     branches: [arena/af3d0d7b-themashup]
   workflow_dispatch:
 
+# The optional diagnostics step only reads logs from this repository.
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
   group: android-apk-${{ github.ref }}
   cancel-in-progress: true
@@ -31,6 +36,31 @@ jobs:
 
       - name: Host build tools
         run: sudo apt-get update && sudo apt-get install -y meson nasm ninja-build pkg-config
+
+      # For a push message like [diagnose-ffmpeg:123], surface the relevant
+      # tail of that earlier job without changing or bypassing the build.
+      - name: Inspect an earlier FFmpeg build failure (optional)
+        if: matrix.abi == 'arm64-v8a' && contains(github.event.head_commit.message, '[diagnose-ffmpeg:')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        shell: bash
+        run: |
+          JOB_ID="$(printf '%s' "$COMMIT_MESSAGE" | sed -n 's/.*\[diagnose-ffmpeg:\([0-9][0-9]*\)\].*/\1/p')"
+          if [ -z "$JOB_ID" ]; then echo "::warning::Invalid diagnostic job ID"; exit 0; fi
+          if ! gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$JOB_ID/logs" > "$RUNNER_TEMP/previous-ffmpeg.log"; then
+            echo "::warning::Could not read earlier FFmpeg job log"; exit 0
+          fi
+          python3 - "$RUNNER_TEMP/previous-ffmpeg.log" <<'PY'
+          import sys
+          lines = open(sys.argv[1], errors="replace").read().splitlines()
+          failures = [i for i, line in enumerate(lines) if "Process completed with exit code" in line]
+          end = failures[0] if failures else len(lines)
+          excerpt = "\n".join(lines[max(0, end - 90):end])[-24000:]
+          excerpt = excerpt.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::warning title=Earlier FFmpeg failure::" + excerpt)
+          PY
+
 
       - name: Build static ffmpeg for ${{ matrix.abi }}
         shell: bash
@@ -58,7 +88,13 @@ jobs:
               tail -n 80 "$F"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::ffmpeg ${{ matrix.abi }} failed :: $(grep -E 'error:|Error [0-9]|undefined|No space|Killed|FAILED' "$F" | tail -n 6 | tr '\n' ' | ')"
+            python3 - "$F" <<'PY'
+          import sys
+          lines = open(sys.argv[1], errors="replace").read().splitlines()
+          excerpt = "\n".join(lines[-100:])[-24000:]
+          excerpt = excerpt.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::error title=FFmpeg build log tail::" + excerpt)
+          PY
           else
             echo "::error::ffmpeg ${{ matrix.abi }} failed before producing a log"
           fi
