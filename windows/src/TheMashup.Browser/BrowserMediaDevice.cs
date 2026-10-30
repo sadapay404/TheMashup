@@ -62,7 +62,12 @@ internal static partial class BrowserMediaBridge
             if (transformed is not { } bounds) continue;
             var topLeft = bounds.Bounds.TopLeft * bounds.Transform;
             var bottomRight = bounds.Bounds.BottomRight * bounds.Transform;
-            return $"{{\"x\":{topLeft.X.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"y\":{topLeft.Y.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"width\":{(bottomRight.X - topLeft.X).ToString(System.Globalization.CultureInfo.InvariantCulture)},\"height\":{(bottomRight.Y - topLeft.Y).ToString(System.Globalization.CultureInfo.InvariantCulture)}}}}";
+            return string.Concat(
+                "{\"x\":", topLeft.X.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ",\"y\":", topLeft.Y.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ",\"width\":", (bottomRight.X - topLeft.X).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ",\"height\":", (bottomRight.Y - topLeft.Y).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "}");
         }
         return "{}";
     }
