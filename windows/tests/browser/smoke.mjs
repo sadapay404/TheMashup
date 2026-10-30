@@ -8,8 +8,17 @@ const url = process.env.PREVIEW_URL || 'http://127.0.0.1:8080/';
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 const errors = [];
+const expectedRendererFallbacks = [];
 page.on('pageerror', error => errors.push(error.message));
-page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+page.on('console', message => {
+  if (message.type() !== 'error') return;
+  const text = message.text();
+  // A headless browser may reject WebGL; Avalonia then tries software rendering.
+  // The test still verifies that a real, interactive UI renders afterward.
+  if (/^Failed to create render target for mode [23] : HTMLCanvasElement\.getContext returned null\.$/.test(text))
+    expectedRendererFallbacks.push(text);
+  else errors.push(text);
+});
 await mkdir('tests/browser/screenshots', { recursive: true });
 
 async function load() {
@@ -41,9 +50,19 @@ try {
   const home = await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/home.png' });
   assert.ok(brightness(home, 250, 80) < 80, 'Default theme should render a dark app surface');
 
+
+
+  await clickButton('Appearance', 60, 715);
+  await page.waitForTimeout(500);
+  await clickButton('Paper and Ink theme', 525, 360);
+  await page.waitForFunction(() => localStorage.getItem('themashup.windows.theme') === 'paper-ink', null, { timeout: 10000 });
+  await page.waitForTimeout(500);
+  const paper = await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/paper-theme.png' });
+  assert.ok(brightness(paper, 250, 80) > 160, 'Paper theme should update the actual rendered UI');
+
   if (process.env.PREVIEW_SNAPSHOT_BRIDGE === '1') {
     // Tiny diagnostic screenshot for environments where CI artifacts cannot be downloaded.
-    const source = PNG.sync.read(home);
+    const source = PNG.sync.read(paper);
     const width = Math.floor(source.width / 2);
     const height = Math.floor(source.height / 2);
     const data = Buffer.alloc(width * height * 4);
@@ -61,14 +80,6 @@ try {
     } else console.log(`Diagnostic screenshot too large for annotations (${chunks} chunks).`);
   }
 
-  await clickButton('Appearance', 60, 715);
-  await page.waitForTimeout(500);
-  await clickButton('Paper and Ink theme', 525, 360);
-  await page.waitForFunction(() => localStorage.getItem('themashup.windows.theme') === 'paper-ink', null, { timeout: 10000 });
-  await page.waitForTimeout(500);
-  const paper = await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/paper-theme.png' });
-  assert.ok(brightness(paper, 250, 80) > 160, 'Paper theme should update the actual rendered UI');
-
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#out canvas').first().waitFor({ state: 'visible', timeout: 120000 });
   await page.waitForTimeout(2500);
@@ -82,6 +93,7 @@ try {
   assert.ok(canvas && canvas.width >= 740 && canvas.height >= 580, 'Canvas should resize to the available viewport');
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/compact.png' });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join(' | ')}`);
+  if (expectedRendererFallbacks.length) console.log(`Software renderer fallback used (${expectedRendererFallbacks.length} WebGL attempts unavailable).`);
   console.log('PASS: Avalonia browser starts, theme changes and survives reload, and viewport resizes.');
 } catch (error) {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});

@@ -12,5 +12,6 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="../../src/TheMashup.Core/TheMashup.Core.csproj" />
+    <ProjectReference Include="../../src/TheMashup.UI/TheMashup.UI.csproj" />
   </ItemGroup>
 </Project>
