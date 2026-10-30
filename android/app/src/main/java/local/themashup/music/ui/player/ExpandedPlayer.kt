@@ -151,7 +151,8 @@ fun ExpandedPlayer(
                     .then(blurMod)
                     .graphicsLayer {
                         val p = beat.value
-                        scale = 1.03f + 0.035f * p
+                        scaleX = 1.03f + 0.035f * p
+                        scaleY = 1.03f + 0.035f * p
                     },
             )
         }
@@ -374,7 +375,7 @@ fun ExpandedPlayer(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(tokens.surface)
+                    .background(scheme.surface)
                     .border(
                         width = 1.dp,
                         color = tokens.border,

@@ -36,7 +36,7 @@ fun newNetworkClient(): OkHttpClient = OkHttpClient.Builder()
     .addInterceptor { chain ->
         val cookie = YouTubeCookie.value
         val request = chain.request()
-        if (!cookie.isNullOrBlank() && request.url.host.endsWith("youtube.com")) {
+        if (!cookie.isNullOrBlank() && (request.url.host == "youtube.com" || request.url.host.endsWith(".youtube.com"))) {
             chain.proceed(request.newBuilder().header("Cookie", cookie).build())
         } else {
             chain.proceed(request)

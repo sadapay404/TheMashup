@@ -109,7 +109,7 @@ fun SignInScreen(
                         color = scheme.onBackground,
                     )
                     Text(
-                        text = "Google sign-in for personalized suggestions",
+                        text = "Sign in to your YouTube account",
                         style = MaterialTheme.typography.bodySmall,
                         color = tokens.textFaint,
                     )
@@ -122,7 +122,7 @@ fun SignInScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (signed) tokens.accent.copy(alpha = 0.14f) else tokens.surface)
+                    .background(if (signed) tokens.accent.copy(alpha = 0.14f) else scheme.surface)
                     .border(1.dp, if (signed) tokens.accent.copy(alpha = 0.5f) else tokens.border, RoundedCornerShape(12.dp))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -135,7 +135,7 @@ fun SignInScreen(
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    text = if (signed) "Signed in — extraction is personalized" else "Not signed in yet",
+                    text = if (signed) "YouTube session saved" else "Not signed in yet",
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (signed) scheme.onBackground else tokens.textDim,
                     modifier = Modifier.weight(1f),
@@ -152,12 +152,11 @@ fun SignInScreen(
                                 signedIn = false
                                 onClearCookie()
                                 CookieManager.getInstance().apply {
-                                    removeCookie("https://accounts.google.com")
-                                    removeCookie("https://www.youtube.com")
-                                    removeCookie("https://music.youtube.com")
-                                    flush()
+                                    removeAllCookies {
+                                        flush()
+                                        webView?.loadUrl(GOOGLE_LOGIN_URL)
+                                    }
                                 }
-                                webView?.reload()
                             }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
@@ -209,13 +208,12 @@ fun SignInScreen(
         }
     }
 
-    companion object {
-        /** InnerTune's exact music-service service-login URL. */
-        const val GOOGLE_LOGIN_URL =
+}
+
+/** InnerTune's music-service sign-in URL. */
+private const val GOOGLE_LOGIN_URL =
             "https://accounts.google.com/ServiceLogin?ltmpl=music&service=youtube&passive=true" +
                 "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue" +
                 "%26next%3Dhttps%253A%252F%252Fmusic.youtube.com%252F"
 
-        const val YOUTUBE_MUSIC_URL_PREFIX = "https://music.youtube.com"
-    }
-}
+private const val YOUTUBE_MUSIC_URL_PREFIX = "https://music.youtube.com/"
