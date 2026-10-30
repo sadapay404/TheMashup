@@ -242,15 +242,15 @@ try {
       getComputedStyle(host).display !== 'none' && bounds.width > 0 && bounds.height > 0;
   }, null, { timeout: 30_000 });
   testStage = 'fixture playback pause and resume';
-  await clickButton('Play or pause', 1245, 827);
+  await clickButton('Play or pause', 1190, 845);
   await page.waitForFunction(() => document.querySelector('#browser-video-host video')?.paused, null, { timeout: 10_000 });
-  await clickButton('Play or pause', 1245, 827);
+  await clickButton('Play or pause', 1190, 845);
   await page.waitForFunction(() => {
     const video = document.querySelector('#browser-video-host video');
     return video && !video.paused;
   }, null, { timeout: 10_000 });
   testStage = 'fixture playback next queued song';
-  await clickButton('Next song', 1275, 827);
+  await clickButton('Next song', 1225, 845);
   await page.waitForFunction(key => JSON.parse(localStorage.getItem(key) || '{}').queue?.currentIndex === 1, libraryKey, { timeout: 10_000 });
 
   await page.setViewportSize({ width: 760, height: 600 });
