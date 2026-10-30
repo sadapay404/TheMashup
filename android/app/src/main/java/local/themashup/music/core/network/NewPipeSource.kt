@@ -75,6 +75,28 @@ class NewPipeSource(
         return SourceStreams(candidates, related)
     }
 
+    /**
+     * N9 — the charts shelf's missing primary source. ExtractionLogic walks
+     * NewPipe→Piped→Invidious, but only Piped/Invidious ever implemented
+     * `trending()` and both endpoints are widely dead now → the walk always
+     * returned empty → "No recommendation data available" forever. v0.26.5
+     * ships YouTube kiosk extractors for exactly this (Music Charts first,
+     * classic Trending second) so charts work on-device again.
+     */
+    override fun trending(limit: Int): List<Track> {
+        val kiosks = ServiceList.YouTube.kioskList
+        for (kioskId in listOf("trending_music", "Trending")) {
+            val tracks = runCatching {
+                val kiosk = kiosks.getExtractorById(kioskId, null)
+                kiosk.fetchPage()
+                val items = kiosk.initialPage?.items ?: emptyList()
+                items.mapNotNull { infoItemToTrack(it, category = "video") }.take(limit)
+            }.getOrDefault(emptyList())
+            if (tracks.isNotEmpty()) return tracks
+        }
+        return emptyList()
+    }
+
     private fun infoItemToTrack(
         item: org.schabi.newpipe.extractor.InfoItem,
         category: String,
