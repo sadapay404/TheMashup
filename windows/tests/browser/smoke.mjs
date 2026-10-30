@@ -251,6 +251,8 @@ try {
   testStage = 'fixture playback pause and resume';
   await clickButton('Play or pause', 1190, 845);
   await page.waitForFunction(() => document.querySelector('#browser-video-host video')?.paused, null, { timeout: 10_000 });
+  // Let the HTML pause event reach the C# controller before the resume click.
+  await page.waitForTimeout(750);
   await clickButton('Play or pause', 1190, 845);
   await page.waitForFunction(() => {
     const video = document.querySelector('#browser-video-host video');
