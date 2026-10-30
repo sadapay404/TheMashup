@@ -52,12 +52,17 @@ jobs:
             echo 'Unexpected EXE in build output' >&2
             exit 1
           fi
-      - name: Publish browser preview
+      - name: Publish browser preview with temporary storage
+        env:
+          THEMASHUP_PREVIEW_DIR: ${{ runner.temp }}/themashup-windows-preview
         run: |
           set -o pipefail
-          dotnet publish src/TheMashup.Browser/TheMashup.Browser.csproj -c Release --nologo 2>&1 | tee "$RUNNER_TEMP/windows-browser.log"
-          if find src -path '*/bin/*' -type f -iname '*.exe' -print -quit | grep -q .; then
-            echo 'Unexpected EXE in build output' >&2
+          # Simulate an unwritable source/home location: preview output must be
+          # placed in the separate temporary directory, not beside the code.
+          chmod -R a-w src
+          bash scripts/preview.sh --build-only 2>&1 | tee "$RUNNER_TEMP/windows-browser.log"
+          if find src "$THEMASHUP_PREVIEW_DIR/artifacts" -type f -iname '*.exe' -print -quit | grep -q .; then
+            echo 'Unexpected EXE in preview/source output' >&2
             exit 1
           fi
       - uses: actions/setup-node@v4
@@ -70,7 +75,8 @@ jobs:
       - name: Exercise the real browser preview
         run: |
           set -o pipefail
-          python3 -m http.server 8080 --bind 127.0.0.1 --directory src/TheMashup.Browser/bin/Release/net10.0-browser/publish/wwwroot > "$RUNNER_TEMP/windows-http.log" 2>&1 &
+          webroot=$(cat "$RUNNER_TEMP/themashup-windows-preview/webroot.path")
+          python3 -m http.server 8080 --bind 127.0.0.1 --directory "$webroot" > "$RUNNER_TEMP/windows-http.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           node tests/browser/smoke.mjs 2>&1 | tee "$RUNNER_TEMP/windows-smoke.log"

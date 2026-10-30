@@ -58,42 +58,47 @@ with a fake or stub and claim parity.
 
 ## Google Cloud Shell preview (W1)
 
-The first setup downloads the .NET 10 SDK and the WebAssembly workload; it can
-take several minutes and needs free space and internet access. It builds the
-**browser head only**, not a Windows EXE. The app in the browser is the actual
-shared Avalonia UI, not a separate mockup. Browser and Windows theme settings
-are stored separately on their respective devices.
+Cloud Shell has limited persistent home storage. The preview script places
+NuGet packages, .NET CLI data, temporary files and **all** build artifacts under
+`/tmp` by default; it does not delete or overwrite your existing caches. `/tmp`
+is temporary and may be cleared when the Cloud Shell VM stops. The browser
+preview is the actual shared Avalonia UI, not a separate mockup. No EXE is built.
+
+For a fresh Cloud Shell, first check that `/tmp` has several gigabytes free.
+This installs the SDK and its WebAssembly workload outside the home directory:
 
 ```bash
-# Run once in a new Cloud Shell session/directory.
-git clone --single-branch --branch arena/af3d0d7b-themashup \
-  https://github.com/sadapay404/TheMashup.git "$HOME/TheMashup-Windows"
-cd "$HOME/TheMashup-Windows/windows"
-
-# Install the .NET 10 SDK into your Cloud Shell home directory.
-curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/themashup-dotnet-install.sh
-bash /tmp/themashup-dotnet-install.sh --channel 10.0 --install-dir "$HOME/.dotnet"
-export DOTNET_ROOT="$HOME/.dotnet"
+df -h "$HOME" /tmp
+WORK="$(mktemp -d /tmp/themashup-windows.XXXXXX)"
+mkdir -p "$WORK/tmp" "$WORK/cli-home" "$WORK/nuget"
+export TMPDIR="$WORK/tmp"
+export DOTNET_CLI_HOME="$WORK/cli-home"
+export NUGET_PACKAGES="$WORK/nuget/packages"
+export NUGET_HTTP_CACHE_PATH="$WORK/nuget/http"
+export DOTNET_ROOT="$WORK/dotnet"
 export PATH="$DOTNET_ROOT:$PATH"
+
+curl -fsSL https://dot.net/v1/dotnet-install.sh -o "$WORK/dotnet-install.sh"
+bash "$WORK/dotnet-install.sh" --channel 10.0 --install-dir "$DOTNET_ROOT"
 dotnet workload install wasm-tools --skip-manifest-update
 
-# Publish and serve the real browser preview on port 8080.
-bash scripts/preview.sh
+git clone --single-branch --branch arena/af3d0d7b-themashup \
+  https://github.com/sadapay404/TheMashup.git "$WORK/source"
+cd "$WORK/source/windows"
+THEMASHUP_PREVIEW_DIR="$WORK/preview" bash scripts/preview.sh
 ```
 
-Choose **Web Preview → Preview on port 8080** in Cloud Shell. Stop with Ctrl+C.
-To preview again in a later shell:
+Select **Web Preview → Preview on port 8080**. Stop with Ctrl+C. If the VM
+restarts, its temporary files may be gone and this setup must be repeated.
+Do not save personal work only in `/tmp`.
 
-```bash
-export DOTNET_ROOT="$HOME/.dotnet"
-export PATH="$DOTNET_ROOT:$PATH"
-cd "$HOME/TheMashup-Windows/windows"
-bash scripts/preview.sh
-```
-
-For future approved phases, update this dedicated clone with `git pull --ff-only`
-before running the preview, provided you have not made local changes there.
-Do not run a hard reset against a working clone.
+If .NET 10 and `wasm-tools` are already installed in `$HOME/.dotnet`, keep
+those and skip the installer/workload steps. Set `DOTNET_ROOT` and `PATH` to
+that location, clone the source in `/tmp`, and run the preview as above. You
+can set `THEMASHUP_PREVIEW_DIR` to a private directory with enough space to
+reuse its caches during the same session. If `/tmp` is also full, inspect
+`df -h "$HOME" /tmp` and `df -i "$HOME" /tmp`; do not delete user files or
+reset Cloud Shell automatically.
 
 ## Preview and source safety
 
