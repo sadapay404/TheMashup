@@ -117,15 +117,15 @@
 
               <Border Height="244" CornerRadius="18" Background="{DynamicResource HeroStart}" ClipToBounds="True">
                 <Grid>
-                  <Ellipse Width="278" Height="278" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,52,0"
+                  <Ellipse IsVisible="{Binding ShowRightRail}" Width="278" Height="278" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,52,0"
                            Fill="{DynamicResource HeroEnd}" Opacity="0.72" />
-                  <Ellipse Width="214" Height="214" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,84,0"
+                  <Ellipse IsVisible="{Binding ShowRightRail}" Width="214" Height="214" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,84,0"
                            Stroke="{DynamicResource Accent}" StrokeThickness="1" Opacity="0.28" />
-                  <Ellipse Width="173" Height="173" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,104,0"
+                  <Ellipse IsVisible="{Binding ShowRightRail}" Width="173" Height="173" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,104,0"
                            Stroke="{DynamicResource Accent}" StrokeThickness="1" Opacity="0.20" />
-                  <Ellipse Width="96" Height="96" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,143,0"
+                  <Ellipse IsVisible="{Binding ShowRightRail}" Width="96" Height="96" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,143,0"
                            Fill="{DynamicResource Accent}" Opacity="0.22" />
-                  <Ellipse Width="11" Height="11" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,185,0"
+                  <Ellipse IsVisible="{Binding ShowRightRail}" Width="11" Height="11" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,185,0"
                            Fill="{DynamicResource Accent}" Opacity="0.7" />
                   <StackPanel Margin="30,25" Spacing="9" HorizontalAlignment="Left" VerticalAlignment="Center" MaxWidth="405">
                     <TextBlock Text="A FRESH START" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource Accent}" />

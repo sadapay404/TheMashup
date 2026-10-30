@@ -53,7 +53,7 @@ with a fake or stub and claim parity.
 | Five persistent themes | Verify each theme and persistence after restart. |
 | Audio/video downloads with bundled FFmpeg, offline playback and separate conditional video section | Test saved copies, resume/cleanup, formats, file permissions and moved/deleted files. Speed is source-dependent. |
 | Background play, queue, media keys, system controls and tray | Validate Windows-specific behavior on Windows, not just in the browser. |
-| Optional sync where supported, without inventing credentials | Clarify cross-device expectations and disclose any provider or setup needed. |
+| Separate local libraries | No automatic cross-device sync; consider optional import/export only if requested. |
 | No EXE yet | Do not package/build an EXE or installer until explicitly authorized. |
 
 ## Google Cloud Shell preview (W1)

@@ -7,7 +7,6 @@
     "test": "node smoke.mjs"
   },
   "devDependencies": {
-    "jpeg-js": "0.4.4",
     "playwright": "1.56.1",
     "pngjs": "7.0.0"
   }

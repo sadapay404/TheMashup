@@ -1,6 +1,5 @@
 import { chromium } from 'playwright';
 import { PNG } from 'pngjs';
-import jpeg from 'jpeg-js';
 import { mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
@@ -60,24 +59,21 @@ try {
   const paper = await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/paper-theme.png' });
   assert.ok(brightness(paper, 250, 80) > 160, 'Paper theme should update the actual rendered UI');
 
-  if (process.env.PREVIEW_SNAPSHOT_BRIDGE === '1') {
-    // Tiny diagnostic screenshot for environments where CI artifacts cannot be downloaded.
-    const source = PNG.sync.read(paper);
-    const width = Math.floor(source.width / 2);
-    const height = Math.floor(source.height / 2);
-    const data = Buffer.alloc(width * height * 4);
-    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-      const from = ((y * 2) * source.width + x * 2) * 4;
-      const to = (y * width + x) * 4;
-      source.data.copy(data, to, from, from + 4);
-    }
-    const preview = jpeg.encode({ data, width, height }, 35).data.toString('base64');
-    const chunkSize = 3500;
-    const chunks = Math.ceil(preview.length / chunkSize);
-    if (chunks <= 9) {
-      for (let index = 0; index < chunks; index++)
-        console.log(`::notice file=windows/tests/browser/smoke.mjs,line=1::SNAPSHOT_${index + 1}_OF_${chunks}:${preview.slice(index * chunkSize, (index + 1) * chunkSize)}`);
-    } else console.log(`Diagnostic screenshot too large for annotations (${chunks} chunks).`);
+  // Exercise every real theme card, including the wrapped second row.
+  const themeCases = [
+    { name: 'Neon Cyber theme', id: 'neon', x: 713, y: 360, rgb: [4, 6, 11] },
+    { name: 'Aurora theme', id: 'aurora', x: 899, y: 360, rgb: [10, 16, 34] },
+    { name: 'Vinyl theme', id: 'vinyl', x: 340, y: 540, rgb: [22, 17, 13] },
+    { name: 'Frosted Glass theme', id: 'frosted', x: 340, y: 360, rgb: [10, 10, 15] },
+    { name: 'Paper and Ink theme', id: 'paper-ink', x: 525, y: 360, rgb: [244, 239, 228] },
+  ];
+  for (const theme of themeCases) {
+    await clickButton(theme.name, theme.x, theme.y);
+    await page.waitForFunction(id => localStorage.getItem('themashup.windows.theme') === id, theme.id, { timeout: 10000 });
+    await page.waitForTimeout(300);
+    const sample = PNG.sync.read(await page.screenshot({ type: 'png', clip: { x: 250, y: 80, width: 1, height: 1 } })).data;
+    assert.ok(theme.rgb.every((channel, index) => Math.abs(sample[index] - channel) <= 6),
+      `${theme.id} should update the rendered background, got ${Array.from(sample.slice(0, 3))}`);
   }
 
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -94,7 +90,8 @@ try {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/compact.png' });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join(' | ')}`);
   if (expectedRendererFallbacks.length) console.log(`Software renderer fallback used (${expectedRendererFallbacks.length} WebGL attempts unavailable).`);
-  console.log('PASS: Avalonia browser starts, theme changes and survives reload, and viewport resizes.');
+  console.log('PASS: Avalonia browser starts; all five themes render; selection survives reload; viewport resizes.');
+  console.log('::notice title=Windows browser checks::All five themes, browser reload persistence and viewport resize passed.');
 } catch (error) {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');

@@ -28,7 +28,6 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
-      PREVIEW_SNAPSHOT_BRIDGE: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Set up .NET 10
@@ -43,6 +42,8 @@ jobs:
         run: |
           set -o pipefail
           dotnet test tests/TheMashup.Core.Tests/TheMashup.Core.Tests.csproj -c Release --nologo 2>&1 | tee "$RUNNER_TEMP/windows-core.log"
+          summary=$(grep -E "^Passed!" "$RUNNER_TEMP/windows-core.log" | tail -n 1)
+          echo "::notice title=Windows core tests::$summary"
       - name: Compile desktop managed assemblies without an EXE
         run: |
           set -o pipefail
@@ -55,6 +56,10 @@ jobs:
         run: |
           set -o pipefail
           dotnet publish src/TheMashup.Browser/TheMashup.Browser.csproj -c Release --nologo 2>&1 | tee "$RUNNER_TEMP/windows-browser.log"
+          if find src -path '*/bin/*' -type f -iname '*.exe' -print -quit | grep -q .; then
+            echo 'Unexpected EXE in build output' >&2
+            exit 1
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
