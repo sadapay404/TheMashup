@@ -8,6 +8,7 @@ const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 const errors = [];
 const expectedRendererFallbacks = [];
+let testStage = 'initial render and themes';
 page.on('pageerror', error => errors.push(error.message));
 page.on('console', message => {
   if (message.type() !== 'error') return;
@@ -83,6 +84,7 @@ try {
   const restored = await page.screenshot({ type: 'png' });
   assert.ok(brightness(restored, 250, 80) > 160, 'The chosen theme should be restored after reload');
 
+  testStage = 'create playlist';
   // Exercise the real library UI, including persistence through a page reload.
   await clickButton('Your library', 60, 288);
   await page.waitForTimeout(500);
@@ -98,6 +100,7 @@ try {
     const raw = localStorage.getItem('themashup.windows.library');
     return raw && JSON.parse(raw).playlists.some(item => item.name === 'Focus time');
   }, null, { timeout: 10000 });
+  testStage = 'rename playlist';
   await page.waitForTimeout(400);
   await clickButton('Rename playlist action', 1230, 418);
   const renameInput = page.getByRole('textbox', { name: 'Rename playlist', exact: true });
@@ -118,6 +121,7 @@ try {
   await page.waitForTimeout(500);
   const restoredLibrary = await page.evaluate(() => JSON.parse(localStorage.getItem('themashup.windows.library')));
   assert.equal(restoredLibrary.playlists[0].name, 'Deep focus', 'Playlist should survive browser reload');
+  testStage = 'confirm restored playlist deletion';
   // The restored row must really be present and interactive, not just stored JSON.
   await clickButton('Delete playlist action', 1310, 418);
   await page.waitForTimeout(250);
@@ -138,9 +142,26 @@ try {
 } catch (error) {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');
-  const summary = String(error?.message || error).replaceAll('%', '%25').replaceAll('\n', '%0A').slice(0, 3000);
+  const summary = `${testStage}: ${error?.stack || error}`.replaceAll('%', '%25').replaceAll('\n', '%0A').slice(0, 3000);
   console.log(`::error title=Preview smoke test::${summary}`);
+  const stored = await page.evaluate(() => localStorage.getItem('themashup.windows.library')).catch(() => null);
+  console.log(`::notice title=Library diagnostic::${JSON.stringify({ testStage, stored }).slice(0, 3000)}`);
   console.error('ARIA labels:', await page.locator('[aria-label]').evaluateAll(nodes => nodes.slice(0, 30).map(n => n.getAttribute('aria-label'))).catch(() => []));
+  // Compact CI-only diagnostic, needed because the artifact host is unavailable
+  // to this development environment. Only synthetic browser-test data is used.
+  try {
+    const png = await page.screenshot({ type: 'png' });
+    const data = await page.evaluate(async (url) => {
+      const image = new Image(); image.src = url; await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(image.width / 2); canvas.height = Math.floor(image.height / 2);
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.3).split(',')[1];
+    }, `data:image/png;base64,${png.toString('base64')}`);
+    const count = Math.ceil(data.length / 3500);
+    if (count <= 9) for (let i = 0; i < count; i++)
+      console.log(`::notice file=windows/tests/browser/smoke.mjs,line=1::SNAPSHOT_${i + 1}_OF_${count}:${data.slice(i * 3500, (i + 1) * 3500)}`);
+  } catch { /* the original test failure remains the primary error */ }
   throw error;
 } finally {
   await browser.close();
