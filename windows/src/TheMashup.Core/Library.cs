@@ -165,7 +165,7 @@ public sealed class Library
     /// <summary>Append exactly one song; never start or change the current track.</summary>
     public bool AddToQueue(LibraryTrack track)
     {
-        if (!CanEdit || !IsValidTrack(track)) return false;
+        if (!IsValidTrack(track)) return false;
         _data.Queue.Items.Add(track);
         SaveAndNotify();
         return true;
@@ -177,7 +177,7 @@ public sealed class Library
     /// </summary>
     public bool PlayNow(LibraryTrack track)
     {
-        if (!CanEdit || !IsValidTrack(track)) return false;
+        if (!IsValidTrack(track)) return false;
         var queue = _data.Queue;
         if (queue.CurrentIndex >= 0 && SameTrack(queue.Items[queue.CurrentIndex], track))
         {
@@ -193,7 +193,7 @@ public sealed class Library
 
     public bool RemoveFromQueue(int index)
     {
-        if (!CanEdit || index < 0 || index >= _data.Queue.Items.Count) return false;
+        if (index < 0 || index >= _data.Queue.Items.Count) return false;
         var queue = _data.Queue;
         queue.Items.RemoveAt(index);
         if (index == queue.CurrentIndex) queue.CurrentIndex = -1;
@@ -222,10 +222,13 @@ public sealed class Library
                 return;
             }
             if (version > CurrentSchemaVersion) { LoadStatus = LibraryLoadStatus.NewerVersion; return; }
-            if (version == 0 && !json.RootElement.TryGetProperty("playlists", out _) &&
-                !json.RootElement.TryGetProperty("likedTracks", out _) &&
-                !json.RootElement.TryGetProperty("history", out _) &&
-                !json.RootElement.TryGetProperty("queue", out _))
+            // Known versions have a complete set of required collections. A
+            // partially valid JSON object must not cause missing data to be
+            // treated as empty and overwritten on the next save.
+            if (!json.RootElement.TryGetProperty("playlists", out _) ||
+                !json.RootElement.TryGetProperty("likedTracks", out _) ||
+                !json.RootElement.TryGetProperty("history", out _) ||
+                (version >= 1 && !json.RootElement.TryGetProperty("queue", out _)))
             {
                 LoadStatus = LibraryLoadStatus.Invalid;
                 return;
@@ -245,6 +248,14 @@ public sealed class Library
 
     private void SaveAndNotify()
     {
+        // Playback can keep an in-memory queue even if the on-disk library is
+        // unreadable; it must never overwrite the unreadable original.
+        if (!CanEdit)
+        {
+            LastWriteSucceeded = false;
+            Changed?.Invoke(this, EventArgs.Empty);
+            return;
+        }
         try
         {
             var content = JsonSerializer.Serialize(_data, LibraryJsonContext.Default.LibrarySnapshot);

@@ -132,6 +132,7 @@ public sealed class LibraryTests
     [Theory]
     [InlineData("not json", LibraryLoadStatus.Invalid)]
     [InlineData("{}", LibraryLoadStatus.Invalid)]
+    [InlineData("{\"schemaVersion\":1,\"playlists\":[]}", LibraryLoadStatus.Invalid)]
     [InlineData("{\"schemaVersion\":99,\"future\":true}", LibraryLoadStatus.NewerVersion)]
     [InlineData("{\"schemaVersion\":1,\"playlists\":null}", LibraryLoadStatus.Invalid)]
     [InlineData("{\"schemaVersion\":1,\"unrecognizedData\":true}", LibraryLoadStatus.Invalid)]
@@ -155,6 +156,21 @@ public sealed class LibraryTests
         Assert.Equal(LibraryLoadStatus.Unavailable, library.LoadStatus);
         Assert.False(library.CreatePlaylist("Name", out _));
         Assert.Equal("original", store.Content);
+        Assert.Equal(0, store.Writes);
+    }
+
+    [Fact]
+    public void UnreadableLibraryStillAllowsAnEphemeralQueueWithoutOverwritingData()
+    {
+        var store = new MemoryStore { Content = "broken content" };
+        var library = new Library(store);
+        Assert.False(library.CanEdit);
+        Assert.True(library.PlayNow(Track("current")));
+        Assert.True(library.AddToQueue(Track("next")));
+        Assert.Equal("current", library.CurrentTrack!.Id);
+        Assert.Equal(new[] { "current", "next" }, library.Queue.Select(item => item.Id));
+        Assert.False(library.LastWriteSucceeded);
+        Assert.Equal("broken content", store.Content);
         Assert.Equal(0, store.Writes);
     }
 

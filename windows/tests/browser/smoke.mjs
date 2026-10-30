@@ -98,6 +98,18 @@ try {
     const raw = localStorage.getItem('themashup.windows.library');
     return raw && JSON.parse(raw).playlists.some(item => item.name === 'Focus time');
   }, null, { timeout: 10000 });
+  await page.waitForTimeout(400);
+  await clickButton('Rename playlist action', 1230, 418);
+  const renameInput = page.getByRole('textbox', { name: 'Rename playlist', exact: true });
+  if (await renameInput.count() && await renameInput.first().isVisible()) {
+    await renameInput.first().fill('Deep focus');
+  } else {
+    await page.mouse.click(450, 418);
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('Deep focus');
+  }
+  await clickButton('Save playlist name', 1210, 418);
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('themashup.windows.library')).playlists[0]?.name === 'Deep focus', null, { timeout: 10000 });
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/library.png' });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('#out canvas').first().waitFor({ state: 'visible', timeout: 120000 });
@@ -105,7 +117,14 @@ try {
   await clickButton('Your library', 60, 288);
   await page.waitForTimeout(500);
   const restoredLibrary = await page.evaluate(() => JSON.parse(localStorage.getItem('themashup.windows.library')));
-  assert.equal(restoredLibrary.playlists[0].name, 'Focus time', 'Playlist should survive browser reload');
+  assert.equal(restoredLibrary.playlists[0].name, 'Deep focus', 'Playlist should survive browser reload');
+  // The restored row must really be present and interactive, not just stored JSON.
+  await clickButton('Delete playlist action', 1310, 418);
+  await page.waitForTimeout(250);
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('themashup.windows.library'))).playlists.length, 1,
+    'Asking to delete must not delete until confirmed');
+  await clickButton('Confirm playlist deletion', 1210, 418);
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('themashup.windows.library')).playlists.length === 0, null, { timeout: 10000 });
 
   await page.setViewportSize({ width: 760, height: 600 });
   await page.waitForTimeout(800);
@@ -114,8 +133,8 @@ try {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/compact.png' });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join(' | ')}`);
   if (expectedRendererFallbacks.length) console.log(`Software renderer fallback used (${expectedRendererFallbacks.length} WebGL attempts unavailable).`);
-  console.log('PASS: Avalonia browser starts; five themes and playlist creation persist; viewport resizes.');
-  console.log('::notice title=Windows browser checks::All five themes, playlist creation and reload persistence, and viewport resize passed.');
+  console.log('PASS: Avalonia browser starts; five themes and playlist edits persist; viewport resizes.');
+  console.log('::notice title=Windows browser checks::All five themes, playlist create/rename/reload/delete, and viewport resize passed.');
 } catch (error) {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');
