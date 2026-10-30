@@ -39,10 +39,30 @@ jobs:
           yes | "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
 
       - name: Unit tests
-        run: cd android && ./gradlew --no-daemon test
+        shell: bash
+        run: |
+          set -o pipefail
+          cd android && ./gradlew --no-daemon test 2>&1 | tee "$RUNNER_TEMP/test.log"
 
       - name: Build debug APK
-        run: cd android && ./gradlew --no-daemon assembleDebug
+        shell: bash
+        run: |
+          set -o pipefail
+          cd android && ./gradlew --no-daemon assembleDebug 2>&1 | tee "$RUNNER_TEMP/assemble.log"
+
+      - name: Dump failure details to step summary (readable via API)
+        if: failure()
+        shell: bash
+        run: |
+          for f in "$RUNNER_TEMP/test.log" "$RUNNER_TEMP/assemble.log"; do
+            [ -f "$f" ] || continue
+            echo "### \`${f##*/}\` (failure extract)" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -E "^e: |error:|FAILED|What went wrong|Caused by:|tests completed|BUILD FAILED" -A2 "$f" | tail -n 150 >> "$GITHUB_STEP_SUMMARY" || true
+            echo "--- tail ---" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 220 "$f" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Upload test reports (on failure)
         if: failure()
