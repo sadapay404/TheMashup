@@ -30,24 +30,47 @@ fun PlayerVisualizer(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     bars: Int = VisualizerBars.EXPANDED_BARS,
+    /** Beat envelope 0..1 (sharp spectral jump over an EMA baseline) — drives the player's reactive glow. */
+    onPulse: (Float) -> Unit = {},
 ) {
     if (!enabled) return
     val accents = LocalArtAccents.current
     val context = LocalContext.current // hoisted: CompositionLocal reads need @Composable scope
     val reduceMotion = remember(context) { animationsReduced(context) }
     val frame = remember { mutableStateOf<Pair<ByteArray?, Float>?>(null) }
+    // N9 beat envelope: bars breathe with it, the player background glows with it.
+    val pulse = remember { mutableStateOf(0f) }
 
     // Single rAF-equivalent loop: sample FFT + advance the idle phase on
     // every display frame (web idlePhase += 0.03 per 60fps frame).
     LaunchedEffect(enabled) {
         var lastNanos = 0L
+        var ema = 0f
+        var env = 0f
         while (isActive) {
             withFrameNanos { now ->
                 val dtMs = if (lastNanos == 0L) 16.7f else ((now - lastNanos) / 1_000_000f)
                 lastNanos = now
                 val prev = frame.value?.second ?: 0f
                 val step = 0.03f * (dtMs / 16.667f).coerceIn(0.25f, 4f)
-                frame.value = fft() to (prev + step)
+                val bytes = fft()
+                frame.value = bytes to (prev + step)
+                // Mean spectral level vs its EMA → onset envelope (idle sine is
+                // smooth, so it never spikes; real drum hits do).
+                val phase = prev + step
+                var sum = 0f
+                var n = 0
+                for (i in 0 until bars) {
+                    val lv = VisualizerBars.levelFromFft(bytes, i, bars)
+                        ?: VisualizerBars.idleLevel(phase, i)
+                    sum += lv
+                    n++
+                }
+                val avg = if (n > 0) sum / n else 0f
+                env = if (avg > 0.16f && avg - ema > 0.055f) 1f else env * 0.86f
+                ema = ema * 0.82f + avg * 0.18f
+                pulse.value = env
+                onPulse(env)
             }
         }
     }
@@ -62,6 +85,7 @@ fun PlayerVisualizer(
             val raw = VisualizerBars.levelFromFft(fftBytes, i, bars)
                 ?: VisualizerBars.idleLevel(phase, i)
             val level = VisualizerBars.applyReducedMotion(raw, reduceMotion)
+                .let { it * (1f + 0.32f * pulse.value) }.coerceAtMost(1f)
             val rect = VisualizerBars.barRect(index = i, bars = bars, width = width, height = height, level = level)
             if (rect.w <= 0f || rect.h <= 0f) continue
             val gradient = Brush.verticalGradient(

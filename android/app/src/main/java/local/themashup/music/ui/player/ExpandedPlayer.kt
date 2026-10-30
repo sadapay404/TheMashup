@@ -133,18 +133,26 @@ fun ExpandedPlayer(
         else -> state.contextLabel!!.uppercase()
     }
 
+    // N9 beat envelope from the visualizer — art breathes, glow surges.
+    val beat = remember { mutableStateOf(0f) }
     Box(modifier = modifier.fillMaxSize().graphicsLayer { alpha = 1f }) {
-        // ── dynamic artwork background (art-opacity + gradient scrim) ──
+        // ── dynamic artwork background — N9: full-vivid (the old theme
+        // artOpacity 0.14–0.32 made the screen feel "way too transparent"),
+        // soft-blurred with a deck-solid scrim so text sits on real surface.
         if (artworkUrl != null) {
             val blurMod = if (android.os.Build.VERSION.SDK_INT >= 31) Modifier.blur(34.dp) else Modifier
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current).data(artworkUrl).build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                alpha = tokens.artOpacity,
+                alpha = 1f,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(blurMod),
+                    .then(blurMod)
+                    .graphicsLayer {
+                        val p = beat.value
+                        scale = 1.03f + 0.035f * p
+                    },
             )
         }
         Box(
@@ -152,25 +160,29 @@ fun ExpandedPlayer(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to scheme.background.copy(alpha = 0.5f),
-                        0.55f to scheme.background.copy(alpha = 0.75f),
+                        0f to scheme.background.copy(alpha = 0.34f),
+                        0.42f to scheme.background.copy(alpha = 0.70f),
+                        0.78f to scheme.background.copy(alpha = 0.96f),
                         1f to scheme.background,
                     ),
                 ),
         )
         // Web: radial-gradient(60% 50% at 30% 20%, art-1 40% → transparent 70%)
+        // N9: surges with the beat envelope (draws read `beat`, so each pulse
+        // invalidates the layer — no recomposition).
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
+                    val p = beat.value
                     val brush = Brush.radialGradient(
-                        0f to accents.first.copy(alpha = 0.40f),
+                        0f to accents.first.copy(alpha = 0.36f + 0.36f * p),
                         0.7f to Color.Transparent,
                         center = androidx.compose.ui.geometry.Offset(
                             size.width * 0.30f,
                             size.height * 0.20f,
                         ),
-                        radius = size.minDimension * 0.9f,
+                        radius = size.minDimension * (0.9f + 0.15f * p),
                     )
                     drawRect(brush = brush)
                 },
@@ -347,6 +359,7 @@ fun ExpandedPlayer(
                             PlayerVisualizer(
                                 fft = { engine.visualizer.latestFft() },
                                 enabled = visualizerOn,
+                                onPulse = { beat.value = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -361,7 +374,7 @@ fun ExpandedPlayer(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(scheme.surface.copy(alpha = 0.4f))
+                    .background(tokens.surface)
                     .border(
                         width = 1.dp,
                         color = tokens.border,

@@ -1,10 +1,12 @@
 package local.themashup.music.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -162,7 +165,8 @@ private fun TransportCircle(
     ) { content() }
 }
 
-/** Icon toggle with the web's accent underline dot when active. */
+/** Icon toggle with the web's accent underline dot when active — N9 adds an
+ *  accent pill so shuffle/repeat state is unmistakable at a glance. */
 @Composable
 private fun SideToggle(
     onClick: () -> Unit,
@@ -171,14 +175,24 @@ private fun SideToggle(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    val tokens = LocalMashupTokens.current
     Box(
         modifier = modifier.graphicsLayer { if (!enabled) alpha = 0.4f },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(enabled = enabled) { onClick() },
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (active) tokens.accent.copy(alpha = 0.16f) else Color.Transparent)
+                .then(
+                    if (active) {
+                        Modifier.border(1.dp, tokens.accent.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                    } else {
+                        Modifier
+                    },
+                )
+                .clickable(enabled = enabled) { onClick() }
+                .padding(horizontal = 5.dp, vertical = 3.dp),
             contentAlignment = Alignment.Center,
         ) {
             content()
