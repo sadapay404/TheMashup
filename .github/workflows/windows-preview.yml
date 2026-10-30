@@ -60,7 +60,9 @@ jobs:
           # Simulate an unwritable source/home location: preview output must be
           # placed in the separate temporary directory, not beside the code.
           chmod -R a-w src
-          bash scripts/preview.sh --build-only 2>&1 | tee "$RUNNER_TEMP/windows-browser.log"
+          mkdir -p "$RUNNER_TEMP/read-only-home"
+          chmod 500 "$RUNNER_TEMP/read-only-home"
+          HOME="$RUNNER_TEMP/read-only-home" bash scripts/preview.sh --build-only 2>&1 | tee "$RUNNER_TEMP/windows-browser.log"
           if find src "$THEMASHUP_PREVIEW_DIR/artifacts" -type f -iname '*.exe' -print -quit | grep -q .; then
             echo 'Unexpected EXE in preview/source output' >&2
             exit 1

@@ -33,14 +33,16 @@ fi
 umask 077
 mkdir -p -m 700 -- "$PREVIEW_DIR"
 PREVIEW_DIR="$(cd "$PREVIEW_DIR" && pwd -P)"
-mkdir -p -- "$PREVIEW_DIR"/{tmp,dotnet-home,nuget/packages,nuget/http,nuget/plugins,xdg-cache,xdg-data,artifacts}
+mkdir -p -- "$PREVIEW_DIR"/{tmp,dotnet-home,nuget/packages,nuget/http,nuget/plugins,xdg-cache,xdg-config,xdg-data,artifacts}
 export TMPDIR="$PREVIEW_DIR/tmp"
 export DOTNET_CLI_HOME="$PREVIEW_DIR/dotnet-home"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1
 export NUGET_PACKAGES="$PREVIEW_DIR/nuget/packages"
 export NUGET_HTTP_CACHE_PATH="$PREVIEW_DIR/nuget/http"
 export NUGET_PLUGINS_CACHE_PATH="$PREVIEW_DIR/nuget/plugins"
 export XDG_CACHE_HOME="$PREVIEW_DIR/xdg-cache"
+export XDG_CONFIG_HOME="$PREVIEW_DIR/xdg-config"
 export XDG_DATA_HOME="$PREVIEW_DIR/xdg-data"
 
 printf 'Preview caches and build files: %s\n' "$PREVIEW_DIR"
