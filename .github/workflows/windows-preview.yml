@@ -6,6 +6,12 @@ on:
     branches: [arena/af3d0d7b-themashup]
     paths:
       - 'windows/**'
+      - 'apps/api/**'
+      - 'services/resolver/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
       - '.github/workflows/windows-preview.yml'
   workflow_dispatch:
 
@@ -30,6 +36,22 @@ jobs:
       DOTNET_NOLOGO: '1'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install and test the existing search backend
+        run: |
+          set -o pipefail
+          cd ..
+          npx --yes pnpm@9.15.4 install --frozen-lockfile --filter '@themashup/api...'
+          python -m pip install -r services/resolver/requirements.txt
+          npx --yes pnpm@9.15.4 --filter @themashup/api typecheck 2>&1 | tee "$RUNNER_TEMP/windows-api-typecheck.log"
+          npx --yes pnpm@9.15.4 --filter @themashup/api test 2>&1 | tee "$RUNNER_TEMP/windows-api-tests.log"
+          (cd services/resolver && python -m pytest -q tests) 2>&1 | tee "$RUNNER_TEMP/windows-resolver-tests.log"
+          THEMASHUP_PYTHON="$(command -v python)" node windows/tests/backend/integration.mjs 2>&1 | tee "$RUNNER_TEMP/windows-backend-integration.log"
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
         with:
@@ -67,9 +89,6 @@ jobs:
             echo 'Unexpected EXE in preview/source output' >&2
             exit 1
           fi
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: Install browser test dependencies
         run: |
           npm ci --prefix tests/browser --no-audit --no-fund
@@ -78,10 +97,7 @@ jobs:
         run: |
           set -o pipefail
           webroot=$(cat "$RUNNER_TEMP/themashup-windows-preview/webroot.path")
-          python3 -m http.server 8080 --bind 127.0.0.1 --directory "$webroot" > "$RUNNER_TEMP/windows-http.log" 2>&1 &
-          server=$!
-          trap 'kill "$server" 2>/dev/null || true' EXIT
-          node tests/browser/smoke.mjs 2>&1 | tee "$RUNNER_TEMP/windows-smoke.log"
+          THEMASHUP_PYTHON="$(command -v python)" node tests/browser/run-smoke.mjs "$webroot" 2>&1 | tee "$RUNNER_TEMP/windows-smoke.log"
       - name: Upload preview screenshots
         if: always()
         uses: actions/upload-artifact@v4

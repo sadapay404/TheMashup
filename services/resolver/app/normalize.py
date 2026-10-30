@@ -127,13 +127,15 @@ def parse_ytmusic_items(
     seen_albums: set[str] = set()
 
     for category, items in iter_categories(data):
-        cat = category.lower()
         for item in items:
             if not isinstance(item, dict):
                 continue
+            # ytmusicapi normally returns a flat list with category/resultType
+            # on each item; older shelf payloads carry the category on the group.
+            cat = str(item.get("category") or category).lower()
             video_id = item.get("videoId")
             browse_id = item.get("browseId") or item.get("playlistId")
-            item_type = str(item.get("type") or "").lower()
+            item_type = str(item.get("resultType") or item.get("type") or "").lower()
 
             # ── artists ────────────────────────────────────────────────
             if (
@@ -161,7 +163,10 @@ def parse_ytmusic_items(
                     albums.append(
                         {
                             "title": title,
-                            "artist": (item.get("artists") or [{}])[0].get("name", ""),
+                            "artist": next(
+                                (a.get("name", "") for a in item.get("artists", []) if isinstance(a, dict)),
+                                "",
+                            ) if isinstance(item.get("artists"), list) else "",
                             "artwork": best_thumb(item.get("thumbnails")),
                             "id": browse_id if isinstance(browse_id, str) else None,
                         }

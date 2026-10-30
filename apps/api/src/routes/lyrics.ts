@@ -10,8 +10,8 @@ import { notFound } from "../errors.js";
 export function lyricsRouter(resolver: ResolverClient): Router {
   const r = Router();
 
-  // Hybrid-search half of the smart bar: resolve free text (partial lyrics,
-  // "title artist", …) to concrete track + lyrics candidates.
+  // LRCLIB searches track metadata, not the lyric body. For actual lyric-line
+  // discovery see /api/search/lyrics; this legacy route remains for existing clients.
   r.get(
     "/match",
     searchLimiter,
@@ -19,6 +19,21 @@ export function lyricsRouter(resolver: ResolverClient): Router {
       const q = z.string().trim().min(2, "q must be at least 2 chars").max(300).parse(req.query.q);
       const match: LyricMatch = await lyricsService.match(q);
       res.json(match);
+    }),
+  );
+
+  // Search already has the metadata; avoid another slow YouTube metadata call.
+  r.get(
+    "/by-metadata",
+    searchLimiter,
+    ah(async (req, res) => {
+      const title = z.string().trim().min(1).max(200).parse(req.query.title);
+      const artist = z.string().trim().min(1).max(200).parse(req.query.artist);
+      const duration = req.query.duration === undefined ? undefined :
+        z.coerce.number().int().min(1).max(3600).parse(req.query.duration);
+      const lyrics = await lyricsService.forTrack({ title, artist_names: artist, duration_sec: duration });
+      if (!lyrics) throw notFound("No lyrics found for this track");
+      res.json(lyrics);
     }),
   );
 

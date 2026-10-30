@@ -18,10 +18,11 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     private string _newPlaylistName = "";
     private string _playlistMessage = "";
 
-    public ShellViewModel(ThemeSelection themes, Library library)
+    public ShellViewModel(ThemeSelection themes, Library library, ISearchService? searchService = null)
     {
         _themes = themes ?? throw new ArgumentNullException(nameof(themes));
         _library = library ?? throw new ArgumentNullException(nameof(library));
+        Search = new SearchViewModel(searchService ?? new UnavailableSearchService(), _library);
         NavigateCommand = new ParameterCommand(Navigate);
         SelectThemeCommand = new ParameterCommand(id => _themes.Select(id));
         CreatePlaylistCommand = new ActionCommand(CreatePlaylist);
@@ -35,6 +36,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public SearchViewModel Search { get; }
     public ICommand NavigateCommand { get; }
     public ICommand SelectThemeCommand { get; }
     public ICommand CreatePlaylistCommand { get; }
@@ -44,7 +46,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public bool IsLibrary => _page == "library";
     public bool IsDownloads => _page == "downloads";
     public bool IsSettings => _page == "settings";
-    public bool IsFeaturePage => IsSearch || IsDownloads;
+    public bool IsFeaturePage => IsDownloads;
     public bool ShowNavLabels => !_compact;
     public bool ShowHeroArtwork => _showHeroArtwork;
     public GridLength SidebarWidth => new(_compact ? 76 : 224);
@@ -177,6 +179,7 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
     private string _draftName;
     private bool _editing;
     private bool _confirmingDelete;
+    private bool _expanded;
     private string _message = "";
 
     public PlaylistRowViewModel(Library library, LibraryPlaylistView playlist)
@@ -187,6 +190,16 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
         _draftName = Name;
         SongCount = playlist.Tracks.Count;
         SongCountText = SongCount == 1 ? "1 song" : $"{SongCount} songs";
+        for (var index = 0; index < playlist.Tracks.Count; index++)
+        {
+            var position = index;
+            Songs.Add(new SavedTrackRowViewModel(playlist.Tracks[index], () => _library.RemoveFromPlaylist(Id, position)));
+        }
+        ToggleSongsCommand = new ActionCommand(() =>
+        {
+            _expanded = !_expanded;
+            Notify(nameof(IsExpanded), nameof(ToggleSongsText), nameof(ShowEmptySongs));
+        });
         BeginRenameCommand = new ActionCommand(() => { _editing = true; _confirmingDelete = false; UpdateState(); });
         SaveNameCommand = new ActionCommand(SaveName);
         CancelRenameCommand = new ActionCommand(() => { _editing = false; DraftName = Name; UpdateState(); });
@@ -200,6 +213,10 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
     public string Name { get; }
     public int SongCount { get; }
     public string SongCountText { get; }
+    public ObservableCollection<SavedTrackRowViewModel> Songs { get; } = [];
+    public bool IsExpanded => _expanded && IsViewing;
+    public bool ShowEmptySongs => IsExpanded && Songs.Count == 0;
+    public string ToggleSongsText => _expanded ? "Hide songs" : "View songs";
     public bool IsEditing => _editing;
     public bool IsConfirmingDelete => _confirmingDelete;
     public bool IsViewing => !_editing && !_confirmingDelete;
@@ -217,6 +234,7 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
             Notify(nameof(DraftName), nameof(Message), nameof(HasMessage));
         }
     }
+    public ICommand ToggleSongsCommand { get; }
     public ICommand BeginRenameCommand { get; }
     public ICommand SaveNameCommand { get; }
     public ICommand CancelRenameCommand { get; }
@@ -239,7 +257,7 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
     private void UpdateState()
     {
         _message = "";
-        Notify(nameof(IsEditing), nameof(IsConfirmingDelete), nameof(IsViewing), nameof(Message), nameof(HasMessage));
+        Notify(nameof(IsEditing), nameof(IsConfirmingDelete), nameof(IsViewing), nameof(IsExpanded), nameof(ShowEmptySongs), nameof(Message), nameof(HasMessage));
     }
 
     private void Notify(params string[] properties)

@@ -15,7 +15,7 @@ public sealed class ShellViewModelTests
         Assert.True(model.IsHome);
         model.NavigateCommand.Execute("search");
         Assert.True(model.IsSearch);
-        Assert.True(model.IsFeaturePage);
+        Assert.False(model.IsFeaturePage);
         Assert.False(model.IsHome);
         Assert.Equal("Search", model.PageTitle);
         Assert.Contains(nameof(model.PageTitle), changed);

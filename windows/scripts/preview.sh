@@ -65,5 +65,27 @@ if [[ "${1:-}" == "--build-only" ]]; then
   exit 0
 fi
 
+# Search uses the existing pnpm/Express + Python/FastAPI stack, started and
+# stopped automatically by the same-origin preview host. All caches and the
+# Python environment stay in the private temporary preview directory. pnpm's
+# node_modules live in the (normally temporary) source checkout.
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo 'Node.js and npm are required for search. See windows/README.md.' >&2
+  exit 1
+fi
+REPO_DIR="$(cd "$WINDOWS_DIR/.." && pwd)"
+export npm_config_cache="$PREVIEW_DIR/npm-cache"
+export PIP_CACHE_DIR="$PREVIEW_DIR/pip-cache"
+(
+  cd "$REPO_DIR"
+  npx --yes pnpm@9.15.4 install --frozen-lockfile --filter '@themashup/api...' \
+    --store-dir "$PREVIEW_DIR/pnpm-store"
+)
+if [[ ! -x "$PREVIEW_DIR/resolver-venv/bin/python" ]]; then
+  python3 -m venv "$PREVIEW_DIR/resolver-venv"
+fi
+"$PREVIEW_DIR/resolver-venv/bin/python" -m pip install -r "$REPO_DIR/services/resolver/requirements.txt"
+export THEMASHUP_PYTHON="$PREVIEW_DIR/resolver-venv/bin/python"
+
 printf '\nTheMashup browser preview: port 8080. In Cloud Shell, open Web Preview → Preview on port 8080.\n'
-exec python3 -m http.server 8080 --bind 0.0.0.0 --directory "$WEBROOT"
+exec node "$WINDOWS_DIR/services/host.mjs" --preview --webroot "$WEBROOT" --bind 0.0.0.0 --port 8080

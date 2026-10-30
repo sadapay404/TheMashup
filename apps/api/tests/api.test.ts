@@ -592,3 +592,34 @@ test("real resolver client module exports a health probe", () => {
   assert.equal(typeof httpResolver.health, "function");
   assert.equal(typeof httpResolver.streams, "function");
 });
+
+test("catalog results do not wait for suggestions", async () => {
+  const original = fakeResolver.suggest;
+  fakeResolver.suggest = () => new Promise(() => {});
+  try {
+    const response = await get("/api/search?q=midnight", { signal: AbortSignal.timeout(1500) });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.tracks[0].title, "Midnight Mirage");
+  } finally { fakeResolver.suggest = original; }
+});
+
+test("lyric-line fixture resolves only the matching catalog track", async () => {
+  const { status, body } = await get("/api/search/lyrics?q=city hums in ultraviolet");
+  assert.equal(status, 200);
+  assert.equal(body.source, "mock");
+  assert.equal(body.hits.length, 1);
+  assert.equal(body.hits[0].title, "Midnight Mirage");
+  assert.equal(body.hits[0].track.id, "mock00000001");
+  assert.equal(body.hits[0].snippet, "City hums in ultraviolet");
+  const noMatch = await get("/api/search/lyrics?q=not a lyric in these fixtures");
+  assert.deepEqual(noMatch.body.hits, []);
+});
+
+test("lyrics by metadata distinguish a fixture hit from a missing record", async () => {
+  const hit = await get("/api/lyrics/by-metadata?title=Midnight%20Mirage&artist=Nova%20Arcade&duration=214");
+  assert.equal(hit.status, 200);
+  assert.equal(hit.body.provider, "mock");
+  assert.ok(hit.body.synced.length > 0);
+  const miss = await get("/api/lyrics/by-metadata?title=Nothing%20Here&artist=No%20Artist");
+  assert.equal(miss.status, 404);
+});

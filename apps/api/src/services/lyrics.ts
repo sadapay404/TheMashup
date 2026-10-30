@@ -2,6 +2,7 @@ import type { Lyrics, LyricMatch } from "@themashup/shared";
 import { matchScore, normalize, parseLrc, similarity as textSimilarity } from "@themashup/shared";
 import { config } from "../config.js";
 import { log } from "../logger.js";
+import { unavailable, upstream } from "../errors.js";
 
 interface LrclibRecord {
   id: number;
@@ -83,8 +84,8 @@ function bestLine(r: LrclibRecord, query: string): string | undefined {
 }
 
 function recordToMatch(r: LrclibRecord, query: string): LyricMatch["matches"][number] {
-  // Score against BOTH "title artist" (metadata queries) AND the lyric body
-  // (partial-lyric queries) — mirrors LRCLIB's full-text search behaviour.
+  // LRCLIB's search index covers metadata only. This score merely ranks the
+  // records it returned; it does not imply LRCLIB can find arbitrary lyric lines.
   const titleArtistScore = matchScore(query, `${r.trackName} ${r.artistName}`);
   const plain = (r.plainLyrics ?? "").trim();
   const lyricTextScore = plain ? textSimilarity(query, plain) : 0;
@@ -104,14 +105,16 @@ function recordToMatch(r: LrclibRecord, query: string): LyricMatch["matches"][nu
 
 function pickBest(records: LrclibRecord[], trackName: string, artistName: string, duration?: number) {
   const want = normalize(`${trackName} ${artistName}`);
-  const scored = records.map((r) => {
+  const scored = records.filter((r) =>
+    matchScore(trackName, r.trackName) >= 0.55 && matchScore(artistName, r.artistName) >= 0.55,
+  ).map((r) => {
     let s = matchScore(want, `${r.trackName} ${r.artistName}`);
     if (duration && r.duration && Math.abs(r.duration - duration) <= 3) s += 0.3;
     if (r.syncedLyrics) s += 0.1;
     return { r, s };
   });
   scored.sort((a, b) => b.s - a.s);
-  return scored[0]?.r;
+  return scored[0] && scored[0].s >= 0.65 ? scored[0].r : undefined;
 }
 
 function toLyrics(r: LrclibRecord, provider: "lrclib" | "mock"): Lyrics {
@@ -124,21 +127,32 @@ function toLyrics(r: LrclibRecord, provider: "lrclib" | "mock"): Lyrics {
 }
 
 async function lrclibFetch<T>(path: string, timeoutMs = 8_000): Promise<T | null> {
+  let res: Response;
   try {
-    const res = await fetch(`${config.lyricsBase}${path}`, {
+    res = await fetch(`${config.lyricsBase}${path}`, {
       signal: AbortSignal.timeout(timeoutMs),
       headers: { "User-Agent": "TheMashup/0.1 (personal music player)" },
     });
-    if (res.status === 404) return null;
-    if (!res.ok) {
-      log.warn(`lrclib ${path} → ${res.status}`);
-      return null;
-    }
-    return (await res.json()) as T;
   } catch (err) {
-    log.warn(`lrclib unreachable: ${path}`, (err as Error).message);
-    return null;
+    log.warn("LRCLIB unreachable", (err as Error).message);
+    throw unavailable("Lyrics provider unavailable");
   }
+  if (res.status === 404) return null;
+  if (!res.ok) throw upstream(`Lyrics provider returned ${res.status}`);
+  try { return (await res.json()) as T; }
+  catch { throw upstream("Lyrics provider returned an invalid response"); }
+}
+
+function isLrclibRecord(value: unknown): value is LrclibRecord {
+  const record = value as Partial<LrclibRecord> | null;
+  return !!record && typeof record.id === "number" && typeof record.trackName === "string" &&
+    typeof record.artistName === "string";
+}
+
+function validRecords(value: unknown): LrclibRecord[] {
+  if (!Array.isArray(value) || value.some((item) => !isLrclibRecord(item)))
+    throw upstream("Lyrics provider returned an invalid response");
+  return value;
 }
 
 export const lyricsService = {
@@ -156,7 +170,7 @@ export const lyricsService = {
     const records = await lrclibFetch<LrclibRecord[]>(
       `/api/search?q=${encodeURIComponent(query)}`,
     );
-    const matches = (records ?? [])
+    const matches = (records === null ? [] : validRecords(records))
       .slice(0, 20)
       .map((r) => recordToMatch(r, query))
       .filter((m) => m.similarity > 0.25)
@@ -182,13 +196,13 @@ export const lyricsService = {
     const params = new URLSearchParams({ track_name: meta.title, artist_name: meta.artist_names });
     if (meta.duration_sec) params.set("duration", String(Math.round(meta.duration_sec)));
     let record = await lrclibFetch<LrclibRecord>(`/api/get?${params.toString()}`);
+    if (record && !isLrclibRecord(record)) throw upstream("Lyrics provider returned an invalid response");
     if (!record) {
       const records = await lrclibFetch<LrclibRecord[]>(
         `/api/search?q=${encodeURIComponent(`${meta.title} ${meta.artist_names}`)}`,
       );
-      record = records?.length
-        ? pickBest(records, meta.title, meta.artist_names, meta.duration_sec)
-        : null;
+      const valid = records === null ? [] : validRecords(records);
+      record = valid.length ? (pickBest(valid, meta.title, meta.artist_names, meta.duration_sec) ?? null) : null;
     }
     return record ? toLyrics(record, "lrclib") : null;
   },

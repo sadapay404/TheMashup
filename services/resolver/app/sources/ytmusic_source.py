@@ -36,10 +36,12 @@ def suggestions(query: str, limit: int = 8) -> list[str]:
         try:
             raw = getter(query)
             out: list[str] = []
+            # Current ytmusicapi returns list[str]; older versions returned
+            # grouped objects. Handle both without a second, slower search.
             for group in raw if isinstance(raw, list) else []:
-                for item in group if isinstance(group, list) else []:
-                    text = item.get("text") if isinstance(item, dict) else None
-                    if text and text not in out:
+                for item in group if isinstance(group, list) else [group]:
+                    text = item if isinstance(item, str) else item.get("text") if isinstance(item, dict) else None
+                    if isinstance(text, str) and text.strip() and text not in out:
                         out.append(text)
             if out:
                 return out[:limit]

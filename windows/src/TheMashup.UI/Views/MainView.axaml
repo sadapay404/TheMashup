@@ -3,6 +3,44 @@
              xmlns:vm="using:TheMashup.UI"
              x:Class="TheMashup.UI.Views.MainView" x:DataType="vm:ShellViewModel"
              Background="{DynamicResource AppBackground}">
+  <UserControl.Resources>
+    <DataTemplate x:Key="SearchTrackTemplate" x:DataType="vm:SearchTrackRowViewModel">
+      <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+              BorderThickness="1" CornerRadius="12" Padding="12" Margin="0,0,0,8">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <StackPanel Spacing="3" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+            <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+            <TextBlock Text="{Binding Snippet}" IsVisible="{Binding HasSnippet}" Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+            <TextBlock Text="No matching catalog track yet" IsVisible="{Binding IsUnmatched}" Classes="subtle" FontSize="11" />
+          </StackPanel>
+          <WrapPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+            <Button Classes="secondary" Content="Lyrics" Command="{Binding LyricsCommand}" Margin="3,3"
+                    AutomationProperties.Name="View song lyrics" />
+            <Button Classes="secondary" Content="{Binding LikeText}" Command="{Binding LikeCommand}" IsEnabled="{Binding CanLike}" Margin="3,3"
+                    AutomationProperties.Name="Like song" />
+            <Button Classes="secondary" Content="Playlist" Command="{Binding PlaylistCommand}" IsEnabled="{Binding CanLike}" Margin="3,3"
+                    AutomationProperties.Name="Add song to playlist" />
+            <Button Classes="secondary" Content="Queue" Command="{Binding QueueCommand}" IsEnabled="{Binding IsMatched}" Margin="3,3"
+                    AutomationProperties.Name="Add song to queue" />
+          </WrapPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="SavedTrackTemplate" x:DataType="vm:SavedTrackRowViewModel">
+      <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+              BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,7">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <StackPanel Spacing="2" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+            <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="secondary" Content="Remove" Command="{Binding RemoveCommand}"
+                  AutomationProperties.Name="Remove saved song" />
+        </Grid>
+      </Border>
+    </DataTemplate>
+  </UserControl.Resources>
   <Grid>
     <Grid>
       <Grid.ColumnDefinitions>
@@ -149,7 +187,7 @@
                   </StackPanel>
                 </Border>
               </Grid>
-              <TextBlock Text="This is an early Windows preview. Search, playback, recommendations, and downloads are not connected yet."
+              <TextBlock Text="Search is available in the development preview. Playback, recommendations, and downloads are still being built."
                          Classes="subtle" FontSize="11" TextWrapping="Wrap" />
             </StackPanel>
 
@@ -186,7 +224,7 @@
                       BorderBrush="{DynamicResource Outline}" BorderThickness="1" CornerRadius="14" Padding="20">
                 <StackPanel Spacing="5">
                   <TextBlock Text="Your first playlist starts here." FontWeight="SemiBold" />
-                  <TextBlock Text="Create one above. Songs can be added when search is ready."
+                  <TextBlock Text="Create one above, then add songs from Search."
                              Classes="muted" FontSize="12" TextWrapping="Wrap" />
                 </StackPanel>
               </Border>
@@ -229,6 +267,14 @@
                             <Button Classes="secondary" Content="Cancel" Command="{Binding CancelDeleteCommand}" AutomationProperties.Name="Cancel playlist deletion" />
                           </StackPanel>
                         </Grid>
+                        <Button Classes="secondary" Content="{Binding ToggleSongsText}" Command="{Binding ToggleSongsCommand}"
+                                IsVisible="{Binding IsViewing}" HorizontalAlignment="Left" AutomationProperties.Name="View playlist songs" />
+                        <TextBlock Text="No songs in this playlist yet." IsVisible="{Binding ShowEmptySongs}" Classes="subtle" FontSize="11" />
+                        <ListBox ItemsSource="{Binding Songs}" IsVisible="{Binding IsExpanded}" ItemTemplate="{StaticResource SavedTrackTemplate}"
+                                 MaxHeight="220" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 AutomationProperties.Name="Playlist songs">
+                          <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
+                        </ListBox>
                         <TextBlock Text="{Binding Message}" IsVisible="{Binding HasMessage}"
                                    Foreground="{DynamicResource Accent}" FontSize="11" TextWrapping="Wrap" />
                       </StackPanel>
@@ -236,7 +282,109 @@
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>
-              <TextBlock Text="Likes and listening history will appear once search and playback are connected."
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="Liked songs" FontSize="18" FontWeight="Bold" />
+                <TextBlock Grid.Column="1" Text="{Binding Search.LikedSummary}" Classes="muted" FontSize="12" />
+              </Grid>
+              <ListBox ItemsSource="{Binding Search.LikedTracks}" IsVisible="{Binding Search.HasLikedTracks}"
+                       ItemTemplate="{StaticResource SavedTrackTemplate}" MaxHeight="280" Background="Transparent"
+                       BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       AutomationProperties.Name="Liked songs">
+                <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
+              </ListBox>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="Manual queue" FontSize="18" FontWeight="Bold" />
+                <TextBlock Grid.Column="1" Text="{Binding Search.QueueSummary}" Classes="muted" FontSize="12" />
+              </Grid>
+              <ListBox ItemsSource="{Binding Search.QueuedTracks}" IsVisible="{Binding Search.HasQueuedTracks}"
+                       ItemTemplate="{StaticResource SavedTrackTemplate}" MaxHeight="280" Background="Transparent"
+                       BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       AutomationProperties.Name="Queued songs">
+                <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
+              </ListBox>
+              <TextBlock Text="Adding a song to the queue does not start playback. Listening history will appear after the player is connected."
+                         Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <!-- Actual search: independent catalog, suggestions, lyric search and lyric text. -->
+            <StackPanel IsVisible="{Binding IsSearch}"
+                        Spacing="16" MaxWidth="1050" HorizontalAlignment="Stretch">
+              <StackPanel Spacing="5">
+                <TextBlock Text="DISCOVER" Foreground="{DynamicResource Accent}" FontSize="10" FontWeight="Bold" />
+                <TextBlock Text="Find your music." FontSize="29" FontWeight="Bold" />
+                <TextBlock Text="Search songs, artists, albums or a line you remember." Classes="muted" FontSize="13" TextWrapping="Wrap" />
+              </StackPanel>
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <TextBox Text="{Binding Search.Query, Mode=TwoWay}" Watermark="Song, artist, album or lyric" MaxLength="200"
+                         KeyDown="OnSearchKeyDown" AutomationProperties.Name="Search music" />
+                <Button Grid.Column="1" Classes="action" Content="Search" Command="{Binding Search.SubmitCommand}"
+                        AutomationProperties.Name="Search music action" />
+              </Grid>
+              <TextBlock Text="{Binding Search.SuggestionStatus}" Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Search.Suggestions}" IsVisible="{Binding Search.HasSuggestions}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SearchSuggestionViewModel">
+                    <Button Classes="secondary" Content="{Binding Text}" Command="{Binding ChooseCommand}" Margin="0,0,7,7"
+                            AutomationProperties.Name="Search suggestion" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Text="{Binding Search.ActionStatus}" Foreground="{DynamicResource Accent}" FontSize="12" TextWrapping="Wrap" />
+              <Border IsVisible="{Binding Search.ShowPlaylistPicker}" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+                      BorderThickness="1" CornerRadius="14" Padding="16">
+                <StackPanel Spacing="8">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding Search.PlaylistTrackTitle, StringFormat='Add to playlist: {0}'}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <Button Grid.Column="1" Classes="secondary" Content="Close" Command="{Binding Search.ClosePlaylistCommand}" AutomationProperties.Name="Close playlist picker" />
+                  </Grid>
+                  <TextBlock Text="Create a playlist in Your library if you don't have one yet." Classes="subtle" FontSize="11" />
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <ComboBox ItemsSource="{Binding Search.PlaylistChoices}" SelectedItem="{Binding Search.SelectedPlaylist, Mode=TwoWay}"
+                              IsEnabled="{Binding Search.HasPlaylistChoices}" HorizontalAlignment="Stretch" AutomationProperties.Name="Choose playlist">
+                      <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:PlaylistChoice"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Grid.Column="1" Classes="action" Content="Add" Command="{Binding Search.AddToPlaylistCommand}" IsEnabled="{Binding Search.CanAddToPlaylist}"
+                            AutomationProperties.Name="Confirm add to playlist" />
+                  </Grid>
+                  <TextBlock Text="{Binding Search.PlaylistStatus}" Foreground="{DynamicResource Accent}" FontSize="11" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+              <Border IsVisible="{Binding Search.ShowLyrics}" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+                      BorderThickness="1" CornerRadius="14" Padding="16">
+                <StackPanel Spacing="9">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock Text="{Binding Search.LyricsTitle}" FontWeight="Bold" TextWrapping="Wrap" />
+                    <Button Grid.Column="1" Classes="secondary" Content="Close" Command="{Binding Search.CloseLyricsCommand}" AutomationProperties.Name="Close lyrics" />
+                  </Grid>
+                  <TextBlock Text="{Binding Search.LyricsStatus}" Classes="muted" FontSize="12" TextWrapping="Wrap" />
+                  <ScrollViewer MaxHeight="300" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <TextBlock Text="{Binding Search.LyricsText}" FontSize="13" LineHeight="22" TextWrapping="Wrap" AutomationProperties.Name="Song lyrics" />
+                  </ScrollViewer>
+                </StackPanel>
+              </Border>
+              <TextBlock Text="{Binding Search.CatalogStatus}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Search.ArtistsAndAlbums}" IsVisible="{Binding Search.HasArtistsAndAlbums}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SearchSuggestionViewModel">
+                    <Button Classes="secondary" Content="{Binding Text}" Command="{Binding ChooseCommand}" Margin="0,0,7,7"
+                            AutomationProperties.Name="Search artist or album" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <ListBox ItemsSource="{Binding Search.Tracks}" IsVisible="{Binding Search.HasTracks}" ItemTemplate="{StaticResource SearchTrackTemplate}"
+                       MaxHeight="440" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       AutomationProperties.Name="Song search results">
+                <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
+              </ListBox>
+              <TextBlock Text="{Binding Search.LyricSearchStatus}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <ListBox ItemsSource="{Binding Search.LyricHits}" IsVisible="{Binding Search.HasLyricHits}" ItemTemplate="{StaticResource SearchTrackTemplate}"
+                       MaxHeight="400" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       AutomationProperties.Name="Lyric search results">
+                <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
+              </ListBox>
+              <TextBlock Text="Playback is not connected yet. Queue adds only the selected song; it does not start music."
                          Classes="subtle" FontSize="11" TextWrapping="Wrap" />
             </StackPanel>
 

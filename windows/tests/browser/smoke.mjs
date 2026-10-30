@@ -133,6 +133,30 @@ try {
   await clickButton('Confirm playlist deletion', 1210, 418);
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('themashup.windows.library')).playlists.length === 0, null, { timeout: 10000 });
 
+  testStage = 'fixture catalog and lyric search';
+  await clickButton('Search', 60, 191);
+  await page.waitForTimeout(500);
+  const searchInput = page.getByRole('textbox', { name: 'Search music', exact: true });
+  if (await searchInput.count() && await searchInput.first().isVisible()) {
+    await searchInput.first().fill('city hums in ultraviolet');
+  } else {
+    await page.mouse.click(450, 207);
+    await page.keyboard.type('city hums in ultraviolet');
+  }
+  const catalogReply = page.waitForResponse(response =>
+    response.url().includes('/api/search?') && response.url().includes('city%20hums'), { timeout: 30000 });
+  const lyricReply = page.waitForResponse(response =>
+    response.url().includes('/api/search/lyrics?') && response.url().includes('city%20hums'), { timeout: 30000 });
+  await clickButton('Search music action', 1300, 207);
+  const [catalog, lyric] = await Promise.all([catalogReply, lyricReply]);
+  assert.equal(catalog.status(), 200, 'Catalog fixture endpoint should succeed through the preview origin');
+  assert.equal(new URL(catalog.url()).origin, new URL(url).origin, 'Browser requests must use the preview origin');
+  const lyricResult = await lyric.json();
+  assert.equal(lyricResult.source, 'mock', 'Fixture responses must be explicitly labeled');
+  assert.equal(lyricResult.hits[0].track.id, 'mock00000001', 'Lyric hit should be matched through the catalog');
+  await page.waitForTimeout(600);
+  await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/search.png' });
+
   await page.setViewportSize({ width: 760, height: 600 });
   await page.waitForTimeout(800);
   const canvas = await page.locator('#out canvas').first().boundingBox();
@@ -140,8 +164,8 @@ try {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/compact.png' });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join(' | ')}`);
   if (expectedRendererFallbacks.length) console.log(`Software renderer fallback used (${expectedRendererFallbacks.length} WebGL attempts unavailable).`);
-  console.log('PASS: Avalonia browser starts; five themes and playlist edits persist; viewport resizes.');
-  console.log('::notice title=Windows browser checks::All five themes, playlist create/rename/reload/delete, and viewport resize passed.');
+  console.log('PASS: Avalonia browser starts; themes and playlists persist; fixture search uses the preview origin; viewport resizes.');
+  console.log('::notice title=Windows browser checks::Five themes, playlist CRUD, same-origin fixture search and viewport resize passed (not a live-provider test).');
 } catch (error) {
   await page.screenshot({ type: 'png', path: 'tests/browser/screenshots/failure.png' }).catch(() => {});
   console.error('Browser runtime errors:', errors.join(' | ') || '(none)');

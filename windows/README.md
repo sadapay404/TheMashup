@@ -1,12 +1,13 @@
 # TheMashup for Windows — separate rebuild
 
-**Status: phase W2.** The shell uses Avalonia with a shared Windows/browser
-interface, targets 64-bit Windows 10 and 11 on Intel-compatible x64 processors,
-and keeps each device's library local. Playlist creation, renaming and deletion
-are connected to local storage. The versioned data model also supports likes,
-history and the explicit manual queue, ready for later catalog/playback wiring.
-Search, playback, recommendations and downloads are not connected yet. No Windows
-executable, installer, Android build or APK is produced in this phase.
+**Status: phase W3 development.** The Avalonia Windows/browser UI has local
+playlists, likes and an explicit queue, plus a real catalog/search integration,
+suggestions, lyric-line discovery and LRCLIB lyrics lookup. Playback, Home
+recommendations and downloads are not connected yet. Search does not start music
+or autoqueue results. The Windows managed build is a development build, not a
+self-contained Windows distribution: its search host still needs Node, Python and
+the installed monorepo dependencies until future packaging work. No executable,
+installer, Android build or APK is produced here.
 
 The new Windows app will be developed under this top-level `windows/` directory,
 separately from `android/`, the legacy `desktop/` wrapper, and the existing
@@ -67,25 +68,57 @@ uses its own origin-scoped local storage; it is not synced to Windows or Android
 and may disappear if browser data is cleared or a preview origin changes.
 Unknown/newer or corrupt library files are left untouched and editing is disabled
 rather than silently overwriting them. Save failures are reported in the UI.
-Playlist deletion asks for confirmation and does not delete liked tracks. The
-queue and likes/history models are implemented and tested, but they are not yet
-connected to any search or audio engine. No track should be presented as playing
-just because it is present in a saved queue.
+Playlist deletion asks for confirmation and does not delete liked tracks. Search
+can explicitly like a result, add it to a playlist, or add exactly that result
+to the manual queue; none of these actions starts playback. History is recorded
+only by a future playback engine, not by search or queue actions. No track is
+presented as playing just because it is in a saved queue.
 
 To reduce visual clutter the inactive player/now-playing placeholders are hidden
 until there is real playback. This is a layout simplification, not a measured
 performance claim; responsiveness and playback must be profiled on Windows later.
 
-## Google Cloud Shell preview (W1)
+## W3 search and lyrics boundaries
+
+- Catalog search uses the existing FastAPI resolver: YouTube Music first,
+  Piped then Invidious when the preceding source fails. Suggestions are separate,
+  so they do not delay catalog results. Providers can change or be unavailable.
+- LRCLIB's actual index searches track/artist/album **metadata**, not arbitrary
+  lines of lyrics. Lyric-line discovery instead uses Genius's unofficial public
+  lyric search, then checks title and artist against the YouTube-first catalog
+  before attaching a playable ID. Unmatched hits are never guessed or queued.
+  Genius can change/block this unofficial endpoint and its terms apply. Search
+  text is sent to the relevant catalog, suggestion and lyric-search providers.
+- Lyrics for a selected result are requested from LRCLIB by metadata. Plain and
+  timestamped lines can be displayed, but playback-driven highlighting is not
+  implemented until the player exists. A provider outage is distinct from a
+  successful empty result.
+- The browser calls its own origin only. A preview host starts a search-only
+  Express gateway and FastAPI resolver on loopback and proxies four read-only
+  endpoints; it does not expose the monorepo's download, account or stream APIs.
+  The desktop development head starts this host on demand without requiring a
+  separate PC/LAN gateway or manual service startup. **Bundling and lifecycle/
+  security validation of the runtimes on Windows remain future work.** Without
+  their development dependencies the managed desktop build reports an error.
+- CI's `MOCK_UPSTREAM=1` / `RESOLVER_MOCK=1` checks are explicitly fixture-only.
+  They test behavior and wiring, not live YouTube, Genius, LRCLIB, fallback
+  availability, Windows execution or performance. The user deferred the next
+  preview; do not describe fixture data as live music.
+
+## Google Cloud Shell preview (deferred)
 
 Cloud Shell has limited persistent home storage. The preview script places
-NuGet packages, .NET CLI data, temporary files and **all** build artifacts under
-`/tmp` by default; it does not delete or overwrite your existing caches. `/tmp`
+NuGet, .NET CLI data, Python virtual environment, npm/pnpm caches and build
+artifacts under `/tmp` by default; it does not delete existing caches. pnpm
+installs `node_modules` in the cloned source checkout, so put that clone in `/tmp`. `/tmp`
 is temporary and may be cleared when the Cloud Shell VM stops. The browser
 preview is the actual shared Avalonia UI, not a separate mockup. No EXE is built.
 
-For a fresh Cloud Shell, first check that `/tmp` has several gigabytes free.
-This installs the SDK and its WebAssembly workload outside the home directory:
+When a preview is requested, first check that `/tmp` has several gigabytes free
+and that Node.js, npm and Python 3 (with `venv`) are available. The script
+installs the existing API and resolver dependencies in temporary storage and
+starts their local search-only host automatically. This setup installs the SDK and
+its WebAssembly workload outside the home directory:
 
 ```bash
 df -h "$HOME" /tmp

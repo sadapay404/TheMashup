@@ -111,8 +111,9 @@ def suggest(q: str = Query(min_length=1, max_length=200), limit: int = Query(8, 
             return out
         except Exception:  # noqa: BLE001
             continue
-    # Last resort: never fail the search bar over suggestions.
-    return {"suggestions": []}
+    # Keep suggestions independent: provider outages are not an empty result.
+    # The catalog endpoint can still succeed even if this endpoint fails.
+    raise HTTPException(502, detail={"code": "SUGGESTIONS_UNAVAILABLE"})
 
 
 # ── streams (primary: yt-dlp → piped → invidious) ────────────────────────────

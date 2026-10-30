@@ -15,6 +15,11 @@ internal static partial class Program
     {
         App.ThemeStore = new BrowserThemeStore();
         App.LibraryStore = new BrowserLibraryStore();
+        // Main receives the browser URL from main.js; all requests stay on this
+        // origin and are proxied server-side, never to the viewer's localhost.
+        var origin = args.Length > 0 ? new Uri(new Uri(args[0]).GetLeftPart(UriPartial.Authority) + "/")
+            : throw new InvalidOperationException("The browser preview origin is missing.");
+        App.SearchService = new GatewaySearchClient(new HttpClient(), _ => Task.FromResult(origin));
         return AppBuilder.Configure<App>()
             .WithInterFont()
             .StartBrowserAppAsync("out", new BrowserPlatformOptions

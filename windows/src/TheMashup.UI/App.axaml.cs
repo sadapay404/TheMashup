@@ -13,6 +13,7 @@ public partial class App : Application
     // Each platform head supplies a real local store before initializing Avalonia.
     public static IThemeStore? ThemeStore { get; set; }
     public static ILibraryStore? LibraryStore { get; set; }
+    public static ISearchService? SearchService { get; set; }
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -24,10 +25,13 @@ public partial class App : Application
         selection.Changed += (_, _) => ApplyTheme(selection.Current);
         var library = new Library(LibraryStore ??
             throw new InvalidOperationException("A platform library store is required."));
-        var model = new ShellViewModel(selection, library);
+        var model = new ShellViewModel(selection, library, SearchService);
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
             desktop.MainWindow = new MainWindow { DataContext = model };
+            desktop.Exit += (_, _) => model.Search.Dispose();
+        }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime browser)
             browser.MainView = new MainView { DataContext = model };
 

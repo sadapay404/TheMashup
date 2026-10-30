@@ -52,10 +52,11 @@ class PipedSource:
 
     def suggestions(self, query: str, limit: int = 8) -> list[str]:
         data = self.pool.get_json("/suggest", params={"q": query})
-        out = data.get("suggestions") if isinstance(data, dict) else None
+        # Piped's /suggest returns a JSON string array. Some mirrors wrap it.
+        out = data if isinstance(data, list) else data.get("suggestions") if isinstance(data, dict) else None
         if isinstance(out, list):
-            return [str(s) for s in out[:limit]]
-        return []
+            return [s for s in out if isinstance(s, str) and s.strip()][:limit]
+        raise RuntimeError("piped: invalid suggestion response")
 
     def streams(self, video_id: str) -> dict[str, Any]:
         data = self.pool.get_json(f"/streams/{video_id}")
