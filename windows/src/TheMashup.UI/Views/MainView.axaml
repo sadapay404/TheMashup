@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="TheMashup.UI.Views.MainView"
+             xmlns:vm="using:TheMashup.UI"
+             x:Class="TheMashup.UI.Views.MainView" x:DataType="vm:ShellViewModel"
              Background="{DynamicResource AppBackground}">
   <Grid RowDefinitions="*,84">
     <Grid Grid.Row="0">
