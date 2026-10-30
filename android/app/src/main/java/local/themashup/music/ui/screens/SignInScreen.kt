@@ -1,6 +1,5 @@
 package local.themashup.music.ui.screens
 
-import android.annotation.SuppressLint
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -53,6 +52,7 @@ import local.themashup.music.ui.theme.LocalMashupTokens
  * itself remains native (the standing "no WebView" rule covers the shell).
  */
 @Composable
+@Suppress("SetJavaScriptEnabled") // JS only inside this sign-in WebView
 fun SignInScreen(
     hasCookie: Boolean,
     onSaveCookie: (String) -> Unit,
@@ -178,7 +178,6 @@ fun SignInScreen(
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { context ->
-                        @SuppressLint("SetJavaScriptEnabled")
                         WebView(context).apply {
                             webViewClient = object : WebViewClient() {
                                 override fun doUpdateVisitedHistory(
