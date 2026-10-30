@@ -52,6 +52,7 @@ fun ShelfSection(
     onCardPlay: (Track, List<Track>) -> Unit = { _, _ -> },
     onCardQueue: (Track) -> Unit = {},
     onCardRadio: (Track, List<Track>) -> Unit = { _, _ -> },
+    showRadio: Boolean = true,
 ) {
     val tokens = LocalMashupTokens.current
     Column(modifier = modifier.fillMaxWidth()) {
@@ -108,6 +109,7 @@ fun ShelfSection(
                         onPlay = { onCardPlay(track, tracks) },
                         onQueue = { onCardQueue(track) },
                         onRadio = { onCardRadio(track, tracks) },
+                        showRadio = showRadio,
                     )
                 }
             }

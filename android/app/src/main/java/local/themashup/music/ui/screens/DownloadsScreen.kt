@@ -77,69 +77,31 @@ fun DownloadsScreen(
             it.status == DownloadStatus.DOWNLOADING ||
             it.status == DownloadStatus.PROCESSING
     }
-    val finished = state.jobs.filter {
-        it.status == DownloadStatus.COMPLETED || it.status == DownloadStatus.FAILED
-    }
+    val failed = state.jobs.filter { it.status == DownloadStatus.FAILED }
+    val audio = state.jobs.filter { it.status == DownloadStatus.COMPLETED && it.container != "mp4" }
+    val videos = state.jobs.filter { it.status == DownloadStatus.COMPLETED && it.container == "mp4" }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 20.dp),
+                .padding(horizontal = 16.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(modifier = Modifier.widthIn(max = 768.dp).fillMaxWidth()) {
-                // ── header: subtitle + status pills ──
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (active.isNotEmpty()) "${active.size} in progress"
-                            else "Everything you grab, in one place",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = tokens.textDim,
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val ready = ffmpegStatus == FfmpegState.Ready
-                        FfmpegPill(
-                            ready = ready,
-                            working = ffmpegStatus is FfmpegState.Downloading ||
-                                ffmpegStatus is FfmpegState.Extracting,
-                            onClick = {
-                                if (!ready) onOpenSetup()
-                            },
-                        )
-                        // In-process jobs stream straight from StateFlow — the
-                        // web SSE channel has no disconnect here.
-                        Row(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .border(1.dp, tokens.border, CircleShape)
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(tokens.accent),
-                            )
-                            Text(
-                                text = "live",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = tokens.accent,
-                            )
-                        }
-                    }
-                }
+                // Keep status controls on their own line on narrow screens.
+                Text(
+                    text = if (active.isNotEmpty()) "${active.size} in progress" else "Everything you download, in one place",
+                    style = MaterialTheme.typography.bodyMedium, color = tokens.textDim,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                FfmpegPill(
+                    ready = ffmpegStatus == FfmpegState.Ready,
+                    working = ffmpegStatus is FfmpegState.Downloading || ffmpegStatus is FfmpegState.Extracting,
+                    onClick = { if (ffmpegStatus != FfmpegState.Ready) onOpenSetup() },
+                )
+                Spacer(Modifier.height(20.dp))
 
                 if (active.isNotEmpty()) {
                     SectionTitle("In progress")
@@ -151,18 +113,28 @@ fun DownloadsScreen(
                     Spacer(Modifier.height(26.dp))
                 }
 
-                if (finished.isNotEmpty()) {
-                    SectionTitle("Finished")
+                if (failed.isNotEmpty()) {
+                    SectionTitle("Needs attention")
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        finished.forEach { job ->
-                            FinishedRow(job = job, onRetry = { engine.retry(job.id) })
-                        }
+                        failed.forEach { job -> FinishedRow(job = job, onRetry = { engine.retry(job.id) }) }
+                    }
+                    Spacer(Modifier.height(26.dp))
+                }
+                if (audio.isNotEmpty()) {
+                    SectionTitle("Downloaded songs")
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        audio.forEach { job -> FinishedRow(job = job, onRetry = { engine.retry(job.id) }) }
+                    }
+                    Spacer(Modifier.height(26.dp))
+                }
+                // The video section exists only once a video has finished downloading.
+                if (videos.isNotEmpty()) {
+                    SectionTitle("Downloaded videos")
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        videos.forEach { job -> FinishedRow(job = job, onRetry = { engine.retry(job.id) }) }
                     }
                 }
-
-                if (active.isEmpty() && finished.isEmpty()) {
-                    EmptyDownloads(onFindSomething = onFindSomething)
-                }
+                if (state.jobs.isEmpty()) EmptyDownloads(onFindSomething = onFindSomething)
             }
         }
     }
@@ -271,33 +243,16 @@ private fun ProgressRow(job: DownloadJob, onCancel: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(
-                modifier = Modifier.padding(top = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ContainerBadge(job)
-                Text(
-                    text = statusLabel(job.status),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = tokens.textDim,
-                )
-                if (job.status == DownloadStatus.DOWNLOADING && (job.speedBps ?: 0) > 0) {
-                    Text(
-                        text = "· ${formatSpeed(job.speedBps)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = tokens.textDim,
-                    )
-                }
-                val eta = job.etaSec
-                if (eta != null && eta > 0) {
-                    Text(
-                        text = "· ${formatTimeLeft(eta.toDouble())}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = tokens.textDim,
-                    )
-                }
-            }
+            Text(
+                text = buildString {
+                    append("${job.container.uppercase()} · ${job.quality} · ${statusLabel(job.status)}")
+                    if (job.status == DownloadStatus.DOWNLOADING && (job.speedBps ?: 0) > 0) append(" · ${formatSpeed(job.speedBps)}")
+                    if ((job.etaSec ?: 0) > 0) append(" · ${formatTimeLeft(job.etaSec!!.toDouble())}")
+                },
+                style = MaterialTheme.typography.labelSmall, color = tokens.textDim,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 3.dp),
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -384,46 +339,13 @@ private fun FinishedRow(job: DownloadJob, onRetry: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(
-                modifier = Modifier.padding(top = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ContainerBadge(job)
-                if ((job.filesize ?: 0) > 0) {
-                    Text(
-                        text = formatBytes(job.filesize),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = tokens.textDim,
-                    )
-                }
-                if (failed) {
-                    Text(
-                        text = job.error ?: "failed",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = scheme.error,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.CheckCircle,
-                            contentDescription = null,
-                            tint = tokens.accent,
-                            modifier = Modifier.size(12.dp),
-                        )
-                        Text(
-                            text = "ready",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = tokens.accent,
-                        )
-                    }
-                }
-            }
+            Text(
+                text = if (failed) job.error ?: "Download failed" else "${job.container.uppercase()} · ${job.quality} · ${formatBytes(job.filesize)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (failed) scheme.error else tokens.textDim,
+                maxLines = 3, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
         if (failed) {
             Row(
@@ -437,9 +359,9 @@ private fun FinishedRow(job: DownloadJob, onRetry: () -> Unit) {
             ) {
                 Icon(
                     Icons.Outlined.Refresh,
-                    contentDescription = null,
+                    contentDescription = "Resume download",
                     tint = tokens.textDim,
-                    modifier = Modifier.size(13.dp),
+                    modifier = Modifier.size(18.dp),
                 )
                 Text(
                     text = "Retry",

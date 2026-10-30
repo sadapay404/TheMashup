@@ -158,8 +158,7 @@ fun SearchScreen(
     val showArtists = filter == "all" || filter == "artists"
 
     fun playTrack(track: Track, queue: List<Track>, context: String = "search") {
-        val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-        engine.playQueue(queue, startIndex = index, context = context)
+        engine.playNow(track, context = context)
         scope.launch { library.recordPlay(track, context = context) }
     }
 
@@ -381,6 +380,7 @@ fun SearchScreen(
                                 onClick = { playTrack(track, tracks) },
                                 modifier = Modifier.padding(vertical = 3.dp),
                                 onDownload = onDownload,
+                                onQueue = { engine.addToEnd(track) },
                             )
                         }
                     }

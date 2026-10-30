@@ -110,6 +110,11 @@ class PlaybackEngine(
         dispatch { sm.playQueue(it, tracks, startIndex, startAtMs, context) }
     }
 
+    fun playNow(track: local.themashup.music.core.domain.Track, context: String? = null) {
+        ensureServiceStarted()
+        dispatch { sm.playNow(it, track, context) }
+    }
+
     fun togglePlay() = dispatch(sm::toggle)
     fun nextTrack() = dispatch { sm.next(it, rng, manual = true) }
     fun prevTrack() {
@@ -162,6 +167,7 @@ class PlaybackEngine(
         when (effect) {
             is PlayerEffect.Resolve -> {
                 ensureServiceStarted()
+                if (!effect.isRefresh) player?.pause()
                 resolveAndLoad(effect)
             }
             is PlayerEffect.LoadCandidate -> loadCandidate(effect)
@@ -216,6 +222,7 @@ class PlaybackEngine(
             val outcome = runCatching {
                 withContext(Dispatchers.IO) { extraction().streams(track.id) }
             }
+            if (_state.value.current?.id != track.id) return@launch
             outcome.onFailure { t ->
                 // N9: dead track → auto-advance; park only with no forward move.
                 advanceOrPark(t.message ?: "Extraction failed")
@@ -235,7 +242,11 @@ class PlaybackEngine(
             _state.value = s.copy(
                 warnings = (s.warnings + result.warnings).distinct().take(10),
             )
-            e?.let { execute(it) }
+            if (s.status == PlayStatus.ERROR) {
+                advanceOrPark(s.error ?: "No playable streams")
+            } else {
+                e?.let { execute(it) }
+            }
         }
     }
 

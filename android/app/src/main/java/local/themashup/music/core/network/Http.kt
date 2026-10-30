@@ -33,13 +33,4 @@ object YouTubeCookie {
 fun newNetworkClient(): OkHttpClient = OkHttpClient.Builder()
     .connectTimeout(FallbackHosts.REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     .readTimeout(FallbackHosts.REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-    .addInterceptor { chain ->
-        val cookie = YouTubeCookie.value
-        val request = chain.request()
-        if (!cookie.isNullOrBlank() && (request.url.host == "youtube.com" || request.url.host.endsWith(".youtube.com"))) {
-            chain.proceed(request.newBuilder().header("Cookie", cookie).build())
-        } else {
-            chain.proceed(request)
-        }
-    }
     .build()

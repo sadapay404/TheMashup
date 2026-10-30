@@ -94,7 +94,7 @@ fun LibraryScreen(
 
     fun playContext(track: Track, queue: List<Track>, context: String) {
         val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-        engine.playQueue(queue, startIndex = index, context = context)
+        engine.playNow(track, context = context)
         scope.launch { library.recordPlay(track, context = context) }
     }
 

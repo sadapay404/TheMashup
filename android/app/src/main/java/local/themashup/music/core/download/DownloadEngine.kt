@@ -3,8 +3,16 @@ package local.themashup.music.core.download
 import android.content.Context
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -121,12 +129,10 @@ class DownloadEngine(
      */
     fun reconcileOnStart() {
         scope.launch {
+            repository.load()
             repository.activeJobs().forEach { job ->
-                repository.updateStatus(
-                    job.id,
-                    DownloadStatus.FAILED,
-                    error = "interrupted by restart",
-                )
+                repository.updateStatus(job.id, DownloadStatus.QUEUED)
+                launchWorker(repository.job(job.id) ?: job)
             }
         }
     }
@@ -154,7 +160,7 @@ class DownloadEngine(
             cleanupTemps(job.id)
             throw e
         } catch (e: Exception) {
-            cleanupTemps(job.id)
+            // Keep partial source files for resume after a transient error.
             fail(job, e.message ?: e.javaClass.simpleName)
         }
     }
@@ -164,7 +170,7 @@ class DownloadEngine(
             ?: throw IOException("No audio streams available")
         val ffmpegPath = awaitFfmpeg(job)
             ?: throw IOException("ffmpeg setup declined — ${job.container.uppercase()} conversion needs it")
-        val input = File(workRoot, "${job.id}.${source.ext}")
+        val input = File(workRoot, "${job.id}.input.${source.ext}")
         val out = File(workRoot, "${job.id}.${extensionFor(job.container)}")
         try {
             downloadStream(source, input, job, fromPct = 0, toPct = 98)
@@ -172,7 +178,7 @@ class DownloadEngine(
             transcode(ffmpegPath, listOf(input.absolutePath), out, job.container, job.quality)
             finish(job, out)
         } finally {
-            input.delete()
+            if (repository.job(job.id)?.status == DownloadStatus.COMPLETED) input.delete()
         }
     }
 
@@ -199,7 +205,7 @@ class DownloadEngine(
                 }
                 finish(job, out)
             } finally {
-                videoFile.delete()
+                if (repository.job(job.id)?.status == DownloadStatus.COMPLETED) videoFile.delete()
             }
             return
         }
@@ -222,8 +228,10 @@ class DownloadEngine(
             )
             finish(job, out)
         } finally {
-            videoFile.delete()
-            audioFile.delete()
+            if (repository.job(job.id)?.status == DownloadStatus.COMPLETED) {
+                videoFile.delete()
+                audioFile.delete()
+            }
         }
     }
 
@@ -258,71 +266,130 @@ class DownloadEngine(
         out.delete()
         repository.markCompleted(job.id, saved.displayName, size)
         saved.warning?.let { repository.setWarning(job.id, it) }
+        cleanupTemps(job.id)
     }
 
     private suspend fun fail(job: DownloadJob, message: String) {
         repository.updateStatus(job.id, DownloadStatus.FAILED, error = message)
     }
 
-    private suspend fun downloadStream(
-        candidate: StreamCandidate,
-        dest: File,
-        job: DownloadJob,
-        fromPct: Int,
-        toPct: Int,
-    ) {
-        val rb = Request.Builder().url(candidate.url)
-        candidate.httpHeaders.forEach { (k, v) -> rb.header(k, v) }
-        val call = client.newCall(rb.build())
-        calls[job.id] = call
-        try {
-            call.execute().use { resp ->
-                if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} fetching stream")
-                val body = resp.body ?: throw IOException("empty stream body")
-                val total = body.contentLength().takeIf { it > 0 }
-                    ?: candidate.sizeBytes ?: -1L
-                var got = 0L
-                var ema: Long? = null
-                var lastAt = System.currentTimeMillis()
-                var lastBytes = 0L
-                dest.parentFile?.mkdirs()
-                body.byteStream().use { input ->
-                    dest.outputStream().buffered().use { out ->
+    /** Range-enabled sources are split into four independent resumable segments.
+     * Each segment is checked against Content-Range before bytes are appended. */
+    private suspend fun downloadStream(candidate: StreamCandidate, dest: File, job: DownloadJob, fromPct: Int, toPct: Int) {
+        fun request(range: String? = null): Request {
+            val builder = Request.Builder().url(candidate.url)
+            candidate.httpHeaders.forEach { (k, v) -> builder.header(k, v) }
+            builder.header("Accept-Encoding", "identity")
+            if (range != null) builder.header("Range", range)
+            return builder.build()
+        }
+        val probe = client.newCall(request("bytes=0-0")).execute().use { response ->
+            val range = response.header("Content-Range")
+            if (response.code == 206 && range?.startsWith("bytes 0-0/") == true) {
+                range.substringAfter('/').toLongOrNull()?.takeIf { it > 0 }
+            } else null
+        }
+        if (probe == null) {
+            // Server does not support byte ranges: a restart is necessary on failure.
+            val call = client.newCall(request())
+            calls[job.id] = call
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) throw IOException("HTTP ${response.code} fetching stream")
+                    val body = response.body ?: throw IOException("empty stream body")
+                    dest.parentFile?.mkdirs()
+                    body.byteStream().use { input -> dest.outputStream().buffered().use { out ->
                         val buf = ByteArray(128 * 1024)
                         while (true) {
+                            coroutineContext.ensureActive()
                             val n = input.read(buf)
                             if (n < 0) break
                             out.write(buf, 0, n)
-                            got += n
-                            val now = System.currentTimeMillis()
-                            if (now - lastAt >= 500) {
-                                val instant = (got - lastBytes) * 1000 / (now - lastAt)
-                                ema = if (ema == null) instant else (ema!! * 7 + instant) / 8
-                                val local = downloadPercent(got, total) // -1 = unknown
-                                val pct = if (local >= 0) {
-                                    fromPct + (local * (toPct - fromPct)) / 98
-                                } else {
-                                    fromPct
-                                }
-                                repository.updateProgress(
-                                    job.id,
-                                    pct,
-                                    speedBps = ema,
-                                    etaSec = etaSeconds(got, total, ema ?: 0L),
-                                )
-                                lastAt = now
-                                lastBytes = got
-                            }
                         }
-                        out.flush()
-                    }
+                    } }
                 }
-                repository.updateProgress(job.id, toPct, speedBps = null, etaSec = null)
-            }
-        } finally {
-            calls.remove(job.id, call)
+            } finally { calls.remove(job.id, call) }
+            repository.updateProgress(job.id, toPct, speedBps = null, etaSec = null)
+            return
         }
+        val total = probe
+        val signature = MessageDigest.getInstance("SHA-256").digest(candidate.url.toByteArray())
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        val meta = File(dest.path + ".ranges")
+        val complete = File(dest.path + ".complete")
+        val marker = "$signature:$total"
+        if (complete.isFile && complete.readText() == marker && dest.isFile && dest.length() == total) {
+            repository.updateProgress(job.id, toPct, speedBps = null, etaSec = null)
+            return
+        }
+        val parts = (0 until 4).map { File(dest.path + ".part$it") }
+        if (!meta.isFile || meta.readText() != marker) {
+            parts.forEach { it.delete() }
+            meta.writeText(marker)
+        }
+        val written = AtomicLong(0)
+        val ranges = (0 until 4).map { i ->
+            val start = total * i / 4
+            val end = total * (i + 1) / 4 - 1
+            val file = parts[i]
+            if (file.length() > end - start + 1) file.delete()
+            written.addAndGet(file.length())
+            Triple(start, end, file)
+        }
+        val startedAt = System.currentTimeMillis()
+        val initial = written.get()
+        coroutineScope {
+            ranges.map { (start, end, part) -> async(Dispatchers.IO) {
+                if (end < start) return@async
+                var failures = 0
+                while (part.length() < end - start + 1) {
+                    coroutineContext.ensureActive()
+                    val offset = start + part.length()
+                    try {
+                        client.newCall(request("bytes=$offset-$end")).execute().use { response ->
+                            val expected = "bytes $offset-$end/$total"
+                            if (response.code != 206 || response.header("Content-Range") != expected)
+                                throw IOException("Server did not honour download range (HTTP ${response.code})")
+                            val body = response.body ?: throw IOException("empty range response")
+                            body.byteStream().use { input -> part.outputStreamAppend().buffered().use { out ->
+                                var received = part.length()
+                                val buf = ByteArray(128 * 1024)
+                                while (true) {
+                                    coroutineContext.ensureActive()
+                                    val n = input.read(buf)
+                                    if (n < 0) break
+                                    if (received + n > end - start + 1) throw IOException("range exceeds expected size")
+                                    out.write(buf, 0, n)
+                                    received += n
+                                    written.addAndGet(n.toLong())
+                                }
+                            } }
+                            if (part.length() != end - start + 1) throw IOException("incomplete range")
+                        }
+                    } catch (e: IOException) {
+                        if (++failures >= 4) throw e
+                        delay(500L * failures)
+                    }
+                    val got = written.get()
+                    val elapsed = (System.currentTimeMillis() - startedAt).coerceAtLeast(1)
+                    val speed = (got - initial) * 1000 / elapsed
+                    val local = downloadPercent(got, total)
+                    repository.updateProgress(job.id, fromPct + (local.coerceAtLeast(0) * (toPct - fromPct)) / 98,
+                        speedBps = speed, etaSec = etaSeconds(got, total, speed))
+                }
+            } }.awaitAll()
+        }
+        dest.outputStream().buffered().use { out -> parts.forEach { part ->
+            if (part.exists()) part.inputStream().buffered().use { it.copyTo(out) }
+        } }
+        if (dest.length() != total) throw IOException("Download size mismatch")
+        parts.forEach { it.delete() }
+        meta.delete()
+        complete.writeText(marker)
+        repository.updateProgress(job.id, toPct, speedBps = null, etaSec = null)
     }
+
+    private fun File.outputStreamAppend() = java.io.FileOutputStream(this, true)
 
     /**
      * argv attempts from [buildTranscodeCommands] — first exit-0 wins;

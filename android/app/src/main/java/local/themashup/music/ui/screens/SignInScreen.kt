@@ -174,7 +174,7 @@ fun SignInScreen(
                     .clip(RoundedCornerShape(16.dp))
                     .border(1.dp, tokens.border, RoundedCornerShape(16.dp)),
             ) {
-                AndroidView(
+                if (!signed) AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { context ->
                         WebView(context).apply {
@@ -188,7 +188,7 @@ fun SignInScreen(
                                     // holds the signed-in session (innertune verbatim).
                                     if (url != null && url.startsWith(YOUTUBE_MUSIC_URL_PREFIX)) {
                                         val cookie = CookieManager.getInstance().getCookie(url)
-                                        if (!cookie.isNullOrBlank()) {
+                                        if (!cookie.isNullOrBlank() && cookie.split(';').any { it.trim().startsWith("SAPISID=") && it.trim().length > 8 }) {
                                             CookieManager.getInstance().flush()
                                             onSaveCookie(cookie)
                                             signedIn = true

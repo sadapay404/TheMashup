@@ -48,6 +48,8 @@ fun PlayerVisualizer(
         var ema = 0f
         var env = 0f
         while (isActive) {
+            // A 30 fps visualizer is sufficient and halves redraw pressure.
+            kotlinx.coroutines.delay(33)
             withFrameNanos { now ->
                 val dtMs = if (lastNanos == 0L) 16.7f else ((now - lastNanos) / 1_000_000f)
                 lastNanos = now
@@ -67,7 +69,7 @@ fun PlayerVisualizer(
                     n++
                 }
                 val avg = if (n > 0) sum / n else 0f
-                env = if (avg > 0.16f && avg - ema > 0.055f) 1f else env * 0.86f
+                env = if (!reduceMotion && bytes != null && avg > 0.16f && avg - ema > 0.055f) 1f else env * 0.86f
                 ema = ema * 0.82f + avg * 0.18f
                 pulse.value = env
                 onPulse(env)

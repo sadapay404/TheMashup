@@ -59,7 +59,7 @@ class DownloadsRepository(
 
     suspend fun updateStatus(jobId: String, status: DownloadStatus, error: String? = null) =
         mutateJob(jobId) { job ->
-            job.copy(status = status, error = error ?: job.error, updatedAt = System.currentTimeMillis())
+            job.copy(status = status, error = error, updatedAt = System.currentTimeMillis())
         }
 
     suspend fun updateProgress(

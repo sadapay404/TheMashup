@@ -57,14 +57,13 @@ class AppContainer(private val context: Context) {
             ffmpeg = ffmpeg,
             client = local.themashup.music.core.network.newNetworkClient(),
             context = context,
-            workDir = File(context.cacheDir, "downloads"),
+            workDir = File(context.filesDir, "download-work"),
         )
     }
 
     /** Hydrate persistent state (call from Application.onCreate). */
     fun start() {
         library.startLoad()
-        downloads.startLoad()
         downloadEngine.reconcileOnStart()
         // N9: re-attach a saved YouTube cookie before the first extraction call.
         appScope.launch {

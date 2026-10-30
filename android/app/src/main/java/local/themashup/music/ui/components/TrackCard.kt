@@ -50,6 +50,7 @@ fun TrackCard(
     onPlay: () -> Unit,
     onQueue: () -> Unit,
     onRadio: () -> Unit,
+    showRadio: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
@@ -99,7 +100,7 @@ fun TrackCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OverlayAction(onClick = onRadio, contentDescription = "Radio") {
+                if (showRadio) OverlayAction(onClick = onRadio, contentDescription = "Radio") {
                     Icon(Icons.Filled.Radio, contentDescription = null, tint = Color.White)
                 }
                 OverlayAction(onClick = onQueue, contentDescription = "Add to queue") {

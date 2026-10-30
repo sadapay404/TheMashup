@@ -86,6 +86,13 @@ object PlaybackStateMachine {
         return next to PlayerEffect.Resolve(tracks[cursor], startAtMs)
     }
 
+    /** Play the chosen track now, preserving the current track immediately after it. */
+    fun playNow(snapshot: PlayerSnapshot, track: Track, context: String? = null): Pair<PlayerSnapshot, PlayerEffect?> {
+        val index = snapshot.cursor.takeIf { it in snapshot.queue.indices } ?: 0
+        val queue = snapshot.queue.toMutableList().apply { add(index, track) }
+        return playQueue(snapshot, queue, index, context = context)
+    }
+
     /** Resolve finished with candidates → arm failover and load the first. */
     fun onCandidatesResolved(
         snapshot: PlayerSnapshot,

@@ -44,6 +44,8 @@ import local.themashup.music.core.domain.Shelves
 import local.themashup.music.core.domain.Track
 import local.themashup.music.core.domain.buildRadioQueue
 import local.themashup.music.core.network.ExtractionService
+import local.themashup.music.core.network.YouTubeMusicHome
+import local.themashup.music.core.network.MusicHomeShelf
 import local.themashup.music.core.player.PlaybackEngine
 import local.themashup.music.core.player.PlayerSnapshot
 import local.themashup.music.ui.components.FadeSlideIn
@@ -63,6 +65,8 @@ fun HomeScreen(
     library: LibraryRepository,
     engine: PlaybackEngine,
     playerState: PlayerSnapshot,
+    youtubeCookie: String,
+    onConnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
@@ -73,31 +77,24 @@ fun HomeScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(retryTick) {
-        loading = true
+    var personalized by remember { mutableStateOf<List<MusicHomeShelf>>(emptyList()) }
+    val musicHome = remember { YouTubeMusicHome() }
+    LaunchedEffect(retryTick, youtubeCookie) {
+        personalized = emptyList()
+        charts = emptyList()
         error = null
-        val result = withContext(Dispatchers.IO) {
-            runCatching { extraction.trending(limit = 40) }
-        }
-        charts = result.getOrElse { emptyList() }
-        error = if (result.isFailure || charts.isEmpty()) {
-            "No recommendation data available"
+        if (youtubeCookie.isBlank()) {
+            loading = false
         } else {
-            null
+            loading = true
+            val result = withContext(Dispatchers.IO) { runCatching { musicHome.load(youtubeCookie) } }
+            personalized = result.getOrDefault(emptyList())
+            charts = personalized.flatMap { it.tracks }.distinctBy { it.id }
+            error = result.exceptionOrNull()?.message
+            loading = false
         }
-        loading = false
     }
 
-    val libState by library.state.collectAsState()
-    val shelves = remember(libState, charts, retryTick) {
-        Shelves.build(
-            kinds = Shelves.AUTHED_ORDER,
-            history = library.historyEntries(),
-            likes = library.likedTracks(),
-            charts = charts,
-            nowMs = System.currentTimeMillis(),
-        )
-    }
 
     val chartShelvesLoaded = !loading && error == null
 
@@ -132,39 +129,35 @@ fun HomeScreen(
             ChartsErrorCard(message = error.orEmpty(), onRetry = { retryTick++ })
         }
 
-        shelves.forEachIndexed { i, shelf ->
-            // Web card stagger (min(i*40, 320) ms) expressed per shelf —
-            // LazyRow recycling would otherwise re-animate rows on scroll-back.
+        if (youtubeCookie.isBlank()) {
+            TextButton(onClick = onConnect, modifier = Modifier.padding(16.dp)) {
+                Text("Connect your YouTube account to see your recommendations")
+            }
+        }
+        personalized.forEachIndexed { i, shelf ->
             FadeSlideIn(delayMillis = minOf(i * 40, 320)) {
                 ShelfSection(
                     title = shelf.title,
-                    kindPill = shelf.kind.replace('_', ' '),
+                    kindPill = "FOR YOU",
+                    showRadio = false,
                     tracks = shelf.tracks,
                     currentTrackId = playerState.current?.id,
                     isPlaying = playerState.status == local.themashup.music.core.player.PlayStatus.PLAYING,
-                    modifier = Modifier.padding(top = if (i == 0 && charts.isEmpty() && error == null) 20.dp else 26.dp),
+                    modifier = Modifier.padding(top = 26.dp),
                     onCardPlay = { track, queue ->
-                        val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                        engine.playQueue(queue, startIndex = index, context = "home")
+                        engine.playNow(track, context = "home")
                         scope.launch { library.recordPlay(track, context = "home") }
                     },
                     onCardQueue = { track -> engine.addToEnd(track) },
                     onCardRadio = { track, queue ->
-                        val pool = (queue + charts).distinctBy { it.id }
-                        val radio = if (pool.size >= 3) {
-                            buildRadioQueue(track, pool, RadioOptions(limit = 30))
-                        } else {
-                            queue
-                        }
-                        engine.playQueue(radio, startIndex = 0, context = "radio")
-                        scope.launch { library.recordPlay(track, context = "radio") }
+                        engine.playNow(track, context = "home")
                     },
                 )
             }
         }
 
         // A "see all" affordance is unnecessary: shelves are full horizontal lists.
-        if (chartShelvesLoaded && shelves.isEmpty() && error == null) {
+        if (youtubeCookie.isNotBlank() && chartShelvesLoaded && personalized.isEmpty() && error == null) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

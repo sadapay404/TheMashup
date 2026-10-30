@@ -216,6 +216,8 @@ private fun MashupShell(container: AppContainer) {
                                 library = container.library,
                                 engine = container.player,
                                 playerState = playerState,
+                                youtubeCookie = ytCookie,
+                                onConnect = { signInOpen = true },
                                 modifier = Modifier.fillMaxSize(),
                             )
                             "search" -> SearchScreen(
@@ -311,6 +313,8 @@ private fun MashupShell(container: AppContainer) {
                     hasCookie = ytCookie.isNotBlank(),
                     onSaveCookie = { cookie ->
                         YouTubeCookie.value = cookie
+                        page = "home"
+                        signInOpen = false
                         scope.launch { container.settings.setYoutubeCookie(cookie) }
                     },
                     onClearCookie = {

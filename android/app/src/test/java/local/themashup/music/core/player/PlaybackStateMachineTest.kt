@@ -33,6 +33,18 @@ class PlaybackStateMachineTest {
     /* ── start & resolve ────────────────────────────────────────────────── */
 
     @Test
+    fun playNowKeepsCurrentAndExistingQueueBehindChosenSong() {
+        val before = PlayerSnapshot(queue = q3, cursor = 1, status = PlayStatus.PLAYING)
+        val (after, effect) = PlaybackStateMachine.playNow(before, track("new"), "search")
+        Assert.assertEquals(listOf("a", "new", "b", "c"), after.queue.map { it.id })
+        Assert.assertEquals(1, after.cursor)
+        Assert.assertEquals("new", (effect as PlayerEffect.Resolve).track.id)
+        val (empty, _) = PlaybackStateMachine.playNow(PlayerSnapshot(), track("first"))
+        Assert.assertEquals(listOf("first"), empty.queue.map { it.id })
+        Assert.assertEquals(0, empty.cursor)
+    }
+
+    @Test
     fun playQueueStartsResolvingAtRequestedIndex() {
         val (s, e) = PlaybackStateMachine.playQueue(PlayerSnapshot(), q3, startIndex = 1, startAtMs = 1234)
         Assert.assertEquals(PlayStatus.LOADING, s.status)

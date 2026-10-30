@@ -3,6 +3,9 @@ package local.themashup.music.core.download
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -49,14 +52,21 @@ class FfmpegManager(
     private val binary = File(nativeLibraryDir, LIB_NAME)
     private val mutex = Mutex()
 
-    private val _status = MutableStateFlow<FfmpegState>(
-        when {
-            !binary.isFile -> FfmpegState.Missing
-            probe() -> FfmpegState.Ready
-            else -> FfmpegState.Failed("bundled ffmpeg failed to run on this device")
-        },
-    )
+    private val _status = MutableStateFlow<FfmpegState>(FfmpegState.Extracting)
     val status: StateFlow<FfmpegState> = _status
+
+    init {
+        // Never execute an external process on the UI thread during app startup.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            mutex.withLock {
+                _status.value = when {
+                    !binary.isFile -> FfmpegState.Missing
+                    probe() -> FfmpegState.Ready
+                    else -> FfmpegState.Failed("bundled ffmpeg failed to run on this device")
+                }
+            }
+        }
+    }
 
     /** Absolute path when ready — null while missing/verifying/failed. */
     fun binaryPath(): String? =
