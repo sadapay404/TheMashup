@@ -2,6 +2,7 @@
 <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ApplicationIcon>..\..\desktop\src-tauri\icons\icon.ico</ApplicationIcon>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Self-contained publish: includes .NET runtime, runs without installing anything. -->
@@ -22,5 +23,10 @@
     <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
     <ProjectReference Include="../TheMashup.UI/TheMashup.UI.csproj" />
+    <!-- Bundle the local search host script next to the EXE so the published
+         app can find it without walking up the directory tree. -->
+    <Content Include="..\..\services\host.mjs">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 </Project>

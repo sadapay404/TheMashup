@@ -31,9 +31,14 @@ fun nextIndex(
     if (length == 0) return null
     if (repeat == RepeatMode.ONE && !manual) return index
     if (shuffle && length > 1) {
-        var pick = index
-        while (pick == index) pick = (rng() * length).toInt()
-        return pick
+        // Bound retries: a degenerate RNG that always returns the current
+        // index must not spin forever (ANR on the main thread).
+        for (i in 0 until 50) {
+            val pick = (rng() * length).toInt()
+            if (pick != index) return pick
+        }
+        // Fall back to a linear walk to guarantee progress.
+        return (index + 1) % length
     }
     val next = index + 1
     if (next < length) return next
@@ -48,13 +53,16 @@ fun prevIndex(state: QueueSnapshot, rng: () -> Double = { Random.nextDouble() })
     val (index, length, shuffle, repeat) = state
     if (length == 0) return null
     if (shuffle && length > 1) {
-        var pick = index
-        while (pick == index) pick = (rng() * length).toInt()
-        return pick
+        // Bound retries: same infinite-loop guard as nextIndex.
+        for (i in 0 until 50) {
+            val pick = (rng() * length).toInt()
+            if (pick != index) return pick
+        }
+        return (index + length - 1).rem(length)
     }
     val prev = index - 1
     if (prev >= 0) return prev
-    if (length > 1) return if (repeat == RepeatMode.OFF) index else length - 1
+    if (length > 1) return if (repeat == RepeatMode.OFF) null else length - 1
     return index
 }
 

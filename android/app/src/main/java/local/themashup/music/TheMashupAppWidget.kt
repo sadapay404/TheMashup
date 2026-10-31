@@ -16,13 +16,9 @@ class TheMashupAppWidget : AppWidgetProvider() {
     }
 
     override fun onEnabled(context: Context) {
-        // Start playback service when widget first added
-        val intent = Intent(context, local.themashup.music.core.player.TheMashupPlayerService::class.java)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
+        // Do NOT startForegroundService from an AppWidgetProvider broadcast receiver —
+        // Android 12+ throws ForegroundServiceStartNotAllowedException from receivers.
+        // The service is started on first play via PlaybackEngine.ensureServiceStarted().
     }
 
     private fun updateAppWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {

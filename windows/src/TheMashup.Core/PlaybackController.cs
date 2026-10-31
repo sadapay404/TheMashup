@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 
 namespace TheMashup.Core;
@@ -15,6 +17,7 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     private readonly IPlaybackResolver _resolver;
     private readonly IMediaDevice _device;
     private readonly Random _random;
+    private readonly SynchronizationContext? _uiContext;
     private CancellationTokenSource? _request, _watchdog;
     private long _selection, _attempt, _failureAttempt = -1;
     private IReadOnlyList<PlaybackCandidate> _candidates = [];
@@ -66,6 +69,9 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _device = device ?? throw new ArgumentNullException(nameof(device));
         _random = random ?? new Random();
+        // Capture the UI context so cross-thread callbacks (sleep timer, watchdog)
+        // can marshal property changes back to the UI thread.
+        _uiContext = SynchronizationContext.Current;
         _device.Changed += OnDeviceChanged;
         _library.Changed += OnLibraryChanged;
         _device.SetVolume(_volume);
@@ -193,6 +199,12 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
 
     /* ── Sleep timer ── */
 
+    private void OnUiThread(Action action)
+    {
+        if (_uiContext is not null) _uiContext.Post(_ => action(), null);
+        else action();
+    }
+
     public void SetSleepTimer(int minutes)
     {
         CancelSleepTimer();
@@ -205,11 +217,14 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
                 if (DateTimeOffset.UtcNow >= _sleepTimerEnd)
                 {
                     CancelSleepTimer();
-                    if (_track is not null)
+                    OnUiThread(() =>
                     {
-                        _device.Pause();
-                        SetState(PlaybackState.Paused, "Sleep timer");
-                    }
+                        if (_track is not null)
+                        {
+                            _device.Pause();
+                            SetState(PlaybackState.Paused, "Sleep timer");
+                        }
+                    });
                 }
             }
             catch { /* best-effort; never throw from a timer callback */ }
@@ -299,15 +314,25 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
 
     /* ── Phase 4: local file playback ── */
 
-    public void PlayLocalFile(string filePath, string displayName)
+    public async Task PlayLocalFile(string filePath, string displayName)
     {
+        if (_disposed || string.IsNullOrEmpty(filePath)) return;
         try
         {
-            var track = new LibraryTrack("local", $"local:{filePath.GetHashCode()}", displayName, "Local File");
+            // Stable, process-independent id (SHA256 of the path).
+            var id = $"local:{Sha256(filePath)}";
+            var track = new LibraryTrack("local", id, displayName, "Local File");
             AddToRecentlyAdded(track);
-            _ = PlayNowAsync(track); // fire-and-forget
+            await PlayNowAsync(track);
         }
         catch { /* best effort; local file playback handled by device layer */ }
+    }
+
+    private static string Sha256(string input)
+    {
+        using var sha = SHA256.Create();
+        var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     private Task RetryAsync()
@@ -340,10 +365,25 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     private async Task ResolveAsync(string after, long selection)
     {
         if (_track is null || selection != _selection || _disposed) return;
+
+        // ── Local files bypass the HTTP gateway entirely ──
+        if (_track.Id.StartsWith("local:", StringComparison.Ordinal))
+        {
+            var path = _track.Id["local:".Length..];
+            _source = "local";
+            _candidates = [new PlaybackCandidate(new Uri(path), "local", _mode == PlaybackMode.Video, "local")];
+            _candidateIndex = 0;
+            Notify(nameof(Source));
+            OpenCandidate();
+            return;
+        }
+
         var cts = _request ??= new CancellationTokenSource();
         try
         {
-            var result = await _resolver.ResolveAsync(_track.Id, _mode, after, true, cts.Token);
+            // refresh: true only when explicitly requested (after a failure).
+            // Defaults to false so server-side stream caches are honored.
+            var result = await _resolver.ResolveAsync(_track.Id, _mode, after, false, cts.Token);
             if (selection != _selection || cts.IsCancellationRequested || _disposed) return;
             var afterRank = Rank(after);
             var valid = result.Candidates.Where(item => Rank(item.Source) > afterRank &&

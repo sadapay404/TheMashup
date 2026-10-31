@@ -8,10 +8,13 @@ package local.themashup.music.core.player
 object FailureSkipPolicy {
     fun nextIndex(snapshot: PlayerSnapshot, failed: Set<Int>, rng: () -> Double): Int? {
         if (snapshot.queue.isEmpty()) return null
+        val size = snapshot.queue.size
         val choices = if (snapshot.shuffle) {
             snapshot.queue.indices.filter { it !in failed && it != snapshot.cursor }
         } else {
-            (snapshot.cursor + 1 until snapshot.queue.size).filter { it !in failed }
+            // Wrap around with repeat ALL: try cursor+1..end, then 0..cursor.
+            (snapshot.cursor + 1 until size).filter { it !in failed } +
+                (0 until snapshot.cursor).filter { it !in failed }
         }
         if (choices.isEmpty()) return null
         if (!snapshot.shuffle) return choices.first()

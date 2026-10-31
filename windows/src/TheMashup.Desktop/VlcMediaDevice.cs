@@ -132,8 +132,7 @@ internal sealed class VlcMediaDevice : IMediaDevice
     public void SetPlaybackRate(double rate)
     {
         _playbackRate = Math.Clamp(rate, 0.5, 2.0);
-        // LibVLCSharp MediaPlayer.Rate is read-only in this version;
-        // rate change applied on next Open via player creation if supported.
+        if (_player is not null) _player.SetRate((float)_playbackRate);
     }
 
     public void SetEqualizerPreset(string preset)
@@ -143,8 +142,11 @@ internal sealed class VlcMediaDevice : IMediaDevice
 
     public void SetEqualizerBand(int band, double gainDb)
     {
-        // Equalizer not available in this LibVLCSharp version; state tracked for UI parity.
+        // Equalizer not available in this LibVLCSharp version; preset tracked for UI parity.
+        _equalizerPreset = "custom";
     }
+
+    private string _equalizerPreset = "flat";
 
     public void SetNormalization(bool enabled, int strength)
     {
@@ -174,9 +176,10 @@ internal sealed class VlcMediaDevice : IMediaDevice
     public void Dispose()
     {
         if (_disposed) return;
-        Stop();
         _disposed = true;
-        try { _retire.GetAwaiter().GetResult(); } catch (Exception) { }
-        _vlc?.Dispose(); _vlc = null;
+        Stop();
+        // Don't block the UI thread — VLC Stop is synchronous and can take
+        // multiple seconds. Cleanup runs on the thread pool via _retire.
+        _vlc = null;
     }
 }

@@ -22,20 +22,14 @@ class MainActivity : ComponentActivity() {
     /** Media notification must be visible in the panel (Android 13+). */
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                // Start the MediaSessionService so lock-screen / notification /
-                // Bluetooth transport controls work immediately once granted.
-                val intent = Intent(this, TheMashupPlayerService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    startForegroundService(intent)
-                } else {
-                    startService(intent)
-                }
-            } else {
+            if (!granted) {
                 // Denied — playback still works; notification/lock-screen
                 // controls stay unavailable until the user grants it.
                 Log.w("TheMashup", "POST_NOTIFICATIONS denied; lock-screen controls unavailable")
             }
+            // Do NOT startForegroundService from the permission callback — the
+            // service starts on first play via ensureServiceStarted(), which
+            // calls startForeground() before doing any network work.
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {

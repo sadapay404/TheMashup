@@ -466,23 +466,12 @@ class PlaybackEngine(
 
     /**
      * Play a local audio file from a Uri (e.g. from Storage Access Framework).
-     * ExoPlayer handles content:// and file:// uris natively.
+     * Routes through the state machine so failover, status, listeners and
+     * history all work — ExoPlayer handles content:// and file:// uris natively.
      */
     fun playLocalFile(uri: android.net.Uri, displayName: String) {
-        // ExoPlayer handles content:// and file:// uris natively via DefaultDataSource.
-        player?.let { p ->
-            val item = androidx.media3.common.MediaItem.fromUri(uri).buildUpon()
-                .setMediaMetadata(
-                    androidx.media3.common.MediaMetadata.Builder()
-                        .setTitle(displayName)
-                        .setArtist("Local File")
-                        .build()
-                )
-                .build()
-            p.setMediaItem(item)
-            p.prepare()
-            p.playWhenReady = true
-            // Record in snapshot + recently added.
+        scope.launch {
+            ensureServiceStarted()
             val track = local.themashup.music.core.domain.Track(
                 id = "local:${uri.toString()}",
                 externalId = uri.toString(),
@@ -492,7 +481,11 @@ class PlaybackEngine(
                 category = "song",
             )
             addToRecentlyAdded(track)
-            _state.update { s -> s.copy(queue = listOf(track), cursor = 0) }
+            // Route through the state machine so failover/status/listeners all work.
+            val (snapshot, effect) = sm.playQueue(_state.value, listOf(track), 0, context = "local")
+            _state.value = snapshot
+            applyPlayerMirrors(snapshot)
+            effect?.let { e -> execute(e) }
         }
     }
 
@@ -573,17 +566,32 @@ class PlaybackEngine(
         scope.launch {
             val outcome = try {
                 withContext(Dispatchers.IO) {
-                    // A failed local copy selected from search/home may fall back
-                    // to streaming. An explicitly selected download never does.
-                    val skipLocal = effect.isRefresh && track.localDownloadId == null &&
-                        _state.value.failover?.active?.source == DownloadedPlayback.SOURCE
-                    val local = if (skipLocal) DownloadLookup.NotDownloaded else downloads.find(track)
-                    when (local) {
-                        is DownloadLookup.Found -> ResolvedMedia(listOf(local.candidate), emptyList())
-                        DownloadLookup.Missing -> throw MissingDownloadException()
-                        DownloadLookup.NotDownloaded -> {
-                            val streams = extraction().streams(track.externalId)
-                            ResolvedMedia(streams.candidates.filter { !it.videoOnly }, streams.warnings)
+                    // Local files bypass stream extraction — ExoPlayer plays them directly.
+                    if (track.externalId.startsWith("local:")) {
+                        val candidate = StreamCandidate(
+                            id = "local:${uriHash(track.externalId)}",
+                            source = "local",
+                            url = track.externalId,
+                            mime = "audio/mpeg",
+                            ext = "mp3",
+                            quality = "local",
+                            bitrateKbps = null,
+                            httpHeaders = emptyMap(),
+                        )
+                        ResolvedMedia(listOf(candidate), emptyList())
+                    } else {
+                        // A failed local copy selected from search/home may fall back
+                        // to streaming. An explicitly selected download never does.
+                        val skipLocal = effect.isRefresh && track.localDownloadId == null &&
+                            _state.value.failover?.active?.source == DownloadedPlayback.SOURCE
+                        val local = if (skipLocal) DownloadLookup.NotDownloaded else downloads.find(track)
+                        when (local) {
+                            is DownloadLookup.Found -> ResolvedMedia(listOf(local.candidate), emptyList())
+                            DownloadLookup.Missing -> throw MissingDownloadException()
+                            DownloadLookup.NotDownloaded -> {
+                                val streams = extraction().streams(track.externalId)
+                                ResolvedMedia(streams.candidates.filter { !it.videoOnly }, streams.warnings)
+                            }
                         }
                     }
                 }
@@ -613,6 +621,9 @@ class PlaybackEngine(
 
     private data class ResolvedMedia(val candidates: List<StreamCandidate>, val warnings: List<String>)
     private class MissingDownloadException : Exception(DownloadedPlayback.MISSING_MESSAGE)
+
+    /** Stable id for local-file candidates (String.hashCode() is spec-stable). */
+    private fun uriHash(uri: String): String = uri.hashCode().toString()
 
     private fun parkError(message: String) {
         val (parked, effect) = sm.onResolveFailed(_state.value, message, _state.value.warnings)
@@ -677,7 +688,7 @@ class PlaybackEngine(
         if (serviceStarted) {
             // Already started — wait for player attachment if not yet attached.
             return try {
-                withTimeoutOrNull(10_000) { playerReady.await() }
+                withTimeoutOrNull(10_000) { playerReady.await() } ?: return false
                 true
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { false }
@@ -691,7 +702,7 @@ class PlaybackEngine(
             }
             serviceStarted = true
             // Wait for the service to attach its player (timeout after 10s).
-            withTimeoutOrNull(10_000) { playerReady.await() }
+            withTimeoutOrNull(10_000) { playerReady.await() } ?: return false
             true
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) {
@@ -734,12 +745,15 @@ class PlaybackEngine(
             when (playbackState) {
                 Player.STATE_BUFFERING -> _state.update { sm.onBuffering(it) }
                 Player.STATE_ENDED -> {
-                    // Crossfade: fade out before loading next track
-                    if (crossfadeEnabled) crossfadeToNext()
-                    val (next, effect) = sm.onTrackCompleted(_state.value, rng)
-                    _state.value = next
-                    applyPlayerMirrors(next)
-                    effect?.let { e -> scope.launch { execute(e) } }
+                    // Defer all player mutations to the main scope — Media3 warns
+                    // against mutating ExoPlayer from inside its own callbacks.
+                    scope.launch {
+                        if (crossfadeEnabled) crossfadeToNext()
+                        val (next, effect) = sm.onTrackCompleted(_state.value, rng)
+                        _state.value = next
+                        applyPlayerMirrors(next)
+                        effect?.let { e -> execute(e) }
+                    }
                 }
             }
         }
@@ -758,9 +772,12 @@ class PlaybackEngine(
                 advanceOrPark(next.error ?: error.message ?: "Playback failed")
                 return
             }
-            _state.value = next
-            applyPlayerMirrors(next)
-            effect?.let { e -> scope.launch { execute(e) } }
+            // Defer player mutations to the main scope.
+            scope.launch {
+                _state.value = next
+                applyPlayerMirrors(next)
+                effect?.let { e -> execute(e) }
+            }
         }
     }
 
