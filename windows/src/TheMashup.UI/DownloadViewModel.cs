@@ -21,7 +21,7 @@ public sealed class DownloadViewModel : INotifyPropertyChanged
     public string Status
     {
         get => _status;
-        private set
+        internal set
         {
             if (_status == value) return;
             _status = value;

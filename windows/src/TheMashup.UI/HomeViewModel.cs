@@ -170,9 +170,9 @@ public sealed class HomeItemViewModel : INotifyPropertyChanged
     {
         _owner = owner;
         IsSong = item is HomeSong;
-        IsCollection = item is HomeCollection;
-        if (item is HomeSong { Track: { } track })
+        if (item is HomeSong { Track: { } songTrack })
         {
+            var track = songTrack.ToCatalogTrack();
             Track = track;
             Title = track.Title;
             Artist = track.Artist;
@@ -188,9 +188,9 @@ public sealed class HomeItemViewModel : INotifyPropertyChanged
             CanExpand = true;
         }
 
-        PlayCommand = new ActionCommand(() => owner.PlayTrack(Track));
-        QueueCommand = new ActionCommand(() => owner.QueueTrack(Track));
-        LikeCommand = new ActionCommand(() => owner.ToggleLike(Track));
+        PlayCommand = new ActionCommand(() => { if (Track is { } current) owner.PlayTrack(current); });
+        QueueCommand = new ActionCommand(() => { if (Track is { } current) owner.QueueTrack(current); });
+        LikeCommand = new ActionCommand(() => { if (Track is { } current) owner.ToggleLike(current); });
         ExpandCommand = new ActionCommand(() => _ = ExpandAsync());
     }
 
@@ -206,7 +206,7 @@ public sealed class HomeItemViewModel : INotifyPropertyChanged
     public string Artwork { get; } = "";
     public CatalogTrack? Track { get; }
     public string? BrowseId { get; }
-    public bool CanPlay => Track is not null;
+    public bool CanPlay { get; private set; }
     public ObservableCollection<HomeTrackRowViewModel> Tracks { get; } = [];
     public ICommand PlayCommand { get; }
     public ICommand QueueCommand { get; }

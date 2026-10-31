@@ -151,7 +151,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         {
             PlaylistRows.Clear();
             foreach (var playlist in playlists)
-                PlaylistRows.Add(new PlaylistRowViewModel(_library, playlist, Player, DownloadPlaylistAsync));
+                PlaylistRows.Add(new PlaylistRowViewModel(_library, playlist, Player, DownloadTracksAsync));
         }
         Notify(nameof(HasPlaylists), nameof(HasNoPlaylists), nameof(PlaylistCountText),
             nameof(LibraryStatus), nameof(CanEditLibrary));
@@ -177,13 +177,18 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             Download.Status = "That playlist no longer exists.";
             return;
         }
-        var tracks = playlist.Tracks.Select(CatalogTrack.FromLibraryTrack).ToArray();
-        if (tracks.Length == 0)
+        await DownloadTracksAsync(playlist.Tracks);
+    }
+
+    private async Task DownloadTracksAsync(IEnumerable<LibraryTrack> tracks)
+    {
+        var catalog = tracks.Select(CatalogTrack.FromLibraryTrack).ToArray();
+        if (catalog.Length == 0)
         {
-            Download.Status = "That playlist has no songs to download.";
+            Download.Status = "Nothing to download.";
             return;
         }
-        await Download.StartBatchAsync(tracks, "mp3", "320k");
+        await Download.StartBatchAsync(catalog, "mp3", "320k");
     }
 
     private void Navigate(string? page)
