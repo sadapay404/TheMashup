@@ -47,8 +47,9 @@ class OutputVisualizer {
         if (bound) return BindOutcome.BOUND
         if (unavailable) return BindOutcome.UNAVAILABLE
         if (sessionId <= 0) return BindOutcome.RETRY
+        var created: Visualizer? = null
         return try {
-            val fx = Visualizer(sessionId)
+            val fx = Visualizer(sessionId).also { created = it }
             val range = Visualizer.getCaptureSizeRange()
             fx.captureSize = 512.coerceIn(range[0], range[1])
             val rate = (Visualizer.getMaxCaptureRate() / 2).coerceAtLeast(1)
@@ -58,10 +59,12 @@ class OutputVisualizer {
             bound = true
             BindOutcome.BOUND
         } catch (_: SecurityException) {
+            runCatching { created?.release() }
             // RECORD_AUDIO missing — web parity: idle sine, not an error.
             unavailable = true
             BindOutcome.UNAVAILABLE
         } catch (_: Exception) {
+            runCatching { created?.release() }
             // IllegalStateException / IllegalArgumentException / unsupported hw.
             unavailable = true
             BindOutcome.UNAVAILABLE

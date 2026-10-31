@@ -178,7 +178,8 @@ object PlaybackStateMachine {
                 snapshot to null
             } else {
                 val base = if (snapshot.cursor != idx) snapshot.copy(cursor = idx) else snapshot
-                base.copy(status = PlayStatus.LOADING, error = null) to PlayerEffect.Resolve(track)
+                base.copy(status = PlayStatus.LOADING, error = null, failover = null, source = null) to
+                    PlayerEffect.Resolve(track, startAtMs = base.positionMs)
             }
         }
         PlayStatus.LOADING -> snapshot to null

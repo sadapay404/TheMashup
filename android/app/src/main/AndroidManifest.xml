@@ -37,10 +37,11 @@
         <!-- Media3 session service: notification + lock-screen + BT controls (N4) -->
         <service
             android:name=".core.player.TheMashupPlayerService"
-            android:exported="false"
+            android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
     </application>

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -70,11 +71,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import local.themashup.music.core.data.AppContainer
 import local.themashup.music.core.player.PlayStatus
 import local.themashup.music.core.domain.Track
 import local.themashup.music.core.download.FfmpegState
 import local.themashup.music.core.player.PlayerSnapshot
+import local.themashup.music.core.player.PlaybackEngine
+import local.themashup.music.core.player.asDownloadedTrack
 import local.themashup.music.ui.art.rememberArtAccents
 import local.themashup.music.ui.components.FfmpegSheet
 import local.themashup.music.ui.components.FadeSlideIn
@@ -96,10 +101,10 @@ import local.themashup.music.ui.theme.WithArtAccents
 
 /** Per-page title + blurb — web PAGE_TITLES. */
 private val PAGE_TITLES: Map<String, Pair<String, String>> = mapOf(
-    "home" to ("Home" to "Picks tuned by what you play"),
-    "search" to ("Search" to "Songs, artists & lyric lookup"),
+    "home" to ("Home" to "Picks tuned to what you play"),
+    "search" to ("Search" to "Songs, artists & lyrics"),
     "library" to ("Library" to "Likes, playlists & history"),
-    "downloads" to ("Downloads" to "MP3 · FLAC · MP4 in every quality"),
+    "downloads" to ("Downloads" to "MP3, FLAC and MP4 in every quality"),
 )
 
 private data class NavItem(val id: String, val label: String, val icon: ImageVector)
@@ -131,7 +136,13 @@ private fun MashupShell(container: AppContainer) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
-    val playerState by container.player.state.collectAsState()
+    // Position changes twice a second; only the mini/expanded player need
+    // those ticks. Don't recompose the entire app and every recommendation
+    // shelf for each progress update.
+    val summaryFlow = remember(container.player) {
+        container.player.state.map { it.toShellSummary() }.distinctUntilChanged()
+    }
+    val playerSummary by summaryFlow.collectAsState(initial = container.player.state.value.toShellSummary())
 
     var page by rememberSaveable { mutableStateOf("home") }
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -140,16 +151,20 @@ private fun MashupShell(container: AppContainer) {
     var playerTab by rememberSaveable { mutableStateOf("lyrics") }
     // N7: track queued for the quality picker (web uiStore.downloadTrack).
     var pendingDownload by remember { mutableStateOf<Track?>(null) }
+    var pendingDownloadQueue by remember { mutableStateOf<List<Track>?>(null) }
+    var pendingDownloadPlaylist by remember { mutableStateOf<List<Track>?>(null) }
     var ffmpegManualOpen by remember { mutableStateOf(false) }
     // N9: YouTube sign-in overlay (innertune-style WebView cookie capture).
     var signInOpen by rememberSaveable { mutableStateOf(false) }
-    val ytCookie by container.settings.youtubeCookie.collectAsState(initial = "")
+    val ytCookie by container.settings.youtubeCookie.collectAsState()
+    // Invalidate the previous account immediately even when Home is not visible.
+    LaunchedEffect(ytCookie) { container.recommendations.show(ytCookie) }
     // N8: visualizer toggle (web uiStore.visualizerOn → persisted setting).
     val visualizerOn by container.settings.visualizerOn.collectAsState(initial = true)
     val themeKeyState by container.settings.themeKey.collectAsState(initial = DEFAULT_THEME_ID.storageKey)
 
-    val artwork = playerState.current?.artworkBest ?: playerState.current?.artwork
-    val accents = rememberArtAccents(url = artwork, seed = playerState.current?.id ?: "themashup")
+    val artwork = playerSummary.current?.artworkBest ?: playerSummary.current?.artwork
+    val accents = rememberArtAccents(url = artwork, seed = playerSummary.current?.id ?: "themashup")
 
     BackHandler(enabled = page != "home") { page = "home" }
 
@@ -170,15 +185,12 @@ private fun MashupShell(container: AppContainer) {
                 bottomBar = {
                     Column {
                         AnimatedVisibility(
-                            visible = playerState.current != null,
+                            visible = playerSummary.current != null,
                             enter = fadeIn(),
                             exit = fadeOut(),
                         ) {
-                            MiniPlayer(
-                                state = playerState,
-                                onPrev = { container.player.prevTrack() },
-                                onToggle = { container.player.togglePlay() },
-                                onNext = { container.player.nextTrack() },
+                            MiniPlayerHost(
+                                engine = container.player,
                                 onQueue = { queueOpen = !queueOpen },
                                 onExpand = { expanded = true },
                                 queueOpen = queueOpen,
@@ -211,10 +223,10 @@ private fun MashupShell(container: AppContainer) {
                     Crossfade(targetState = page, label = "page") { current ->
                         when (current) {
                             "home" -> HomeScreen(
-                                extraction = container.extraction,
-                                library = container.library,
+                                recommendations = container.recommendations,
                                 engine = container.player,
-                                playerState = playerState,
+                                currentTrackId = playerSummary.current?.id,
+                                isPlaying = playerSummary.status == PlayStatus.PLAYING,
                                 youtubeCookie = ytCookie,
                                 onConnect = { signInOpen = true },
                                 modifier = Modifier.fillMaxSize(),
@@ -225,7 +237,7 @@ private fun MashupShell(container: AppContainer) {
                                 extraction = container.extraction,
                                 engine = container.player,
                                 library = container.library,
-                                playerState = playerState,
+                                currentTrackId = playerSummary.current?.id,
                                 onDownload = { pendingDownload = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -233,8 +245,9 @@ private fun MashupShell(container: AppContainer) {
                                 LibraryScreen(
                                     engine = container.player,
                                     library = container.library,
-                                    playerState = playerState,
+                                    currentTrackId = playerSummary.current?.id,
                                     onDownload = { pendingDownload = it },
+                                    onDownloadPlaylist = { tracks -> pendingDownloadPlaylist = tracks },
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
@@ -244,6 +257,13 @@ private fun MashupShell(container: AppContainer) {
                                 ffmpegManager = container.ffmpeg,
                                 onFindSomething = { page = "search" },
                                 onOpenSetup = { ffmpegManualOpen = true },
+                                onPlay = { job ->
+                                    job.asDownloadedTrack()?.let { track ->
+                                        container.player.playNow(track, context = "downloads")
+                                        if (job.container.equals("mp4", ignoreCase = true)) expanded = true
+                                    }
+                                },
+                                onQueue = { job -> job.asDownloadedTrack()?.let { container.player.addToEnd(it) } },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -266,11 +286,11 @@ private fun MashupShell(container: AppContainer) {
                             .background(Color.Black.copy(alpha = 0.45f))
                             .clickable { queueOpen = false },
                     )
-                    QueueDrawerPanel(
-                        state = playerState,
+                    QueueDrawerHost(
                         engine = container.player,
                         library = container.library,
                         onClose = { queueOpen = false },
+                        onDownloadQueue = { tracks -> pendingDownloadQueue = tracks },
                         modifier = Modifier.align(Alignment.CenterEnd),
                     )
                 }
@@ -284,11 +304,8 @@ private fun MashupShell(container: AppContainer) {
                 exit = slideOutVertically(targetOffsetY = { it / 4 }) + fadeOut(),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                ExpandedPlayer(
-                    state = playerState,
-                    engine = container.player,
-                    library = container.library,
-                    extraction = container.extraction,
+                ExpandedPlayerHost(
+                    container = container,
                     playerTab = playerTab,
                     onTabChange = { playerTab = it },
                     onCollapse = { expanded = false },
@@ -333,6 +350,22 @@ private fun MashupShell(container: AppContainer) {
                     },
                 )
             }
+            val pendingBatch = pendingDownloadQueue ?: pendingDownloadPlaylist
+            pendingBatch?.firstOrNull()?.let { track ->
+                QualityPicker(
+                    track = track,
+                    extraction = container.extraction,
+                    onDismiss = {
+                        pendingDownloadQueue = null
+                        pendingDownloadPlaylist = null
+                    },
+                    onStart = { _, quality, containerKey ->
+                        container.downloadEngine.enqueueBatch(pendingBatch, quality, containerKey)
+                        pendingDownloadQueue = null
+                        pendingDownloadPlaylist = null
+                    },
+                )
+            }
 
             val ffmpegState by container.ffmpeg.status.collectAsState()
             val ffmpegConsent by container.downloadEngine.consent.collectAsState()
@@ -357,12 +390,15 @@ private fun MashupShell(container: AppContainer) {
             }
 
             /* ── N8 error toast — web `ErrorToast` (top pill, 6s auto-hide) ── */
-            val playerError = playerState.error.takeIf { playerState.status == PlayStatus.ERROR }
+            val playerError = playerSummary.error.takeIf { playerSummary.status == PlayStatus.ERROR }
+            val downloadError by container.downloadEngine.actionError.collectAsState()
+            val toastError = downloadError ?: playerError
             var toastDismissed by remember { mutableStateOf<String?>(null) }
-            LaunchedEffect(playerError) {
-                if (playerError != null) {
-                    delay(6000) // web resets the store to paused after 6s
-                    toastDismissed = playerError
+            LaunchedEffect(toastError) {
+                if (toastError != null) {
+                    delay(6000)
+                    toastDismissed = toastError
+                    if (toastError == downloadError) container.downloadEngine.clearActionError(toastError)
                 } else {
                     toastDismissed = null
                 }
@@ -373,7 +409,7 @@ private fun MashupShell(container: AppContainer) {
                 val enterFromPx = with(density) { 18.dp.roundToPx() }
                 val exitToPx = with(density) { 14.dp.roundToPx() }
                 AnimatedVisibility(
-                    visible = playerError != null && toastDismissed != playerError,
+                    visible = toastError != null && toastDismissed != toastError,
                     enter = slideInVertically(tween(280)) { -enterFromPx } +
                         fadeIn(tween(240)) +
                         scaleIn(initialScale = 0.96f, animationSpec = tween(260)),
@@ -395,7 +431,7 @@ private fun MashupShell(container: AppContainer) {
                             .padding(horizontal = 20.dp, vertical = 10.dp),
                     ) {
                         Text(
-                            text = playerError.orEmpty(),
+                            text = toastError.orEmpty(),
                             color = scheme.onError,
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -408,6 +444,68 @@ private fun MashupShell(container: AppContainer) {
     }
 }
 
+/** State that changes only on track/status/error transitions, not position ticks. */
+private data class ShellPlayerSummary(val current: Track?, val status: PlayStatus, val error: String?)
+private fun PlayerSnapshot.toShellSummary() = ShellPlayerSummary(current, status, error)
+
+@Composable
+private fun MiniPlayerHost(engine: PlaybackEngine, onQueue: () -> Unit, onExpand: () -> Unit, queueOpen: Boolean) {
+    val state by engine.state.collectAsState()
+    MiniPlayer(
+        state = state,
+        onPrev = engine::prevTrack,
+        onToggle = engine::togglePlay,
+        onNext = engine::nextTrack,
+        onQueue = onQueue,
+        onExpand = onExpand,
+        queueOpen = queueOpen,
+    )
+}
+
+@Composable
+private fun QueueDrawerHost(
+    engine: PlaybackEngine,
+    library: local.themashup.music.core.data.LibraryRepository,
+    onClose: () -> Unit,
+    onDownloadQueue: (List<Track>) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state by engine.state.collectAsState()
+    QueueDrawerPanel(state, engine, library, onClose, onDownloadQueue, modifier)
+}
+
+@Composable
+private fun ExpandedPlayerHost(
+    container: AppContainer,
+    playerTab: String,
+    onTabChange: (String) -> Unit,
+    onCollapse: () -> Unit,
+    onDownload: (Track) -> Unit,
+    visualizerOn: Boolean,
+    onToggleVisualizer: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state by container.player.state.collectAsState()
+    val downloads by container.downloads.state.collectAsState()
+    val video = state.current?.localDownloadId?.let { id ->
+        downloads.jobs.any { it.id == id && it.container.equals("mp4", ignoreCase = true) }
+    } == true
+    ExpandedPlayer(
+        state = state,
+        engine = container.player,
+        library = container.library,
+        extraction = container.extraction,
+        playerTab = playerTab,
+        onTabChange = onTabChange,
+        onCollapse = onCollapse,
+        onDownload = onDownload,
+        visualizerOn = visualizerOn,
+        onToggleVisualizer = onToggleVisualizer,
+        showVideo = video,
+        modifier = modifier,
+    )
+}
+
 /** Right-hand slide-in queue — web `QueueDrawer` panel. */
 @Composable
 private fun QueueDrawerPanel(
@@ -415,6 +513,7 @@ private fun QueueDrawerPanel(
     engine: local.themashup.music.core.player.PlaybackEngine,
     library: local.themashup.music.core.data.LibraryRepository,
     onClose: () -> Unit,
+    onDownloadQueue: (List<Track>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
@@ -459,6 +558,16 @@ private fun QueueDrawerPanel(
                             .size(34.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .clickable { engine.clearQueue() }
+                            .padding(7.dp),
+                    )
+                    Icon(
+                        Icons.Outlined.Download,
+                        contentDescription = "Download queue",
+                        tint = tokens.textDim,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onDownloadQueue(state.queue.toList()) }
                             .padding(7.dp),
                     )
                 }

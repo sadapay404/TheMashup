@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.MusicNote
@@ -38,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,6 +54,7 @@ import local.themashup.music.core.domain.formatTimeLeft
 import local.themashup.music.core.download.DownloadEngine
 import local.themashup.music.core.download.FfmpegManager
 import local.themashup.music.core.download.FfmpegState
+import local.themashup.music.ui.components.Artwork
 import local.themashup.music.ui.theme.LocalMashupTokens
 
 /**
@@ -67,6 +71,8 @@ fun DownloadsScreen(
     ffmpegManager: FfmpegManager,
     onFindSomething: () -> Unit,
     onOpenSetup: () -> Unit,
+    onPlay: (DownloadJob) -> Unit,
+    onQueue: (DownloadJob) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
@@ -80,8 +86,8 @@ fun DownloadsScreen(
             it.status == DownloadStatus.PROCESSING
     }
     val failed = state.jobs.filter { it.status == DownloadStatus.FAILED }
-    val audio = state.jobs.filter { it.status == DownloadStatus.COMPLETED && it.container != "mp4" }
-    val videos = state.jobs.filter { it.status == DownloadStatus.COMPLETED && it.container == "mp4" }
+    val audio = state.jobs.filter { it.status == DownloadStatus.COMPLETED && !it.container.equals("mp4", ignoreCase = true) }
+    val videos = state.jobs.filter { it.status == DownloadStatus.COMPLETED && it.container.equals("mp4", ignoreCase = true) }
 
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
@@ -114,11 +120,15 @@ fun DownloadsScreen(
             }
             if (audio.isNotEmpty()) {
                 item { SectionTitle("Downloaded songs") }
-                items(audio, key = { "audio-" + it.id }) { job -> FinishedRow(job, onRetry = { engine.retry(job.id) }) }
+                items(audio, key = { "audio-" + it.id }) { job ->
+                    FinishedRow(job, onRetry = { engine.retry(job.id) }, onPlay = { onPlay(job) }, onQueue = { onQueue(job) })
+                }
             }
             if (videos.isNotEmpty()) {
                 item { SectionTitle("Downloaded videos") }
-                items(videos, key = { "video-" + it.id }) { job -> FinishedRow(job, onRetry = { engine.retry(job.id) }) }
+                items(videos, key = { "video-" + it.id }) { job ->
+                    FinishedRow(job, onRetry = { engine.retry(job.id) }, onPlay = { onPlay(job) }, onQueue = { onQueue(job) })
+                }
             }
             if (state.jobs.isEmpty()) item { EmptyDownloads(onFindSomething) }
         }
@@ -179,8 +189,13 @@ private fun FfmpegPill(ready: Boolean, working: Boolean, onClick: () -> Unit) {
 
 /** 44dp music tile — web `Art` (Music2 glyph on base-3). */
 @Composable
-private fun JobArt() {
+private fun JobArt(job: DownloadJob) {
     val tokens = LocalMashupTokens.current
+    val image = job.track?.artworkBest ?: job.track?.artwork
+    if (!image.isNullOrBlank()) {
+        Artwork(src = image, label = job.title, corner = 7.dp, modifier = Modifier.size(44.dp))
+        return
+    }
     Box(
         modifier = Modifier
             .size(44.dp)
@@ -214,7 +229,7 @@ private fun ProgressRow(job: DownloadJob, onCancel: () -> Unit) {
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        JobArt()
+        JobArt(job)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -297,7 +312,12 @@ private fun ContainerBadge(job: DownloadJob) {
 }
 
 @Composable
-private fun FinishedRow(job: DownloadJob, onRetry: () -> Unit) {
+private fun FinishedRow(
+    job: DownloadJob,
+    onRetry: () -> Unit,
+    onPlay: (() -> Unit)? = null,
+    onQueue: (() -> Unit)? = null,
+) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
     val failed = job.status == DownloadStatus.FAILED
@@ -307,10 +327,16 @@ private fun FinishedRow(job: DownloadJob, onRetry: () -> Unit) {
             .clip(RoundedCornerShape(10.dp))
             .border(1.dp, tokens.border, RoundedCornerShape(10.dp))
             .background(tokens.surface2)
+            .clickable(
+                enabled = !failed && onPlay != null,
+                role = Role.Button,
+                onClickLabel = if (job.container.equals("mp4", ignoreCase = true)) "Watch downloaded video" else "Play downloaded song",
+                onClick = { onPlay?.invoke() },
+            )
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        JobArt()
+        JobArt(job)
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -324,6 +350,15 @@ private fun FinishedRow(job: DownloadJob, onRetry: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (!failed && !job.track?.artistNames.isNullOrBlank()) {
+                Text(
+                    text = job.track?.artistNames.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.textDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
                 text = if (failed) job.error ?: "Download failed" else "${job.container.uppercase()} · ${job.quality} · ${formatBytes(job.filesize)}",
                 style = MaterialTheme.typography.labelSmall,
@@ -331,10 +366,24 @@ private fun FinishedRow(job: DownloadJob, onRetry: () -> Unit) {
                 maxLines = 3, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            if (!failed && !job.warning.isNullOrBlank()) {
+                Text(job.warning, style = MaterialTheme.typography.labelSmall, color = tokens.textDim, maxLines = 3)
+            }
         }
         if (failed) {
             IconButton(onClick = onRetry, modifier = Modifier.size(44.dp)) {
                 Icon(Icons.Outlined.Refresh, contentDescription = "Resume download", tint = tokens.textDim)
+            }
+        } else {
+            if (onQueue != null) {
+                IconButton(onClick = onQueue, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Filled.PlaylistAdd, contentDescription = "Add ${job.title} to queue", tint = tokens.textDim)
+                }
+            }
+            if (onPlay != null) {
+                IconButton(onClick = onPlay, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${job.title}", tint = tokens.accent)
+                }
             }
         }
     }

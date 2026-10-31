@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -48,7 +49,7 @@ class SettingsRepository(private val context: Context) {
     private val sessionReady = CompletableDeferred<Unit>()
     private val cookieState = MutableStateFlow("")
     /** The credential is never included in settings backups or general network requests. */
-    val youtubeCookie: Flow<String> = cookieState.asStateFlow()
+    val youtubeCookie: StateFlow<String> = cookieState.asStateFlow()
 
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

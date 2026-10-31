@@ -126,6 +126,39 @@ try {
       const resolving = url.pathname === '/api/playback/resolve' && req.method === 'POST' && !url.search;
       const streaming = /^\/api\/playback\/stream\/[A-Za-z0-9_-]{24}$/.test(url.pathname) &&
         ['GET', 'HEAD'].includes(req.method || '') && !url.search;
+      const downloadStart = url.pathname === '/api/downloads/start' && req.method === 'POST' && !url.search;
+      const downloadFile = /^\/api\/downloads\/[A-Za-z0-9_-]{10,64}\/file$/.test(url.pathname) &&
+        ['GET', 'HEAD'].includes(req.method || '') && !url.search;
+      const downloadList = url.pathname === '/api/downloads' && req.method === 'GET' && !url.search;
+      const downloadDelete = /^\/api\/downloads\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname) &&
+        req.method === 'DELETE' && !url.search;
+      if (downloadStart) {
+        const token = req.headers['x-themashup-session'];
+        if (typeof token !== 'string' || Buffer.byteLength(token) !== Buffer.byteLength(sessionToken) ||
+            !timingSafeEqual(Buffer.from(token), Buffer.from(sessionToken))) return error(res, 403);
+        if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) return error(res, 403);
+      }
+      if (downloadStart || downloadFile || downloadList || downloadDelete) {
+        const headers = downloadStart ? { 'Content-Type': 'application/json' } : { Accept: 'application/json' };
+        if (!downloadStart) { forward(null, headers); return; }
+        let length = 0;
+        let tooLarge = false;
+        const chunks = [];
+        req.on('data', chunk => {
+          if (tooLarge) return;
+          length += chunk.length;
+          if (length > 204_800) {
+            tooLarge = true;
+            chunks.length = 0;
+            if (!res.destroyed) error(res, 413);
+          } else chunks.push(chunk);
+        });
+        req.once('error', () => { if (!res.destroyed) error(res, 400); });
+        req.once('end', () => {
+          if (!tooLarge && !res.destroyed && !req.aborted) forward(Buffer.concat(chunks), headers);
+        });
+        return;
+      }
       if (resolving) {
         const token = req.headers['x-themashup-session'];
         if (typeof token !== 'string' || Buffer.byteLength(token) !== Buffer.byteLength(sessionToken) ||
@@ -138,11 +171,11 @@ try {
       const headers = resolving ? { 'Content-Type': 'application/json' } :
         streaming ? (typeof req.headers.range === 'string' ? { Range: req.headers.range } : {}) : { Accept: 'application/json' };
       // Do not forward browser cookies, auth, origin or proxy headers. A
-      // resolution POST has a small bounded body; stream responses remain
-      // streaming and retain Range metadata through this outer host.
-      const forward = (body) => {
+      // resolution or download-start POST has a small bounded body; stream
+      // responses remain streaming and retain Range metadata through this host.
+      function forward(body, headersOverride = headers) {
         const upstream = http.request({ hostname: '127.0.0.1', port: gatewayPort,
-          method: req.method, path: `${url.pathname}${url.search}`, headers, timeout: 35_000 }, (result) => {
+          method: req.method, path: `${url.pathname}${url.search}`, headers: headersOverride, timeout: 35_000 }, (result) => {
           upstream.setTimeout(0); // timeout applies to response headers, not the media body
           const outgoing = { 'Cache-Control': 'no-store' };
           for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'x-content-type-options']) {
@@ -157,7 +190,7 @@ try {
         req.on('aborted', () => upstream.destroy());
         res.on('close', () => upstream.destroy());
         upstream.end(body);
-      };
+      }
       if (!resolving) { forward(); return; }
       let length = 0;
       let tooLarge = false;

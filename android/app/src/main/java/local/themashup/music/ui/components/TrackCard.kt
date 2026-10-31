@@ -28,6 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,7 +59,7 @@ fun TrackCard(
     val tokens = LocalMashupTokens.current
     val accents = LocalArtAccents.current
     Column(modifier = modifier.width(164.dp)) {
-        Box {
+        Box(modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClickLabel = "Play ${track.title}", onClick = onPlay)) {
             Artwork(
                 src = track.artworkBest ?: track.artwork,
                 label = track.title,
@@ -153,7 +156,8 @@ private fun OverlayAction(
             .size(32.dp)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.6f))
-            .clickable(onClick = onClick),
+            .semantics { this.contentDescription = contentDescription }
+            .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         content()

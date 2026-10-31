@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -83,14 +86,13 @@ fun QueueList(
         return
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(8.dp),
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        state.queue.forEachIndexed { i, track ->
+        // Index keys allow the same song to occur more than once in a queue.
+        itemsIndexed(state.queue) { i, track ->
             val isCurrent = state.current?.id == track.id && i == state.cursor
             Row(
                 modifier = Modifier
@@ -99,7 +101,7 @@ fun QueueList(
                     .background(if (isCurrent) tokens.surface2 else Color.Transparent)
                     .clickable {
                         engine.playQueue(state.queue, startIndex = i, context = "queue")
-                        scope.launch { library.recordPlay(track, context = "queue") }
+
                     }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,

@@ -3,6 +3,11 @@ package local.themashup.music.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +30,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.FormatQuote
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -87,7 +93,7 @@ fun SearchScreen(
     extraction: ExtractionService,
     engine: PlaybackEngine,
     library: LibraryRepository,
-    playerState: PlayerSnapshot,
+    currentTrackId: String?,
     onDownload: (Track) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -102,368 +108,246 @@ fun SearchScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("all") }
 
-    // Debounced parallel fan-out — web useHybridSearch (170ms, allSettled,
-    // error only when BOTH catalog and lyric sources fail).
+    // Publish each source as soon as it returns. A slow lyric provider must
+    // not hold up otherwise-ready song search results.
     LaunchedEffect(query) {
         val q = query.trim()
+        tracks = emptyList()
+        matches = emptyList()
+        suggestions = emptyList()
+        error = null
         if (q.length < 2) {
             loading = false
-            tracks = emptyList()
-            matches = emptyList()
-            suggestions = emptyList()
-            error = null
             return@LaunchedEffect
         }
-        delay(170)
         loading = true
-        error = null
-        val (searchRes, lyricRes, suggestRes) = withContext(Dispatchers.IO) {
-            coroutineScope {
-                val searchJob = async { runCatching { extraction.search(q) } }
-                val lyricJob = async { runCatching { extraction.lyricMatch(q) } }
-                val suggestJob = async { runCatching { extraction.suggest(q) } }
-                Triple(searchJob.await(), lyricJob.await(), suggestJob.await())
+        delay(250)
+        var catalogDone = false
+        var lyricDone = false
+        var catalogError: Throwable? = null
+        var lyricError: Throwable? = null
+        fun finishIfReady() {
+            if (catalogDone && lyricDone) {
+                loading = false
+                error = if (catalogError != null && lyricError != null) {
+                    catalogError?.message ?: lyricError?.message ?: "Search failed"
+                } else null
             }
         }
-        // Structured concurrency cancels superseded queries; also guard the
-        // window between await and apply.
-        coroutineContext.ensureActive()
-        val foundTracks = searchRes.getOrNull()?.tracks ?: emptyList()
-        val foundMatches = lyricRes.getOrNull()?.matches ?: emptyList()
-        val foundSuggestions = suggestRes.getOrNull()?.take(6) ?: emptyList()
-        error = if (searchRes.isFailure && lyricRes.isFailure) {
-            (searchRes.exceptionOrNull() ?: lyricRes.exceptionOrNull())?.message ?: "Search failed"
-        } else {
-            null
+        coroutineScope {
+            launch {
+                val result = withContext(Dispatchers.IO) { runCatching { extraction.search(q) } }
+                coroutineContext.ensureActive()
+                tracks = result.getOrNull()?.tracks.orEmpty()
+                catalogError = result.exceptionOrNull()
+                catalogDone = true
+                finishIfReady()
+            }
+            launch {
+                val result = withContext(Dispatchers.IO) { runCatching { extraction.lyricMatch(q) } }
+                coroutineContext.ensureActive()
+                matches = result.getOrNull()?.matches.orEmpty()
+                lyricError = result.exceptionOrNull()
+                lyricDone = true
+                finishIfReady()
+            }
+            launch {
+                val result = withContext(Dispatchers.IO) { runCatching { extraction.suggest(q) } }
+                coroutineContext.ensureActive()
+                suggestions = result.getOrNull()?.take(6).orEmpty()
+            }
         }
-        tracks = foundTracks
-        matches = foundMatches
-        suggestions = foundSuggestions
-        loading = false
     }
 
     val libState by library.state.collectAsState()
     val rows = remember(tracks, matches, query) { mergeHybrid(tracks, matches, query) }
     val artists = remember(tracks) {
-        tracks.flatMap { it.artists }
-            .distinctBy { it.channelId ?: it.name }
-            .take(12)
+        tracks.flatMap { it.artists }.distinctBy { it.channelId ?: it.name }.take(12)
     }
-    val visibleRows = rows.filter {
-        when (filter) {
-            "songs" -> it is HybridRow.TrackRow
-            "lyrics" -> it is HybridRow.LyricRow
-            else -> true
+    val visibleRows = remember(rows, filter) {
+        rows.filter {
+            when (filter) {
+                "songs" -> it is HybridRow.TrackRow
+                "lyrics" -> it is HybridRow.LyricRow
+                "artists" -> false
+                else -> true
+            }
         }
     }
     val showArtists = filter == "all" || filter == "artists"
-
-    fun playTrack(track: Track, context: String = "search") {
-        engine.playNow(track, context = context)
-        scope.launch { library.recordPlay(track, context = context) }
+    val counts = remember(rows, matches, artists) {
+        mapOf(
+            "all" to rows.size,
+            "songs" to rows.count { it is HybridRow.TrackRow },
+            "lyrics" to rows.count { it is HybridRow.LyricRow },
+            "artists" to artists.size,
+        )
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
-        // ── input ────────────────────────────────────────────────────────
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            placeholder = {
-                Text("Songs, artists or a lyric line…", color = tokens.textFaint)
-            },
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = tokens.textDim) },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    Icon(
+    // A previously selected filter can disappear when a new query has no
+    // matches of that kind. Return to Everything instead of hiding valid rows.
+    LaunchedEffect(filter, counts, loading) {
+        if (!loading && filter != "all" && (counts[filter] ?: 0) == 0) filter = "all"
+    }
+
+    fun playTrack(track: Track) = engine.playNow(track, context = "search")
+
+    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                placeholder = { Text("Songs, artists or a lyric line…", color = tokens.textFaint) },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = tokens.textDim) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) Icon(
                         Icons.Filled.Clear,
                         contentDescription = "Clear",
                         tint = tokens.textDim,
                         modifier = Modifier.clickable { onQueryChange("") },
                     )
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(999.dp),
-            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = tokens.accent,
-                unfocusedBorderColor = tokens.border,
-                focusedContainerColor = scheme.surface,
-                unfocusedContainerColor = scheme.surface,
-                focusedTextColor = scheme.onBackground,
-                unfocusedTextColor = scheme.onBackground,
-                cursorColor = tokens.accent,
-            ),
-        )
-
-        if (query.trim().length < 2) {
-            EmptySearchPrompt()
-            return@Column
-        }
-
-        // ── filter chips ─────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val counts = mapOf(
-                "all" to rows.size,
-                "songs" to rows.count { it is HybridRow.TrackRow },
-                "lyrics" to matches.size,
-                "artists" to artists.size,
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(999.dp),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = tokens.accent,
+                    unfocusedBorderColor = tokens.border,
+                    focusedContainerColor = scheme.surface,
+                    unfocusedContainerColor = scheme.surface,
+                    focusedTextColor = scheme.onBackground,
+                    unfocusedTextColor = scheme.onBackground,
+                    cursorColor = tokens.accent,
+                ),
             )
-            listOf("all" to "Everything", "songs" to "Songs", "lyrics" to "Lyrics", "artists" to "Artists")
-                .filter { (id, _) -> id == "all" || (counts[id] ?: 0) > 0 }
-                .forEach { (id, label) ->
-                    val selected = filter == id
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (selected) tokens.accent else scheme.surface)
-                            .border(
-                                width = 1.dp,
-                                color = if (selected) tokens.accent else tokens.border,
-                                shape = RoundedCornerShape(999.dp),
-                            )
-                            .clickable { filter = id }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (selected) tokens.accentContrast else tokens.textDim,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = (counts[id] ?: 0).toString(),
-                            color = if (selected) tokens.accentContrast else tokens.textFaint,
-                            fontSize = 11.sp,
-                        )
+        }
+        if (query.trim().length < 2) {
+            item { EmptySearchPrompt() }
+        } else {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    listOf("all" to "Everything", "songs" to "Songs", "lyrics" to "Lyrics", "artists" to "Artists")
+                        .filter { (id, _) -> id == "all" || (counts[id] ?: 0) > 0 }
+                        .forEach { (id, label) ->
+                            val selected = filter == id
+                            Row(
+                                modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                    .background(if (selected) tokens.accent else scheme.surface)
+                                    .border(1.dp, if (selected) tokens.accent else tokens.border, RoundedCornerShape(999.dp))
+                                    .clickable { filter = id }
+                                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(label, color = if (selected) tokens.accentContrast else tokens.textDim,
+                                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text((counts[id] ?: 0).toString(),
+                                    color = if (selected) tokens.accentContrast else tokens.textFaint, fontSize = 11.sp)
+                            }
+                        }
+                    if (loading) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = tokens.accent)
+                        Text("searching…", color = tokens.textFaint, fontSize = 12.sp)
                     }
                 }
-            if (loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
-                    color = tokens.accent,
-                )
-                Text("searching…", color = tokens.textFaint, fontSize = 12.sp)
             }
-        }
-
-        // ── artists ──────────────────────────────────────────────────────
-        if (showArtists && artists.isNotEmpty()) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text(
-                    text = "Artists",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = scheme.onBackground,
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
-                androidx.compose.foundation.layout.FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    artists.forEach { artist ->
-                        // Web ArtistChip: tap = follow (accent when following).
-                        val following = libState.follows.contains(artist.name)
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(
-                                    if (following) tokens.accent.copy(alpha = 0.15f) else scheme.surface,
-                                )
-                                .border(
-                                    1.dp,
-                                    if (following) tokens.accent.copy(alpha = 0.6f) else tokens.border,
-                                    RoundedCornerShape(999.dp),
-                                )
-                                .clickable {
-                                    scope.launch { library.toggleFollow(artist.name) }
-                                }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            if (showArtists && artists.isNotEmpty()) {
+                item {
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        Text("Artists", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                            color = scheme.onBackground, modifier = Modifier.padding(bottom = 10.dp))
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Artwork(
-                                src = artist.image,
-                                label = artist.name,
-                                corner = 999.dp,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Text(
-                                text = artist.name,
-                                color = if (following) tokens.accent else tokens.textDim,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                modifier = Modifier.widthIn(max = 140.dp),
-                            )
-                            if (following) {
-                                Icon(
-                                    Icons.Filled.Check,
-                                    contentDescription = "Following",
-                                    tint = tokens.accent,
-                                    modifier = Modifier.size(13.dp),
-                                )
+                            artists.forEach { artist ->
+                                val following = libState.follows.contains(artist.name)
+                                Row(
+                                    modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                        .background(if (following) tokens.accent.copy(alpha = 0.15f) else scheme.surface)
+                                        .border(1.dp, if (following) tokens.accent.copy(alpha = 0.6f) else tokens.border, RoundedCornerShape(999.dp))
+                                        .clickable { scope.launch { library.toggleFollow(artist.name) } }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                ) {
+                                    Artwork(src = artist.image, label = artist.name, corner = 999.dp, modifier = Modifier.size(20.dp))
+                                    Text(artist.name, color = if (following) tokens.accent else tokens.textDim,
+                                        fontSize = 12.sp, maxLines = 1, modifier = Modifier.widthIn(max = 140.dp))
+                                    if (following) Icon(Icons.Filled.Check, contentDescription = "Following",
+                                        tint = tokens.accent, modifier = Modifier.size(13.dp))
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-
-        // ── results ──────────────────────────────────────────────────────
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             if (loading && visibleRows.isEmpty() && !(showArtists && artists.isNotEmpty())) {
-                repeat(6) { i ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(tokens.surface2),
-                        )
-                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth((58 + ((i * 7) % 30)) / 100f)
-                                    .height(12.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(tokens.surface2),
-                            )
-                            Box(
-                                Modifier
-                                    .padding(top = 6.dp)
-                                    .fillMaxWidth(0.33f)
-                                    .height(10.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(tokens.surface2),
-                            )
-                        }
-                        Box(
-                            Modifier
-                                .width(40.dp)
-                                .height(10.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(tokens.surface2),
-                        )
-                    }
-                }
+                item { Text("Searching…", color = tokens.textDim, modifier = Modifier.padding(24.dp)) }
             }
-
-            visibleRows.forEachIndexed { rowIndex, row ->
-                // Web result stagger: min(rowIndex * 30, 300) ms, y 8 → 0.
-                val delay = minOf(rowIndex * 30, 300)
-                when (row) {
-                    is HybridRow.TrackRow -> {
-                        val track = row.track.track
-                        FadeSlideIn(delayMillis = delay, offsetYDp = 8.dp) {
+            // Only visible rows are composed; long result sets no longer create
+            // every artwork and every entrance animation at once.
+            itemsIndexed(visibleRows) { _, row ->
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 3.dp)) {
+                    when (row) {
+                        is HybridRow.TrackRow -> {
+                            val track = row.track.track
                             TrackRow(
                                 track = track,
-                                isCurrent = playerState.current?.id == track.id,
+                                isCurrent = currentTrackId == track.id,
                                 onClick = { playTrack(track) },
-                                modifier = Modifier.padding(vertical = 3.dp),
                                 onDownload = onDownload,
                                 onQueue = { engine.addToEnd(track) },
                             )
                         }
-                    }
-                    is HybridRow.LyricRow -> {
-                        FadeSlideIn(delayMillis = delay, offsetYDp = 8.dp) {
-                            LyricRowCard(
-                                match = row.match,
-                                extraction = extraction,
-                                onResolve = { resolved -> playTrack(resolved) },
-                                onQueue = { resolved -> engine.addToEnd(resolved) },
-                            )
-                        }
+                        is HybridRow.LyricRow -> LyricRowCard(
+                            match = row.match,
+                            extraction = extraction,
+                            onResolve = { playTrack(it) },
+                            onQueue = { engine.addToEnd(it) },
+                            onDownload = onDownload,
+                        )
                     }
                 }
             }
-
             if (!loading && visibleRows.isEmpty() && !(showArtists && artists.isNotEmpty()) && error == null) {
-                FadeSlideIn {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 24.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(scheme.surface.copy(alpha = 0.5f))
-                            .border(1.dp, tokens.border, RoundedCornerShape(16.dp))
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center,
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp)
+                            .clip(RoundedCornerShape(16.dp)).background(scheme.surface.copy(alpha = 0.5f))
+                            .border(1.dp, tokens.border, RoundedCornerShape(16.dp)).padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Outlined.MusicNote, contentDescription = null, tint = tokens.textFaint, modifier = Modifier.size(30.dp))
-                        Text(
-                            text = "Nothing matched “$query”",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = tokens.textDim,
-                            modifier = Modifier.padding(top = 12.dp),
-                        )
-                        Text(
-                            text = "Check spelling, or try fewer lyric words.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = tokens.textFaint,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
+                        Text("Nothing matched “$query”", style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium, color = tokens.textDim, modifier = Modifier.padding(top = 12.dp))
+                        Text("Check spelling, or try fewer lyric words.", style = MaterialTheme.typography.bodySmall,
+                            color = tokens.textFaint, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
             }
-
             if (error != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0x33B91C1C))
-                        .border(1.dp, Color(0x66EF4444), RoundedCornerShape(12.dp))
-                        .padding(14.dp),
-                ) {
-                    Text(error.orEmpty(), color = Color(0xFFFECACA), fontSize = 13.sp)
+                item {
+                    Text(error.orEmpty(), color = Color(0xFFFECACA), fontSize = 13.sp,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(12.dp))
+                            .background(Color(0x33B91C1C)).border(1.dp, Color(0x66EF4444), RoundedCornerShape(12.dp))
+                            .padding(14.dp))
                 }
             }
-
-            // Typeahead suggestions (web SearchBar: chips when no rows yet).
             if (!loading && rows.isEmpty() && matches.isEmpty() && suggestions.isNotEmpty()) {
-                Column(modifier = Modifier.padding(top = 8.dp)) {
-                    suggestions.forEach { s ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onQueryChange(s) }
-                                .padding(horizontal = 8.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Outlined.Search, contentDescription = null, tint = tokens.textFaint, modifier = Modifier.size(16.dp))
-                            Text(
-                                text = s,
-                                color = tokens.textDim,
-                                fontSize = 14.sp,
-                                modifier = Modifier.padding(start = 10.dp),
-                            )
-                        }
+                items(suggestions) { suggestion ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(10.dp))
+                            .clickable { onQueryChange(suggestion) }.padding(horizontal = 8.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.Search, contentDescription = null, tint = tokens.textFaint, modifier = Modifier.size(16.dp))
+                        Text(suggestion, color = tokens.textDim, fontSize = 14.sp, modifier = Modifier.padding(start = 10.dp))
                     }
                 }
             }
@@ -478,16 +362,25 @@ private fun LyricRowCard(
     extraction: ExtractionService,
     onResolve: (Track) -> Unit,
     onQueue: (Track) -> Unit,
+    onDownload: (Track) -> Unit,
 ) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
+    var resolving by remember(match) { mutableStateOf(false) }
+    var resolveError by remember(match) { mutableStateOf<String?>(null) }
     fun resolve(onResult: (Track) -> Unit) {
+        if (resolving) return
+        resolving = true
+        resolveError = null
         scope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 runCatching { extraction.search("${match.trackName} ${match.artistName}".trim(), limit = 5) }
             }
-            outcome.getOrNull()?.tracks?.firstOrNull()?.let(onResult)
+            val track = outcome.getOrNull()?.tracks?.firstOrNull()
+            if (track != null) onResult(track)
+            else resolveError = "Could not find a playable match. Try searching for the song."
+            resolving = false
         }
     }
     Row(
@@ -496,7 +389,7 @@ private fun LyricRowCard(
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(11.dp))
             .background(tokens.surface2.copy(alpha = 0.5f))
-            .clickable { resolve(onResolve) }
+            .clickable(enabled = !resolving) { resolve(onResolve) }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -546,9 +439,16 @@ private fun LyricRowCard(
                     )
                 }
             }
+            if (resolveError != null) {
+                Text(resolveError.orEmpty(), color = scheme.error, style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 4.dp))
+            }
         }
-        androidx.compose.material3.IconButton(onClick = { resolve(onQueue) }, modifier = Modifier.size(40.dp)) {
+        androidx.compose.material3.IconButton(onClick = { resolve(onQueue) }, enabled = !resolving, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Filled.PlaylistAdd, contentDescription = "Add lyric match to queue", tint = tokens.textDim)
+        }
+        androidx.compose.material3.IconButton(onClick = { resolve(onDownload) }, enabled = !resolving, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Outlined.Download, contentDescription = "Download lyric match", tint = tokens.textDim)
         }
         Box(
             modifier = Modifier
@@ -557,12 +457,16 @@ private fun LyricRowCard(
                 .background(tokens.accent),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.Filled.PlayArrow,
-                contentDescription = "Play lyric match",
-                tint = tokens.accentContrast,
-                modifier = Modifier.size(20.dp),
-            )
+            if (resolving) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = tokens.accentContrast)
+            } else {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = "Play lyric match",
+                    tint = tokens.accentContrast,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 }

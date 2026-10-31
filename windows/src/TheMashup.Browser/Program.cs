@@ -22,6 +22,9 @@ internal static partial class Program
         var http = new HttpClient();
         App.SearchService = new GatewaySearchClient(http, _ => Task.FromResult(origin));
         App.PlaybackResolver = new GatewayPlaybackClient(http, _ => Task.FromResult(origin));
+        App.DownloadService = new GatewayDownloadClient(http, _ => Task.FromResult(origin));
+        App.HomeService = new FixtureHomeService();
+        App.AccountSignInLauncher = new UnavailableAccountSignInLauncher();
         App.MediaDevice = new BrowserMediaDevice();
         App.VideoBoundsChanged = BrowserMediaDevice.SetVideoBounds;
         return AppBuilder.Configure<App>()

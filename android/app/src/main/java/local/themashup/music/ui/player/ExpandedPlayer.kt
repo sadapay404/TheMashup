@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +61,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import android.view.TextureView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +77,7 @@ import local.themashup.music.core.player.PlayerSnapshot
 import local.themashup.music.ui.components.Artwork
 import local.themashup.music.ui.components.LikeButton
 import local.themashup.music.ui.components.PlayerVisualizer
+import local.themashup.music.ui.components.animationsReduced
 import local.themashup.music.ui.lyrics.LyricsPanel
 import local.themashup.music.ui.theme.LocalArtAccents
 import local.themashup.music.ui.theme.LocalMashupTokens
@@ -98,11 +103,18 @@ fun ExpandedPlayer(
     onDownload: ((local.themashup.music.core.domain.Track) -> Unit)? = null,
     visualizerOn: Boolean = true,
     onToggleVisualizer: () -> Unit = {},
+    showVideo: Boolean = false,
 ) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
     val accents = LocalArtAccents.current
     val context = LocalContext.current
+    val current = state.current
+    val artworkUrl = current?.artworkBest ?: current?.artwork
+    val playing = state.status == local.themashup.music.core.player.PlayStatus.PLAYING
+    val visualizerVisible = visualizerOn && playing && !showVideo
+    val reduceMotion = remember(context) { animationsReduced(context) }
+    val visualizerActive = visualizerVisible && !reduceMotion
 
     // RECORD_AUDIO enables the session FFT; asked at most once per process —
     // denial keeps the web's idle-sine bars (never an error).
@@ -112,8 +124,8 @@ fun ExpandedPlayer(
     ) { granted ->
         if (granted) engine.retryVisualizer()
     }
-    androidx.compose.runtime.LaunchedEffect(visualizerOn) {
-        if (visualizerOn && !askedPermission) {
+    androidx.compose.runtime.LaunchedEffect(visualizerActive) {
+        if (visualizerActive && !askedPermission) {
             askedPermission = true
             val granted = ContextCompat.checkSelfPermission(
                 context,
@@ -123,9 +135,10 @@ fun ExpandedPlayer(
         }
     }
 
-    val current = state.current
-    val artworkUrl = current?.artworkBest ?: current?.artwork
-    val playing = state.status == local.themashup.music.core.player.PlayStatus.PLAYING
+    DisposableEffect(engine, visualizerActive) {
+        engine.setVisualizerActive(visualizerActive)
+        onDispose { engine.setVisualizerActive(false) }
+    }
     val failoverUsed = (state.failover?.activeIndex ?: 0) + (state.failover?.refreshesUsed ?: 0)
     val contextLabel = when (state.contextLabel) {
         "radio" -> "ENDLESS RADIO"
@@ -135,7 +148,7 @@ fun ExpandedPlayer(
 
     // N9 beat envelope from the visualizer — art breathes, glow surges.
     val beat = remember { mutableStateOf(0f) }
-    androidx.compose.runtime.LaunchedEffect(visualizerOn) { if (!visualizerOn) beat.value = 0f }
+    androidx.compose.runtime.LaunchedEffect(visualizerActive) { if (!visualizerActive) beat.value = 0f }
     Box(modifier = modifier.fillMaxSize().graphicsLayer { alpha = 1f }) {
         // ── dynamic artwork background — N9: full-vivid (the old theme
         // artOpacity 0.14–0.32 made the screen feel "way too transparent"),
@@ -149,12 +162,7 @@ fun ExpandedPlayer(
                 alpha = 1f,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(blurMod)
-                    .graphicsLayer {
-                        val p = beat.value
-                        scaleX = 1.03f + 0.035f * p
-                        scaleY = 1.03f + 0.035f * p
-                    },
+                    .then(blurMod),
             )
         }
         Box(
@@ -278,27 +286,31 @@ fun ExpandedPlayer(
                     .padding(horizontal = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                BoxWithConstraints(contentAlignment = Alignment.Center) {
-                    val showVinyl = maxWidth >= 600.dp
-                    Box(contentAlignment = Alignment.Center) {
-                        if (showVinyl) {
-                            VinylDisc(
-                                playing = playing,
-                                accent = accents.first,
+                if (showVideo) {
+                    DownloadedVideo(engine, Modifier.fillMaxWidth().widthIn(max = 640.dp).aspectRatio(16f / 9f))
+                } else {
+                    BoxWithConstraints(contentAlignment = Alignment.Center) {
+                        val showVinyl = maxWidth >= 600.dp
+                        Box(contentAlignment = Alignment.Center) {
+                            if (showVinyl) {
+                                VinylDisc(
+                                    playing = playing,
+                                    accent = accents.first,
+                                    modifier = Modifier
+                                        .size(280.dp)
+                                        .align(Alignment.CenterEnd)
+                                        .graphicsLayer { alpha = 0.9f },
+                                )
+                            }
+                            Artwork(
+                                src = artworkUrl,
+                                label = current?.title ?: "No track",
+                                corner = 24.dp,
                                 modifier = Modifier
-                                    .size(280.dp)
-                                    .align(Alignment.CenterEnd)
-                                    .graphicsLayer { alpha = 0.9f },
+                                    .widthIn(max = 340.dp)
+                                    .fillMaxWidth(0.82f),
                             )
                         }
-                        Artwork(
-                            src = artworkUrl,
-                            label = current?.title ?: "No track",
-                            corner = 24.dp,
-                            modifier = Modifier
-                                .widthIn(max = 340.dp)
-                                .fillMaxWidth(0.82f),
-                        )
                     }
                 }
                 Column(
@@ -360,7 +372,7 @@ fun ExpandedPlayer(
                         ) {
                             PlayerVisualizer(
                                 fft = { engine.visualizer.latestFft() },
-                                enabled = visualizerOn,
+                                enabled = visualizerVisible,
                                 onPulse = { beat.value = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -423,6 +435,21 @@ fun ExpandedPlayer(
             }
         }
     }
+}
+
+/** Native output for an explicitly selected downloaded MP4, using the service player. */
+@Composable
+private fun DownloadedVideo(engine: PlaybackEngine, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val textureView = remember(context) { TextureView(context) }
+    DisposableEffect(engine, textureView) {
+        engine.attachVideoView(textureView)
+        onDispose { engine.detachVideoView(textureView) }
+    }
+    AndroidView(
+        factory = { textureView },
+        modifier = modifier.clip(RoundedCornerShape(12.dp)).background(Color.Black),
+    )
 }
 
 @Composable

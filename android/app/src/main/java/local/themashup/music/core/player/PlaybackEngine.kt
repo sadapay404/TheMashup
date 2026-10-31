@@ -2,14 +2,19 @@ package local.themashup.music.core.player
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.view.TextureView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +44,8 @@ import local.themashup.music.core.network.logic.StreamNormalize
 class PlaybackEngine(
     private val appContext: Context,
     private val extraction: () -> ExtractionService,
+    private val downloads: DownloadedPlayback,
+    private val onPlaybackStarted: suspend (local.themashup.music.core.domain.Track, String?) -> Unit = { _, _ -> },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
     private val _state = MutableStateFlow(PlayerSnapshot())
@@ -47,6 +54,10 @@ class PlaybackEngine(
     private var player: ExoPlayer? = null
     private var serviceStarted = false
     private var resolveGeneration = 0L
+    private var recordedGeneration = -1L
+    private var videoView: TextureView? = null
+    private var visualizerActive = false
+    private val failedPositions = mutableSetOf<Int>()
 
     /** Web parity: `Math.random()`-style rng for shuffle picks. */
     private var rng: () -> Double = { Random.nextDouble() }
@@ -59,21 +70,44 @@ class PlaybackEngine(
         player = p
         p.addListener(playerListener)
         applyPlayerMirrors(_state.value)
+        videoView?.let { p.setVideoTextureView(it) }
         // Resolution can finish before the service attaches its player.
         val snapshot = _state.value
         if (snapshot.status == PlayStatus.LOADING) {
             snapshot.failover?.active?.let { loadCandidate(PlayerEffect.LoadCandidate(it, snapshot.positionMs)) }
         }
-        startVisualizerPoller(p)
+        if (visualizerActive) updateVisualizerBinding()
+    }
+
+    /** The same service player renders an explicitly selected downloaded video. */
+    fun attachVideoView(view: TextureView) {
+        if (videoView === view) return
+        videoView?.let { player?.clearVideoTextureView(it) }
+        videoView = view
+        player?.setVideoTextureView(view)
+    }
+
+    fun detachVideoView(view: TextureView) {
+        if (videoView !== view) return
+        player?.clearVideoTextureView(view)
+        videoView = null
     }
 
     fun detachPlayer(p: Player) {
         p.removeListener(playerListener)
         if (player === p) {
             player = null
-            vizPoller?.cancel()
-            vizPoller = null
-            visualizer.release()
+            serviceStarted = false
+            ++resolveGeneration
+            // A paused/background service may be destroyed while the app
+            // process survives. Make Play re-create and re-resolve it rather
+            // than forwarding to a player that no longer exists.
+            _state.update { snapshot ->
+                if (snapshot.status == PlayStatus.PLAYING || snapshot.status == PlayStatus.PAUSED || snapshot.status == PlayStatus.LOADING) {
+                    snapshot.copy(status = PlayStatus.IDLE, failover = null, source = null)
+                } else snapshot
+            }
+            updateVisualizerBinding()
         }
     }
 
@@ -83,6 +117,9 @@ class PlaybackEngine(
     val visualizer = OutputVisualizer()
 
     private var vizPoller: kotlinx.coroutines.Job? = null
+    private var vizControl: kotlinx.coroutines.Job? = null
+    private val visualizerLock = Any()
+    @Volatile private var vizRevision = 0L
 
     /**
      * The audio session id is unset until ExoPlayer finishes initializing the
@@ -91,12 +128,18 @@ class PlaybackEngine(
      */
     private fun startVisualizerPoller(p: ExoPlayer) {
         vizPoller?.cancel()
+        val revision = vizRevision
         vizPoller = scope.launch {
-            while (isActive) {
+            while (isActive && revision == vizRevision) {
                 // ExoPlayer is owned by the main looper; read its session ID here,
                 // then do the potentially slow AudioEffect binding off the UI thread.
                 val sessionId = OutputVisualizer.audioSessionIdOf(p)
-                when (withContext(Dispatchers.IO) { visualizer.tryBind(sessionId) }) {
+                when (withContext(Dispatchers.IO) {
+                    synchronized(visualizerLock) {
+                        if (revision == vizRevision) visualizer.tryBind(sessionId)
+                        else OutputVisualizer.BindOutcome.RETRY
+                    }
+                }) {
                     OutputVisualizer.BindOutcome.BOUND -> break
                     OutputVisualizer.BindOutcome.RETRY -> delay(1_000)
                     OutputVisualizer.BindOutcome.UNAVAILABLE -> delay(10_000)
@@ -105,9 +148,35 @@ class PlaybackEngine(
         }
     }
 
+    /** Capture only while the visible, enabled visualizer needs it. */
+    fun setVisualizerActive(active: Boolean) {
+        if (visualizerActive == active) return
+        visualizerActive = active
+        updateVisualizerBinding()
+    }
+
+    private fun updateVisualizerBinding() {
+        val revision = ++vizRevision
+        vizPoller?.cancel()
+        vizPoller = null
+        vizControl?.cancel()
+        vizControl = scope.launch {
+            // Visualizer release/binding can block in platform audio services.
+            withContext(Dispatchers.IO) { synchronized(visualizerLock) { visualizer.release() } }
+            if (revision == vizRevision && visualizerActive) player?.let(::startVisualizerPoller)
+        }
+    }
+
     fun retryVisualizer() {
-        visualizer.allowRetry()
-        player?.let(::startVisualizerPoller)
+        val revision = vizRevision
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                synchronized(visualizerLock) {
+                    if (revision == vizRevision) visualizer.allowRetry()
+                }
+            }
+            if (revision == vizRevision && visualizerActive) player?.let(::startVisualizerPoller)
+        }
     }
 
     /* ── UI / session commands ───────────────────────────────────────────── */
@@ -118,18 +187,27 @@ class PlaybackEngine(
         startAtMs: Long = 0,
         context: String? = null,
     ) {
+        failedPositions.clear()
         ensureServiceStarted()
         dispatch { sm.playQueue(it, tracks, startIndex, startAtMs, context) }
     }
 
     fun playNow(track: local.themashup.music.core.domain.Track, context: String? = null) {
+        failedPositions.clear()
         ensureServiceStarted()
         dispatch { sm.playNow(it, track, context) }
     }
 
-    fun togglePlay() = dispatch(sm::toggle)
-    fun nextTrack() = dispatch { sm.next(it, rng, manual = true) }
+    fun togglePlay() {
+        if (_state.value.status == PlayStatus.ERROR || _state.value.status == PlayStatus.IDLE) failedPositions.clear()
+        dispatch(sm::toggle)
+    }
+    fun nextTrack() {
+        failedPositions.clear()
+        dispatch { sm.next(it, rng, manual = true) }
+    }
     fun prevTrack() {
+        failedPositions.clear()
         // Android convention: >3s into a track restarts it, else step back.
         if (_state.value.positionMs > 3_000 && _state.value.cursor >= 0) {
             dispatch { sm.seek(it, 0) }
@@ -150,9 +228,18 @@ class PlaybackEngine(
     fun addToEnd(track: local.themashup.music.core.domain.Track) =
         dispatchSimple { sm.enqueue(it, track, local.themashup.music.core.domain.InsertMode.END) }
 
-    fun removeFromQueue(index: Int) = dispatch { sm.remove(it, index) }
-    fun moveInQueue(from: Int, to: Int) = dispatchSimple { sm.move(it, from, to) }
-    fun clearQueue() = dispatch(sm::clear)
+    fun removeFromQueue(index: Int) {
+        failedPositions.clear()
+        dispatch { sm.remove(it, index) }
+    }
+    fun moveInQueue(from: Int, to: Int) {
+        failedPositions.clear()
+        dispatchSimple { sm.move(it, from, to) }
+    }
+    fun clearQueue() {
+        failedPositions.clear()
+        dispatch(sm::clear)
+    }
 
     /** Tests/preview: deterministic shuffle sequence. */
     fun setRngForTesting(seedRng: () -> Double) {
@@ -178,8 +265,16 @@ class PlaybackEngine(
     private fun execute(effect: PlayerEffect) {
         when (effect) {
             is PlayerEffect.Resolve -> {
-                ensureServiceStarted()
-                if (!effect.isRefresh) player?.pause()
+                if (!ensureServiceStarted()) {
+                    parkError("Could not start the playback service. Open the app and try again.")
+                    return
+                }
+                if (!effect.isRefresh) {
+                    // Keep the paused timeline visible to Media3 while the next
+                    // item resolves; clearing it would remove the notification.
+                    // Listener callbacks below reject events from this old item.
+                    player?.pause()
+                }
                 resolveAndLoad(effect)
             }
             is PlayerEffect.LoadCandidate -> loadCandidate(effect)
@@ -190,10 +285,12 @@ class PlaybackEngine(
                 if (player?.mediaItemCount != 0) player?.seekTo(effect.positionMs)
             }
             PlayerEffect.Stop -> {
+                ++resolveGeneration
                 player?.stop()
                 player?.clearMediaItems()
             }
             is PlayerEffect.Fail -> {
+                ++resolveGeneration
                 // Snapshot already carries the error; stop any stale audio.
                 player?.stop()
                 player?.clearMediaItems()
@@ -210,57 +307,70 @@ class PlaybackEngine(
      */
     private fun advanceOrPark(message: String) {
         val snapshot = _state.value
-        val (advanced, effect) = sm.next(snapshot, rng, manual = false)
-        val progressed = if (snapshot.shuffle) {
-            advanced.cursor != snapshot.cursor
-        } else {
-            advanced.cursor > snapshot.cursor
-        }
-        if (progressed && effect != null) {
+        if (snapshot.cursor >= 0) failedPositions += snapshot.cursor
+        val target = FailureSkipPolicy.nextIndex(snapshot, failedPositions, rng)
+        if (target != null) {
+            val (advanced, effect) = sm.playQueue(snapshot, snapshot.queue, target, context = snapshot.contextLabel)
             _state.value = advanced
             applyPlayerMirrors(advanced)
-            execute(effect)
-            return
+            effect?.let { execute(it) }
+        } else {
+            parkError(message)
         }
-        val (parked, fail) = sm.onResolveFailed(snapshot, message, snapshot.warnings)
-        _state.value = parked
-        applyPlayerMirrors(parked)
-        fail?.let { execute(it) }
     }
 
     private fun resolveAndLoad(effect: PlayerEffect.Resolve) {
         val track = effect.track
         val generation = ++resolveGeneration
         scope.launch {
-            val outcome = runCatching {
-                withContext(Dispatchers.IO) { extraction().streams(track.id) }
-            }
-            if (generation != resolveGeneration || _state.value.current?.id != track.id) return@launch
-            outcome.onFailure { t ->
-                // N9: dead track → auto-advance; park only with no forward move.
-                advanceOrPark(t.message ?: "Extraction failed")
+            val outcome = try {
+                withContext(Dispatchers.IO) {
+                    // A failed local copy selected from search/home may fall back
+                    // to streaming. An explicitly selected download never does.
+                    val skipLocal = effect.isRefresh && track.localDownloadId == null &&
+                        _state.value.failover?.active?.source == DownloadedPlayback.SOURCE
+                    val local = if (skipLocal) DownloadLookup.NotDownloaded else downloads.find(track)
+                    when (local) {
+                        is DownloadLookup.Found -> ResolvedMedia(listOf(local.candidate), emptyList())
+                        DownloadLookup.Missing -> throw MissingDownloadException()
+                        DownloadLookup.NotDownloaded -> {
+                            val streams = extraction().streams(track.externalId)
+                            ResolvedMedia(streams.candidates.filter { !it.videoOnly }, streams.warnings)
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (generation != resolveGeneration || _state.value.current?.id != track.id) return@launch
+                if (e is MissingDownloadException) {
+                    parkError(DownloadedPlayback.MISSING_MESSAGE)
+                } else {
+                    advanceOrPark(e.message ?: "Extraction failed")
+                }
                 return@launch
             }
-            val result = outcome.getOrThrow()
-            // Stale guard: user skipped/cleared while we were resolving.
-            if (_state.value.current?.id != track.id) return@launch
+            if (generation != resolveGeneration || _state.value.current?.id != track.id) return@launch
             val (s, e) = sm.onCandidatesResolved(
                 _state.value,
-                // Adaptive video streams are silent — playback only walks
-                // audio + muxed candidates (N7 download plan uses the full list).
-                result.candidates.filter { !it.videoOnly },
+                outcome.candidates,
                 startAtMs = effect.startAtMs,
                 isRefresh = effect.isRefresh,
             )
-            _state.value = s.copy(
-                warnings = (s.warnings + result.warnings).distinct().take(10),
-            )
-            if (s.status == PlayStatus.ERROR) {
-                advanceOrPark(s.error ?: "No playable streams")
-            } else {
-                e?.let { execute(it) }
-            }
+            _state.value = s.copy(warnings = (s.warnings + outcome.warnings).distinct().take(10))
+            if (s.status == PlayStatus.ERROR) advanceOrPark(s.error ?: "No playable streams")
+            else e?.let { execute(it) }
         }
+    }
+
+    private data class ResolvedMedia(val candidates: List<StreamCandidate>, val warnings: List<String>)
+    private class MissingDownloadException : Exception(DownloadedPlayback.MISSING_MESSAGE)
+
+    private fun parkError(message: String) {
+        val (parked, effect) = sm.onResolveFailed(_state.value, message, _state.value.warnings)
+        _state.value = parked
+        applyPlayerMirrors(parked)
+        effect?.let { execute(it) }
     }
 
     private fun loadCandidate(effect: PlayerEffect.LoadCandidate) {
@@ -276,7 +386,21 @@ class PlaybackEngine(
     private fun mediaSourceFor(c: StreamCandidate): MediaSource {
         val headers = c.httpHeaders.ifEmpty { StreamNormalize.YOUTUBE_HEADERS }
         val httpFactory = DefaultHttpDataSource.Factory().setDefaultRequestProperties(headers)
-        return DefaultMediaSourceFactory(httpFactory).createMediaSource(MediaItem.fromUri(c.url))
+        // DefaultDataSource delegates content:// and file:// to local Android
+        // data sources, while retaining the custom headers for HTTP streams.
+        val dataFactory = DefaultDataSource.Factory(appContext, httpFactory)
+        val track = _state.value.current
+        val metadata = MediaMetadata.Builder()
+            .setTitle(track?.title)
+            .setArtist(track?.artistNames)
+            .apply { (track?.artworkBest ?: track?.artwork)?.let { setArtworkUri(Uri.parse(it)) } }
+            .build()
+        val item = MediaItem.Builder()
+            .setMediaId(c.id)
+            .setUri(c.url)
+            .setMediaMetadata(metadata)
+            .build()
+        return DefaultMediaSourceFactory(dataFactory).createMediaSource(item)
     }
 
     /** Repeat/shuffle display + single-item safety mirror (see class docs). */
@@ -293,25 +417,49 @@ class PlaybackEngine(
         p.shuffleModeEnabled = snapshot.shuffle
     }
 
-    private fun ensureServiceStarted() {
-        if (serviceStarted) return
-        try {
+    private fun ensureServiceStarted(): Boolean {
+        if (serviceStarted) return true
+        return try {
             appContext.startService(Intent(appContext, TheMashupPlayerService::class.java))
             serviceStarted = true
+            true
         } catch (_: Exception) {
-            // Background-start restriction — retry on the next command instead
-            // of latching the flag and never starting the notification service.
+            // A later foreground action can retry instead of latching failure.
+            false
         }
     }
 
     /* ── player → machine ────────────────────────────────────────────────── */
 
+    private fun activeMediaMatches(snapshot: PlayerSnapshot): Boolean {
+        val candidate = snapshot.failover?.active ?: return false
+        return player?.currentMediaItem?.mediaId == candidate.id
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!activeMediaMatches(_state.value)) return
             _state.update { sm.onPlayingChanged(it, isPlaying) }
+            val snapshot = _state.value
+            val track = snapshot.current
+            if (isPlaying && track != null && snapshot.failover != null && recordedGeneration != resolveGeneration) {
+                failedPositions.clear()
+                recordedGeneration = resolveGeneration
+                // History should still work if the saved file is later removed.
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        onPlaybackStarted(track.copy(localDownloadId = null), snapshot.contextLabel)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // A history write failure must not interrupt playback.
+                    }
+                }
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (!activeMediaMatches(_state.value)) return
             when (playbackState) {
                 Player.STATE_BUFFERING -> _state.update { sm.onBuffering(it) }
                 Player.STATE_ENDED -> {
@@ -324,7 +472,14 @@ class PlaybackEngine(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            val (next, effect) = sm.onCandidateFailed(_state.value)
+            val snapshot = _state.value
+            val candidate = snapshot.failover?.active ?: return
+            if (!activeMediaMatches(snapshot)) return
+            if (candidate.source == DownloadedPlayback.SOURCE && snapshot.current?.localDownloadId != null) {
+                parkError(DownloadedPlayback.PLAYBACK_ERROR)
+                return
+            }
+            val (next, effect) = sm.onCandidateFailed(snapshot)
             if (next.status == local.themashup.music.core.player.PlayStatus.ERROR) {
                 // N9: never wedge the queue — auto-skip to the next track.
                 advanceOrPark(next.error ?: error.message ?: "Playback failed")
@@ -342,7 +497,7 @@ class PlaybackEngine(
             while (isActive) {
                 delay(500)
                 val p = player ?: continue
-                if (p.isPlaying || p.playbackState == Player.STATE_READY) {
+                if ((p.isPlaying || p.playbackState == Player.STATE_READY) && activeMediaMatches(_state.value)) {
                     _state.update {
                         sm.onPosition(
                             it,

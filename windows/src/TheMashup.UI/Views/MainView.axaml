@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TheMashup.UI"
+             xmlns:ava="using:Avalonia.Controls"
              x:Class="TheMashup.UI.Views.MainView" x:DataType="vm:ShellViewModel"
              Background="{DynamicResource AppBackground}">
   <UserControl.Resources>
@@ -13,13 +14,13 @@
             <StackPanel Spacing="3">
               <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
               <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
-              <TextBlock Text="{Binding Snippet}" IsVisible="{Binding HasSnippet}" Classes="subtle" FontSize="11" TextWrapping="Wrap" />
-              <TextBlock Text="No matching catalog track yet" IsVisible="{Binding IsUnmatched}" Classes="subtle" FontSize="11" />
-            </StackPanel>
+            <TextBlock Text="{Binding Snippet}" IsVisible="{Binding HasSnippet}" Classes="subtle" FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="560" />
+            <TextBlock Text="No matching catalog track yet" IsVisible="{Binding IsUnmatched}" Classes="subtle" FontSize="11" />
+          </StackPanel>
           </Button>
           <WrapPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
-            <Button Classes="secondary" Content="Lyrics" Command="{Binding LyricsCommand}" Margin="3,3"
-                    AutomationProperties.Name="View song lyrics" />
+            <Button Classes="secondary" Content="Download" Command="{Binding DownloadCommand}" Margin="3,3"
+                    IsEnabled="{Binding IsMatched}" AutomationProperties.Name="Download song" />
             <Button Classes="secondary" Content="{Binding LikeText}" Command="{Binding LikeCommand}" IsEnabled="{Binding CanLike}" Margin="3,3"
                     AutomationProperties.Name="Like song" />
             <Button Classes="secondary" Content="Playlist" Command="{Binding PlaylistCommand}" IsEnabled="{Binding CanLike}" Margin="3,3"
@@ -193,8 +194,79 @@
                   </StackPanel>
                 </Border>
               </Grid>
-              <TextBlock Text="Search and playback are available in development. Account recommendations and downloads are still being built."
-                         Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+              <Border IsVisible="{Binding !Home.IsConnected}" Background="{DynamicResource Surface}"
+                      BorderBrush="{DynamicResource Outline}" BorderThickness="1" CornerRadius="16" Padding="22">
+                <StackPanel Spacing="12" MaxWidth="520">
+                  <TextBlock Text="MADE FOR YOUR MOMENTS" Foreground="{DynamicResource Accent}" FontSize="10" FontWeight="Bold" />
+                  <TextBlock Text="Connect your YouTube account" FontSize="24" FontWeight="Bold" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding Home.HomeStatus}" Classes="muted" FontSize="13" TextWrapping="Wrap" />
+                  <Button Classes="action" Content="Connect account" Command="{Binding Home.ConnectCommand}"
+                          AutomationProperties.Name="Connect account" />
+                </StackPanel>
+              </Border>
+              <StackPanel IsVisible="{Binding Home.IsConnected}" Spacing="16">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel Spacing="3">
+                    <TextBlock Text="Your recommendations" FontSize="18" FontWeight="Bold" />
+                    <TextBlock Text="{Binding Home.AccountDisplayName}" Classes="muted" FontSize="12" />
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="secondary" Content="Refresh" Command="{Binding Home.RefreshCommand}"
+                            AutomationProperties.Name="Refresh recommendations" />
+                    <Button Classes="secondary" Content="Sign out" Command="{Binding Home.SignOutCommand}"
+                            AutomationProperties.Name="Sign out" />
+                  </StackPanel>
+                </Grid>
+                <TextBlock Text="{Binding Home.HomeStatus}" IsVisible="{Binding Home.Loading}" Classes="muted" FontSize="12" />
+                <ItemsControl ItemsSource="{Binding Home.Shelves}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:HomeShelfViewModel">
+                      <StackPanel Spacing="10" Margin="0,0,0,18">
+                        <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="Bold" />
+                        <ItemsControl ItemsSource="{Binding Items}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:HomeItemViewModel">
+                              <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
+                                      BorderThickness="1" CornerRadius="14" Padding="14" Margin="0,0,10,0"
+                                      Width="320">
+                                <StackPanel Spacing="8">
+                                  <Image Source="{Binding Artwork}" Width="120" Height="120" Stretch="UniformToFill"
+                                         RadiusX="10" RadiusY="10" VerticalAlignment="Top" />
+                                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" MaxWidth="290" />
+                                  <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+                                  <TextBlock Text="{Binding Album}" Classes="subtle" FontSize="10" TextTrimming="CharacterEllipsis" />
+                                  <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Classes="secondary" Content="Play" Command="{Binding PlayCommand}" IsVisible="{Binding IsSong}" />
+                                    <Button Classes="secondary" Content="Queue" Command="{Binding QueueCommand}" IsVisible="{Binding IsSong}" />
+                                    <Button Classes="secondary" Content="Like" Command="{Binding LikeCommand}" IsVisible="{Binding IsSong}" />
+                                    <Button Classes="secondary" Content="{Binding ExpandText}" Command="{Binding ExpandCommand}"
+                                            IsVisible="{Binding IsCollection}" />
+                                  </StackPanel>
+                                  <ItemsControl ItemsSource="{Binding Tracks}" IsVisible="{Binding IsExpanded}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:HomeTrackRowViewModel">
+                                        <Border Background="{DynamicResource RaisedSurface}" CornerRadius="10" Padding="10" Margin="0,4,0,0">
+                                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <StackPanel>
+                                              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                              <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="10" TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                            <Button Classes="secondary" Content="Play" Command="{Binding PlayCommand}" />
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
             </StackPanel>
 
             <!-- Real local playlist operations. Songs arrive with the catalog/playback phases. -->
@@ -263,6 +335,8 @@
                                     AutomationProperties.Name="Rename playlist action" />
                             <Button Classes="secondary" Content="Delete" Command="{Binding BeginDeleteCommand}"
                                     AutomationProperties.Name="Delete playlist action" />
+                            <Button Classes="secondary" Content="Download" Command="{Binding DownloadCommand}"
+                                    AutomationProperties.Name="Download playlist" />
                           </StackPanel>
                           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsEditing}">
                             <Button Classes="action" Content="Save" Command="{Binding SaveNameCommand}" AutomationProperties.Name="Save playlist name" />
@@ -300,7 +374,11 @@
               </ListBox>
               <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Text="Manual queue" FontSize="18" FontWeight="Bold" />
-                <TextBlock Grid.Column="1" Text="{Binding Search.QueueSummary}" Classes="muted" FontSize="12" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                  <TextBlock Text="{Binding Search.QueueSummary}" Classes="muted" FontSize="12" />
+                  <Button Classes="secondary" Content="Download queue" Command="{Binding DownloadQueueCommand}"
+                          AutomationProperties.Name="Download queue" />
+                </StackPanel>
               </Grid>
               <ListBox ItemsSource="{Binding Search.QueuedTracks}" IsVisible="{Binding Search.HasQueuedTracks}"
                        ItemTemplate="{StaticResource SavedTrackTemplate}" MaxHeight="280" Background="Transparent"
@@ -396,34 +474,64 @@
               </ItemsControl>
               <ListBox ItemsSource="{Binding Search.Tracks}" IsVisible="{Binding Search.HasTracks}" ItemTemplate="{StaticResource SearchTrackTemplate}"
                        MaxHeight="440" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                       AutomationProperties.Name="Song search results">
+                       ScrollViewer.IsDeferredScrollingEnabled="True" ava:VirtualizingStackPanel.IsVirtualizing="True"
+                       ava:VirtualizingStackPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Song search results">
                 <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
               </ListBox>
               <TextBlock Text="{Binding Search.LyricSearchStatus}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
               <ListBox ItemsSource="{Binding Search.LyricHits}" IsVisible="{Binding Search.HasLyricHits}" ItemTemplate="{StaticResource SearchTrackTemplate}"
                        MaxHeight="400" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                       AutomationProperties.Name="Lyric search results">
+                       ScrollViewer.IsDeferredScrollingEnabled="True" ava:VirtualizingStackPanel.IsVirtualizing="True"
+                       ava:VirtualizingStackPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Lyric search results">
                 <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
               </ListBox>
-              <TextBlock Text="Select a result to play it. Queue adds only that song without interrupting playback."
+              <TextBlock Text="Select a result to play it. Queue adds only that song without interrupting playback. Download saves that song."
                          Classes="subtle" FontSize="11" TextWrapping="Wrap" />
             </StackPanel>
 
-            <!-- Honest, navigable states for the features that will be implemented later. -->
-            <StackPanel IsVisible="{Binding IsFeaturePage}" Spacing="20" MaxWidth="1050" HorizontalAlignment="Stretch">
-              <TextBlock Text="{Binding FeatureEyebrow}" Foreground="{DynamicResource Accent}" FontWeight="Bold" FontSize="10" />
-              <TextBlock Text="{Binding PageTitle}" FontWeight="Bold" FontSize="29" />
-              <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Outline}"
-                      BorderThickness="1" CornerRadius="18" MinHeight="300" Padding="32">
-                <StackPanel Spacing="13" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="430">
-                  <Border Width="55" Height="55" CornerRadius="17" Background="{DynamicResource RaisedSurface}" HorizontalAlignment="Left">
-                    <Viewbox Width="24" Height="24"><Path Data="{StaticResource MusicIcon}" Stroke="{DynamicResource Accent}" StrokeThickness="1.6" /></Viewbox>
-                  </Border>
-                  <TextBlock Text="{Binding FeatureTitle}" FontSize="21" FontWeight="Bold" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding FeatureDescription}" Classes="muted" FontSize="13" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding FeatureFootnote}" Foreground="{DynamicResource Accent}" FontSize="10" FontWeight="Bold" Margin="0,8,0,0" />
-                  <Button Classes="secondary" Content="Back to Home  →" Command="{Binding NavigateCommand}" CommandParameter="home"
-                          HorizontalAlignment="Left" AutomationProperties.Name="Back to Home" />
+            <!-- Local download jobs started from search, queues, and playlists. -->
+            <StackPanel IsVisible="{Binding IsDownloads}" Spacing="20" MaxWidth="1050" HorizontalAlignment="Stretch">
+              <StackPanel Spacing="5">
+                <TextBlock Text="OFFLINE LISTENING" Foreground="{DynamicResource Accent}" FontSize="10" FontWeight="Bold" />
+                <TextBlock Text="Downloads" FontSize="29" FontWeight="Bold" />
+                <TextBlock Text="Audio and video are prepared by your local resolver." Classes="muted" FontSize="13" TextWrapping="Wrap" />
+              </StackPanel>
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <TextBlock Text="{Binding Download.JobCountText}" Classes="muted" FontSize="12" />
+                <Button Classes="secondary" Content="Refresh" Command="{Binding Download.RefreshCommand}"
+                        AutomationProperties.Name="Refresh downloads" />
+              </Grid>
+              <TextBlock Text="{Binding Download.Status}" Classes="subtle" FontSize="11" TextWrapping="Wrap" />
+              <Border IsVisible="{Binding Download.HasJobs}" Background="{DynamicResource Surface}"
+                      BorderBrush="{DynamicResource Outline}" BorderThickness="1" CornerRadius="16" Padding="16">
+                <ListBox ItemsSource="{Binding Download.Jobs}" MaxHeight="520" Background="Transparent"
+                         BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         AutomationProperties.Name="Download jobs">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                      <Border Background="{DynamicResource RaisedSurface}" CornerRadius="12" Padding="14" Margin="0,0,0,8">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                          <StackPanel>
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Container}" Classes="muted" FontSize="11" />
+                            <TextBlock Text="{Binding Quality}" Classes="subtle" FontSize="10" />
+                            <TextBlock Text="{Binding StatusText}" Classes="muted" FontSize="11" />
+                            <TextBlock Text="{Binding ProgressText}" Classes="subtle" FontSize="10" />
+                          </StackPanel>
+                          <Button Classes="secondary" Content="Cancel" Command="{Binding CancelCommand}"
+                                  IsVisible="{Binding CanCancel}" AutomationProperties.Name="Cancel download" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Border>
+              <Border IsVisible="{Binding !Download.HasJobs}" Background="{DynamicResource Surface}"
+                      BorderBrush="{DynamicResource Outline}" BorderThickness="1" CornerRadius="16" Padding="22">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="No downloads yet." FontWeight="SemiBold" />
+                  <TextBlock Text="Start a download from Search, the queue drawer, or a playlist row."
+                             Classes="muted" FontSize="12" TextWrapping="Wrap" />
                 </StackPanel>
               </Border>
             </StackPanel>

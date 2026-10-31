@@ -1,9 +1,12 @@
 # TheMashup — Native Android (Kotlin + Jetpack Compose)
 
-> **Current status:** The native app is built and unit-tested in GitHub Actions,
-> but the latest Home, downloads, playback controls, FFmpeg execution, and Google
-> sign-in have **not been verified on a physical Android device**. The notes
-> for older phases below are historical and may describe superseded designs.
+> **Current status:** The last published APK passed GitHub Actions, but the
+> current downloaded-playback, notification and performance changes are
+> **not yet compiled or device-tested**. The user asked to collect more bugs
+> before the next build, so do not push while the workflow would build it.
+> Home, playback controls, FFmpeg execution and Google sign-in still need
+> device verification. Older phase notes below are historical and may describe
+> superseded designs.
 > Android runs on the phone without a PC, gateway, or LAN; the web/desktop
 > applications remain alongside it in the repository.
 >
@@ -16,6 +19,14 @@
 > playlist recommendations; collections expand into individual songs on Home.
 > The feed currently loads its first response page, not every continuation.
 >
+> Completed download rows now request playback or enqueue the selected local
+> copy. New jobs persist their storage URI; legacy jobs attempt recovery by
+> exact filename, folder and size. Missing or inaccessible copies show an error
+> instead of silently streaming. These paths and the registered Media3 session
+> are pending compilation and real-device validation. The queue is currently
+> in memory; restoring it after a full process death or a system media-key
+> resumption is not implemented.
+>
 > Download transfers use four concurrent byte ranges when the source supports
 > them, validate ranges and HTTP validators, preserve segments for retries and
 > app restarts, and fall back to a full download when ranges are unsupported.
@@ -25,6 +36,48 @@
 > The session is stored with Android Keystore encryption in no-backup storage;
 > the legacy settings file is excluded from backup during migration. The music
 > endpoints and WebView sign-in depend on Google and can change or be blocked.
+
+### Notification reference review
+
+InnerTune, RiMusic and SimpMusic configure a Media3 notification provider and
+connect a controller to their session; latentjam relies on Media3 foreground
+handling and restricts external transport commands. PixelPlayerOSS also manages
+service/session foreground lifecycle explicitly. TheMashup controls its player
+in-process, so the current change explicitly registers the session with
+`MediaSessionService` instead of depending on a UI controller to connect. The
+same notification is used for lock-screen and Bluetooth transport. This is a
+source-level comparison, not evidence that it works on a particular device.
+
+### Pending device regression checklist
+
+Once the user approves building, test with the actual APK on Android 8–9,
+Android 10+, and a recent Android 13–15 device where available:
+
+- Tap a pre-update downloaded song and a new download with network disabled;
+  verify audio, progress, queue actions and playback after app backgrounding.
+  Delete/move a copy and check that a useful error appears. On Android 10+,
+  verify MediaStore recovery, and on Android 8–9 verify the app-folder fallback.
+- Download an MP4, play it offline with video and audio, and confirm the separate
+  video group appears only while completed MP4 downloads exist.
+- Play a song and check the notification, title/art, pause/resume, next/previous,
+  lock-screen and Bluetooth controls. Check after pausing, reopening the app and
+  swiping it away; Android/OEM notification settings can change presentation.
+- Verify search-result play retains the prior current song immediately behind it,
+  and that queue actions add only the requested song without starting it.
+- Exercise long Search/Library/queue lists and simultaneous downloads while
+  measuring frame timing and CPU; no device profiling has yet established the
+  cause or magnitude of the reported lag.
+
+A focused on-device storage/playback/notification regression exists in
+`OfflinePlaybackNotificationTest` and uses generated local audio, including
+legacy-location recovery, background playback, notification controls, and cancelled-save cleanup. It has
+not been compiled or run. After approval, run it on a connected device with:
+
+```bash
+cd android
+./gradlew connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=local.themashup.music.OfflinePlaybackNotificationTest
+```
 
 ## Hard requirements (user-locked)
 

@@ -35,9 +35,23 @@ class AppContainer(private val context: Context) {
         local.themashup.music.core.network.ExtractionService()
     }
 
+    /** In-memory authenticated feed cache; credentials remain in the encrypted session store. */
+    val recommendations: local.themashup.music.core.network.RecommendationsRepository by lazy {
+        local.themashup.music.core.network.RecommendationsRepository(appScope)
+    }
+
     /** N4 player: pure state machine + ExoPlayer shell (service attaches player). */
     val player: local.themashup.music.core.player.PlaybackEngine by lazy {
-        local.themashup.music.core.player.PlaybackEngine(context, extraction = { extraction })
+        local.themashup.music.core.player.PlaybackEngine(
+            context,
+            extraction = { extraction },
+            downloads = local.themashup.music.core.player.DownloadedPlayback(
+                jobs = { downloads.awaitLoaded(); downloads.state.value.jobs },
+                locate = { job -> local.themashup.music.core.download.MediaStoreWriter.findExisting(context, job) },
+                rememberLocation = { job, location -> downloads.rememberLocation(job.id, location) },
+            ),
+            onPlaybackStarted = { track, label -> library.recordPlay(track, context = label) },
+        )
     }
 
     /** N9: ffmpeg is bundled in the APK (jniLibs → nativeLibraryDir). */

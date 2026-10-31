@@ -20,8 +20,11 @@ library, recommendations) is on-device.
   source supports safe resume; non-range servers require starting over.
   Speed is source-dependent. Completed videos appear in a separate section
   only when present; completed audio remains under songs.
-- CI tests/builds do **not** prove actual account login, playback, FFmpeg
-  execution, device performance or download speed. Validate those on a device.
+- The latest offline-playback, notification, and lag-related edits are not yet
+  compiled or tested; the next build is paused while more bugs are collected.
+  Earlier CI results do **not** prove device playback, FFmpeg execution,
+  notification controls, performance, or download speed. See the device
+  checklist in `docs/ANDROID.md` before release.
 
 ## Debug APK — GitHub Actions (N9, preferred)
 

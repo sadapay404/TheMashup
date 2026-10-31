@@ -1,12 +1,15 @@
 package local.themashup.music
 
+import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import local.themashup.music.core.network.ExtractionService
 import local.themashup.music.core.player.PlayStatus
 import local.themashup.music.core.player.PlaybackEngine
 import local.themashup.music.core.player.PlayerSnapshot
 import org.junit.Assert
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,11 +25,20 @@ import org.junit.runner.RunWith
 class PlaybackSmokeTest {
 
     private lateinit var engine: PlaybackEngine
+    private lateinit var scenario: ActivityScenario<MainActivity>
+    private fun main(block: () -> Unit) = InstrumentationRegistry.getInstrumentation().runOnMainSync { block() }
 
     @Before
     fun setUp() {
         val app = ApplicationProvider.getApplicationContext<TheMashupApp>()
         engine = app.container.player
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+    }
+
+    @After
+    fun tearDown() {
+        main { engine.clearQueue() }
+        scenario.close()
     }
 
     @Test
@@ -35,7 +47,7 @@ class PlaybackSmokeTest {
         Assert.assertTrue("search failed: ${search.warnings}", search.tracks.size >= 2)
 
         // Play → resolving → playing with position advancing.
-        engine.playQueue(search.tracks, startIndex = 0)
+        main { engine.playQueue(search.tracks, startIndex = 0) }
         val playing = engine.awaitState(45_000) {
             it.status == PlayStatus.PLAYING && it.positionMs >= 0 && it.cursor == 0
         }
@@ -47,18 +59,18 @@ class PlaybackSmokeTest {
         Assert.assertTrue("position should advance: $p0 -> ${later.positionMs}", later.positionMs > p0)
 
         // Pause → PAUSED.
-        engine.togglePlay()
+        main { engine.togglePlay() }
         val paused = engine.awaitState(10_000) { it.status == PlayStatus.PAUSED }
         Assert.assertEquals(PlayStatus.PAUSED, paused.status)
 
         // Next → second track re-resolves and plays.
-        engine.nextTrack()
+        main { engine.nextTrack() }
         val next = engine.awaitState(45_000) { it.status == PlayStatus.PLAYING && it.cursor == 1 }
         Assert.assertEquals(1, next.cursor)
         Assert.assertEquals(search.tracks[1].id, next.current?.id)
 
         // Stop → idle, queue cleared.
-        engine.clearQueue()
+        main { engine.clearQueue() }
         val idle = engine.awaitState(10_000) { it.status == PlayStatus.IDLE && it.isEmpty }
         Assert.assertTrue(idle.isEmpty)
         Assert.assertEquals(PlayStatus.IDLE, idle.status)
@@ -68,14 +80,14 @@ class PlaybackSmokeTest {
     fun queueEditsReflectInState() {
         val t = ExtractionService().search("void - dancing in the moonlight", limit = 1).tracks.firstOrNull()
         Assert.assertNotNull(t)
-        engine.clearQueue()
+        main { engine.clearQueue() }
         engine.awaitState(5_000) { it.isEmpty }
 
-        engine.addToEnd(t!!)
+        main { engine.addToEnd(t!!) }
         engine.awaitState(5_000) { it.queue.size == 1 }
         val snap: PlayerSnapshot = engine.state.value
         Assert.assertEquals(1, snap.queue.size)
         Assert.assertEquals(-1, snap.cursor) // queued, not auto-started
-        engine.clearQueue()
+        main { engine.clearQueue() }
     }
 }

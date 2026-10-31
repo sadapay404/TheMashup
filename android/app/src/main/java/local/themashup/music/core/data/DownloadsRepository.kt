@@ -1,6 +1,7 @@
 package local.themashup.music.core.data
 
 import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,14 +30,24 @@ class DownloadsRepository(
     private val _state = MutableStateFlow(DownloadsData())
     val state: StateFlow<DownloadsData> = _state.asStateFlow()
     private val stateMutex = Mutex()
+    private val loaded = CompletableDeferred<Unit>()
 
     fun startLoad() {
         scope.launch { load() }
     }
 
-    suspend fun load() = stateMutex.withLock {
-        _state.value = store.read()
+    suspend fun load() {
+        try {
+            stateMutex.withLock { _state.value = store.read() }
+            loaded.complete(Unit)
+        } catch (e: Exception) {
+            loaded.completeExceptionally(e)
+            throw e
+        }
     }
+
+    /** Playback can start during app startup; don't mistake an unhydrated list for no downloads. */
+    suspend fun awaitLoaded() = loaded.await()
 
     /**
      * Validate + create a job — throws [IllegalArgumentException] with the
@@ -55,6 +66,7 @@ class DownloadsRepository(
             status = DownloadStatus.QUEUED,
             createdAt = now,
             updatedAt = now,
+            track = track.copy(localDownloadId = null),
         )
         stateMutex.withLock { _state.value = store.update { it.copy(jobs = it.jobs + job) } }
         return job
@@ -89,15 +101,30 @@ class DownloadsRepository(
         job.copy(warning = warning, updatedAt = System.currentTimeMillis())
     }
 
-    suspend fun markCompleted(jobId: String, filename: String, filesize: Long) = mutateJob(jobId) { job ->
+    suspend fun markCompleted(
+        jobId: String,
+        filename: String,
+        filesize: Long,
+        location: String? = null,
+        warning: String? = null,
+    ) = mutateJob(jobId) { job ->
         job.copy(
             status = DownloadStatus.COMPLETED,
             filename = filename,
             filesize = filesize,
+            location = location,
+            warning = warning,
             progress = 100,
+            speedBps = null,
+            etaSec = null,
             error = null,
             updatedAt = System.currentTimeMillis(),
         )
+    }
+
+    /** Persist a recovered legacy URI only if the same completed job still exists. */
+    suspend fun rememberLocation(jobId: String, location: String) = mutateJob(jobId) { job ->
+        if (job.status == DownloadStatus.COMPLETED) job.copy(location = location) else job
     }
 
     suspend fun remove(jobId: String) {

@@ -16,6 +16,11 @@ internal static class Program
         using var http = new HttpClient();
         App.SearchService = new GatewaySearchClient(http, host.GetEndpointAsync);
         App.PlaybackResolver = new GatewayPlaybackClient(http, host.GetEndpointAsync);
+        App.DownloadService = new GatewayDownloadClient(http, host.GetEndpointAsync);
+        var homeClient = new YouTubeMusicHomeClient();
+        var homeStore = new WindowsAccountStore(Path.Combine(root, "TheMashup", "account.txt"));
+        App.HomeService = new YouTubeMusicHomeService(homeClient, homeStore);
+        App.AccountSignInLauncher = new DesktopAccountSignInLauncher();
         var media = new VlcMediaDevice();
         App.MediaDevice = media;
         App.VideoSurfaceFactory = media.CreateVideoSurface;

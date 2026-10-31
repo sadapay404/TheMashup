@@ -4,6 +4,11 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -27,6 +32,7 @@ import androidx.compose.material.icons.outlined.DragIndicator
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PlaylistPlay
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -78,339 +84,197 @@ import local.themashup.music.ui.theme.LocalMashupTokens
 fun LibraryScreen(
     engine: PlaybackEngine,
     library: LibraryRepository,
-    playerState: PlayerSnapshot,
+    currentTrackId: String?,
     onDownload: (Track) -> Unit,
+    onDownloadPlaylist: ((List<Track>) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     val libState by library.state.collectAsState()
-
     var tab by rememberSaveable { mutableStateOf("liked") }
     var activePlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
     var creating by rememberSaveable { mutableStateOf(false) }
     var newName by rememberSaveable { mutableStateOf("") }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val activePl = activePlaylistId?.let { id -> libState.playlists.find { it.id == id } }
 
-    fun playContext(track: Track, queue: List<Track>, context: String) {
-        engine.playNow(track, context = context)
-        scope.launch { library.recordPlay(track, context = context) }
+    if (confirmDelete && activePl != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete playlist?") },
+            text = { Text("Delete “${activePl.name}”? This does not delete downloaded files.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        library.deletePlaylist(activePl.id)
+                        activePlaylistId = null
+                        confirmDelete = false
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
     }
 
-    /* ── playlist detail ── */
-    val activePl: Playlist? = activePlaylistId?.let { id -> libState.playlists.find { it.id == id } }
-    if (activePl != null) {
-        val tracks = libState.playlistTracks[activePl.id].orEmpty()
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            Row(
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(scheme.surface)
-                    .border(1.dp, tokens.border, RoundedCornerShape(999.dp))
-                    .clickable { activePlaylistId = null }
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("‹ All playlists", color = tokens.textDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Artwork(
-                    src = tracks.firstOrNull()?.artworkBest ?: tracks.firstOrNull()?.artwork,
-                    label = activePl.name,
-                    corner = 16.dp,
-                    modifier = Modifier.size(120.dp),
-                )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 16.dp),
-                ) {
-                    Text(
-                        text = "PLAYLIST",
-                        color = tokens.accent,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp,
-                    )
-                    Text(
-                        text = activePl.name,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = scheme.onBackground,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                    Text(
-                        text = "${tracks.size} track${if (tracks.size == 1) "" else "s"}",
-                        color = tokens.textDim,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    Row(modifier = Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                tracks.firstOrNull()?.let { playContext(it, tracks, "playlist") }
-                            },
-                            enabled = tracks.isNotEmpty(),
-                            shape = RoundedCornerShape(999.dp),
-                        ) {
+    LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        if (activePl != null) {
+            val tracks = libState.playlistTracks[activePl.id].orEmpty()
+            item {
+                Column {
+                    Row(
+                        modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(999.dp))
+                            .background(scheme.surface).border(1.dp, tokens.border, RoundedCornerShape(999.dp))
+                            .clickable { activePlaylistId = null }.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) { Text("‹ All playlists", color = tokens.textDim, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                    Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Artwork(src = tracks.firstOrNull()?.artworkBest ?: tracks.firstOrNull()?.artwork,
+                            label = activePl.name, corner = 16.dp, modifier = Modifier.size(120.dp))
+                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                            Text("PLAYLIST", color = tokens.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                            Text(activePl.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold,
+                                color = scheme.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${tracks.size} track${if (tracks.size == 1) "" else "s"}", color = tokens.textDim, fontSize = 13.sp)
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (tracks.isNotEmpty()) {
+                            TextButton(onClick = { onDownloadPlaylist?.invoke(tracks) }) {
+                                Text("Download")
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { tracks.firstOrNull()?.let { engine.playNow(it, context = "playlist") } },
+                            enabled = tracks.isNotEmpty(), shape = RoundedCornerShape(999.dp)) {
                             Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
                             Text("  Play first", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    library.deletePlaylist(activePl.id)
-                                    activePlaylistId = null
-                                }
-                            },
-                            shape = RoundedCornerShape(999.dp),
-                        ) {
+                        OutlinedButton(onClick = { confirmDelete = true }, shape = RoundedCornerShape(999.dp)) {
                             Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = tokens.accent)
                             Text("  Delete", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = tokens.accent)
                         }
                     }
                 }
             }
-
             if (tracks.isEmpty()) {
-                EmptyState(
-                    icon = { Icon(Icons.Outlined.PlaylistPlay, contentDescription = null) },
-                    title = "Empty playlist",
-                    body = "Use “Add to playlist” on any search result or row.",
-                )
+                item { EmptyState(icon = { Icon(Icons.Outlined.PlaylistPlay, contentDescription = null) },
+                    title = "Empty playlist", body = "Use “Add to playlist” on any search result or row.") }
             } else {
-                ReorderableTrackList(
-                    playlistId = activePl.id,
-                    tracks = tracks,
-                    playerState = playerState,
-                    library = library,
-                    onPlay = { t -> playContext(t, tracks, "playlist") },
-                    onDownload = onDownload,
-                )
-                if (tracks.size > 1) {
-                    Text(
-                        text = "long-press a row to drag — order syncs to your library",
-                        color = tokens.textFaint,
-                        fontSize = 11.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp, bottom = 6.dp),
+                itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
+                    ReorderableTrackRow(
+                        playlistId = activePl.id, tracks = tracks, index = index, track = track,
+                        currentTrackId = currentTrackId, library = library,
+                        onPlay = { engine.playNow(it, context = "playlist") }, onDownload = onDownload,
                     )
+                }
+                if (tracks.size > 1) item {
+                    Text("Long-press a row to reorder it", color = tokens.textFaint, fontSize = 11.sp,
+                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp))
                 }
             }
-        }
-        return
-    }
-
-    /* ── tabs ── */
-    val tabs = listOf(
-        Triple("liked", "Liked", libState.likes.size),
-        Triple("playlists", "Playlists", libState.playlists.size),
-        Triple("history", "Recently played", libState.history.size),
-    )
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            tabs.forEach { (id, label, count) ->
-                val selected = tab == id
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(if (selected) tokens.accent else scheme.surface)
-                        .border(
-                            1.dp,
-                            if (selected) tokens.accent else tokens.border,
-                            RoundedCornerShape(999.dp),
-                        )
-                        .clickable { tab = id }
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TabIcon(id = id, selected = selected)
-                    Text(
-                        text = " $label ",
-                        color = if (selected) tokens.accentContrast else tokens.textDim,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = count.toString(),
-                        color = if (selected) tokens.accentContrast else tokens.textFaint,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-        }
-
-        when (tab) {
-            "liked" -> {
-                if (libState.likes.isEmpty()) {
-                    EmptyState(
-                        icon = { Icon(Icons.Outlined.FavoriteBorder, contentDescription = null) },
-                        title = "No liked songs yet",
-                        body = "Tap the heart on any track to keep it here.",
-                    )
-                }
-                libState.likes.forEach { t ->
-                    TrackRow(
-                        track = t,
-                        isCurrent = playerState.current?.id == t.id,
-                        onClick = { playContext(t, libState.likes, "library") },
-                        modifier = Modifier.padding(vertical = 2.dp),
-                        onDownload = onDownload,
-                        trailing = { AddToPlaylistButton(track = t, library = library) },
-                    )
-                }
-            }
-
-            "playlists" -> {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    if (!creating) {
+        } else {
+            val tabs = listOf(
+                Triple("liked", "Liked", libState.likes.size),
+                Triple("playlists", "Playlists", libState.playlists.size),
+                Triple("history", "Recently played", libState.history.size),
+            )
+            item {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tabs.forEach { (id, label, count) ->
+                        val selected = tab == id
                         Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(tokens.accent.copy(alpha = 0.10f))
-                                .border(1.dp, tokens.accent.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
-                                .clickable { creating = true }
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                .background(if (selected) tokens.accent else scheme.surface)
+                                .border(1.dp, if (selected) tokens.accent else tokens.border, RoundedCornerShape(999.dp))
+                                .clickable { tab = id }.padding(horizontal = 14.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.Filled.Add, contentDescription = null, tint = tokens.accent, modifier = Modifier.size(14.dp))
-                            Text(
-                                text = " New playlist",
-                                color = tokens.accent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    } else {
-                        OutlinedTextField(
-                            value = newName,
-                            onValueChange = { newName = it.take(120) },
-                            placeholder = { Text("Playlist name…", color = tokens.textFaint) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier.width(170.dp),
-                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = tokens.accent,
-                                unfocusedBorderColor = tokens.accent.copy(alpha = 0.6f),
-                                focusedContainerColor = scheme.surface,
-                                unfocusedContainerColor = scheme.surface,
-                                focusedTextColor = scheme.onBackground,
-                                unfocusedTextColor = scheme.onBackground,
-                                cursorColor = tokens.accent,
-                            ),
-                        )
-                        TextButton(
-                            onClick = {
-                                val title = newName.trim()
-                                if (title.isNotEmpty()) {
-                                    scope.launch {
-                                        val pl = library.createPlaylist(title)
-                                        newName = ""
-                                        creating = false
-                                        activePlaylistId = pl.id
-                                    }
-                                }
-                            },
-                            enabled = newName.trim().isNotEmpty(),
-                        ) {
-                            Text("Create", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = tokens.accent)
-                        }
-                        TextButton(onClick = { creating = false; newName = "" }) {
-                            Text("Cancel", fontSize = 12.sp, color = tokens.textFaint)
+                            TabIcon(id, selected)
+                            Text(" $label ", color = if (selected) tokens.accentContrast else tokens.textDim,
+                                fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(count.toString(), color = if (selected) tokens.accentContrast else tokens.textFaint, fontSize = 11.sp)
                         }
                     }
                 }
-
-                if (libState.playlists.isEmpty()) {
-                    EmptyState(
-                        icon = { Icon(Icons.Outlined.PlaylistPlay, contentDescription = null) },
-                        title = "No playlists yet",
-                        body = "Create one, then add tracks from search results.",
-                    )
-                } else {
-                    libState.playlists.chunked(2).forEach { rowItems ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            rowItems.forEach { pl ->
-                                val cover = libState.playlistTracks[pl.id]?.firstOrNull()
-                                PlaylistCard(
-                                    title = pl.name,
-                                    count = libState.playlistTracks[pl.id]?.size ?: 0,
+            }
+            when (tab) {
+                "liked" -> {
+                    if (libState.likes.isEmpty()) item {
+                        EmptyState(icon = { Icon(Icons.Outlined.FavoriteBorder, contentDescription = null) },
+                            title = "No liked songs yet", body = "Tap the heart on any track to keep it here.")
+                    }
+                    items(libState.likes, key = { it.id }) { track ->
+                        TrackRow(track = track, isCurrent = currentTrackId == track.id,
+                            onClick = { engine.playNow(track, context = "library") },
+                            modifier = Modifier.padding(vertical = 2.dp), onDownload = onDownload,
+                            onQueue = { engine.addToEnd(track) },
+                            trailing = { AddToPlaylistButton(track = track, library = library) })
+                    }
+                }
+                "playlists" -> {
+                    item {
+                        if (!creating) {
+                            TextButton(onClick = { creating = true }) {
+                                Icon(Icons.Filled.Add, contentDescription = null, tint = tokens.accent, modifier = Modifier.size(14.dp))
+                                Text(" New playlist", color = tokens.accent, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Column(Modifier.fillMaxWidth()) {
+                                OutlinedTextField(value = newName, onValueChange = { newName = it.take(120) },
+                                    placeholder = { Text("Playlist name…", color = tokens.textFaint) },
+                                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                                Row {
+                                    TextButton(onClick = {
+                                        val title = newName.trim()
+                                        if (title.isNotEmpty()) scope.launch {
+                                            val playlist = library.createPlaylist(title)
+                                            newName = ""
+                                            creating = false
+                                            activePlaylistId = playlist.id
+                                        }
+                                    }, enabled = newName.trim().isNotEmpty()) { Text("Create") }
+                                    TextButton(onClick = { creating = false; newName = "" }) { Text("Cancel") }
+                                }
+                            }
+                        }
+                    }
+                    if (libState.playlists.isEmpty()) item {
+                        EmptyState(icon = { Icon(Icons.Outlined.PlaylistPlay, contentDescription = null) },
+                            title = "No playlists yet", body = "Create one, then add tracks from search results.")
+                    }
+                    items(libState.playlists.chunked(2)) { rowItems ->
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            rowItems.forEach { playlist ->
+                                val cover = libState.playlistTracks[playlist.id]?.firstOrNull()
+                                PlaylistCard(title = playlist.name, count = libState.playlistTracks[playlist.id]?.size ?: 0,
                                     coverUrl = cover?.artworkBest ?: cover?.artwork,
-                                    onClick = { activePlaylistId = pl.id },
-                                    modifier = Modifier.weight(1f),
-                                )
+                                    onClick = { activePlaylistId = playlist.id }, modifier = Modifier.weight(1f))
                             }
                             if (rowItems.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }
-            }
-
-            else -> {
-                if (libState.history.isEmpty()) {
-                    EmptyState(
-                        icon = { Icon(Icons.Outlined.History, contentDescription = null) },
-                        title = "Nothing played yet",
-                        body = "Start a track and it shows up here instantly.",
-                    )
-                }
-                val histTracks = libState.history.map { it.track }
-                libState.history.forEach { h ->
-                    TrackRow(
-                        track = h.track,
-                        isCurrent = playerState.current?.id == h.track.id,
-                        onClick = { playContext(h.track, histTracks, "history") },
-                        modifier = Modifier.padding(vertical = 2.dp),
-                        onDownload = onDownload,
-                        trailing = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    text = relativeTime(h.at, System.currentTimeMillis()),
-                                    color = tokens.textFaint,
-                                    fontSize = 10.sp,
-                                )
-                                AddToPlaylistButton(track = h.track, library = library)
-                            }
-                        },
-                    )
+                else -> {
+                    if (libState.history.isEmpty()) item {
+                        EmptyState(icon = { Icon(Icons.Outlined.History, contentDescription = null) },
+                            title = "Nothing played yet", body = "Start a track and it shows up here.")
+                    }
+                    items(libState.history, key = { it.track.id }) { entry ->
+                        val track = entry.track
+                        TrackRow(track = track, isCurrent = currentTrackId == track.id,
+                            onClick = { engine.playNow(track, context = "history") },
+                            modifier = Modifier.padding(vertical = 2.dp), onDownload = onDownload,
+                            onQueue = { engine.addToEnd(track) },
+                            trailing = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(relativeTime(entry.at, System.currentTimeMillis()), color = tokens.textFaint, fontSize = 10.sp)
+                                    AddToPlaylistButton(track = track, library = library)
+                                }
+                            })
+                    }
                 }
             }
         }
@@ -508,10 +372,12 @@ private fun EmptyState(icon: @Composable () -> Unit, title: String, body: String
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ReorderableTrackList(
+private fun ReorderableTrackRow(
     playlistId: String,
     tracks: List<Track>,
-    playerState: PlayerSnapshot,
+    index: Int,
+    track: Track,
+    currentTrackId: String?,
     library: LibraryRepository,
     onPlay: (Track) -> Unit,
     onDownload: ((Track) -> Unit)? = null,
@@ -520,8 +386,7 @@ private fun ReorderableTrackList(
     val density = LocalDensity.current
     val rowPx = with(density) { 60.dp.toPx() }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        tracks.forEachIndexed { index, track ->
+    run {
             var dragOffsetY by remember(track.id, playlistId) { mutableFloatStateOf(0f) }
             var dragging by remember(track.id, playlistId) { mutableStateOf(false) }
 
@@ -534,7 +399,7 @@ private fun ReorderableTrackList(
                         scaleY = scaleX
                         if (dragging) shadowElevation = 12f
                     }
-                    .pointerInput(track.id, playlistId) {
+                    .pointerInput(track.id, playlistId, index, tracks.size) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = { dragging = true },
                             onDrag = { change, dragAmount ->
@@ -560,7 +425,7 @@ private fun ReorderableTrackList(
             ) {
                 TrackRow(
                     track = track,
-                    isCurrent = playerState.current?.id == track.id,
+                    isCurrent = currentTrackId == track.id,
                     onClick = { onPlay(track) },
                     modifier = Modifier.padding(vertical = 2.dp),
                     onDownload = onDownload,
@@ -592,7 +457,6 @@ private fun ReorderableTrackList(
                     },
                 )
             }
-        }
     }
 }
 

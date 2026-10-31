@@ -10,7 +10,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.isActive
@@ -89,6 +91,7 @@ fun PlayerVisualizer(
         val accent2 = accents.second
         val width = size.width
         val height = size.height
+        val gradient = Brush.verticalGradient(colors = listOf(accent, accent2), startY = 0f, endY = height)
         for (i in 0 until bars) {
             val raw = VisualizerBars.levelFromFft(fftBytes, i, bars)
                 ?: VisualizerBars.idleLevel(phase, i)
@@ -96,28 +99,19 @@ fun PlayerVisualizer(
                 .let { it * (1f + 0.32f * pulse.value) }.coerceAtMost(1f)
             val rect = VisualizerBars.barRect(index = i, bars = bars, width = width, height = height, level = level)
             if (rect.w <= 0f || rect.h <= 0f) continue
-            val gradient = Brush.verticalGradient(
-                colors = listOf(accent, accent2),
-                startY = rect.y,
-                endY = height,
+            drawRoundRect(
+                brush = gradient,
+                topLeft = Offset(rect.x, rect.y),
+                size = Size(rect.w, rect.h),
+                cornerRadius = CornerRadius(rect.r, rect.r),
+                alpha = VisualizerBars.barAlpha(level),
             )
-            val path = Path().apply {
-                val r = rect.r
-                moveTo(rect.x, rect.y + rect.h)
-                lineTo(rect.x, rect.y + r)
-                quadraticBezierTo(rect.x, rect.y, rect.x + r, rect.y)
-                lineTo(rect.x + rect.w - r, rect.y)
-                quadraticBezierTo(rect.x + rect.w, rect.y, rect.x + rect.w, rect.y + r)
-                lineTo(rect.x + rect.w, rect.y + rect.h)
-                close()
-            }
-            drawPath(path, brush = gradient, alpha = VisualizerBars.barAlpha(level))
         }
     }
 }
 
 /** OS "remove animations" accessibility flag (web prefers-reduced-motion). */
-private fun animationsReduced(context: Context): Boolean = runCatching {
+internal fun animationsReduced(context: Context): Boolean = runCatching {
     Settings.Global.getFloat(
         context.contentResolver,
         Settings.Global.ANIMATOR_DURATION_SCALE,

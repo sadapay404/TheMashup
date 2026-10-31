@@ -14,6 +14,7 @@ public sealed class SearchViewModel : INotifyPropertyChanged, IDisposable
     private readonly ISearchService _service;
     private readonly Library _library;
     private readonly PlayerViewModel? _player;
+    private readonly IDownloadService? _downloadService;
     private TimedLyricLine[] _timedLines = [];
     private string? _lyricsTrackId;
     private string _activeLyric = "";
@@ -25,11 +26,13 @@ public sealed class SearchViewModel : INotifyPropertyChanged, IDisposable
     private CatalogTrack? _playlistTrack;
     private PlaylistChoice? _selectedPlaylist;
 
-    public SearchViewModel(ISearchService service, Library library, PlayerViewModel? player = null)
+    public SearchViewModel(ISearchService service, Library library, PlayerViewModel? player = null,
+        IDownloadService? downloadService = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _library = library ?? throw new ArgumentNullException(nameof(library));
         _player = player;
+        _downloadService = downloadService;
         if (_player?.Controller is { } controller) controller.PropertyChanged += PlayerChanged;
         SubmitCommand = new ActionCommand(() => { _ = SubmitAsync(); });
         CloseLyricsCommand = new ActionCommand(CloseLyrics);
@@ -112,6 +115,7 @@ public sealed class SearchViewModel : INotifyPropertyChanged, IDisposable
     public bool HasHistoryTracks => HistoryTracks.Count > 0;
     public bool HasPlaylistChoices => PlaylistChoices.Count > 0;
     public bool CanAddToPlaylist => _library.CanEdit && _playlistTrack is not null && _selectedPlaylist is not null;
+    public bool CanDownload => _downloadService is not null;
     public string PlaylistTrackTitle => _playlistTrack?.Title ?? "";
     public string QueueSummary => QueuedTracks.Count == 1 ? "1 song queued" : $"{QueuedTracks.Count} songs queued";
     public string LikedSummary => LikedTracks.Count == 1 ? "1 liked song" : $"{LikedTracks.Count} liked songs";
@@ -197,7 +201,7 @@ public sealed class SearchViewModel : INotifyPropertyChanged, IDisposable
                 ArtistsAndAlbums.Add(new SearchSuggestionViewModel($"Album · {album.Title}", () => ChooseSuggestion($"{album.Title} {album.Artist}")));
             var warnings = result.Warnings ?? [];
             _catalogStatus = Tracks.Count == 0 && ArtistsAndAlbums.Count == 0 ? "No catalog matches found." :
-                warnings.Contains("mock_mode") ? "Fixture results (not live music)." :
+                warnings.Contains("mock_mode") ? "Demo results (not live music)." :
                 warnings.Any(w => w.Contains("fallback", StringComparison.OrdinalIgnoreCase)) ? "Showing results from a fallback source." : "Catalog results";
             Notify(nameof(CatalogStatus), nameof(HasTracks), nameof(HasArtistsAndAlbums));
         }
@@ -225,7 +229,7 @@ public sealed class SearchViewModel : INotifyPropertyChanged, IDisposable
                 var track = hit.Track?.IsUsable == true ? hit.Track : new CatalogTrack { Title = hit.Title, Artist = hit.Artist };
                 LyricHits.Add(new SearchTrackRowViewModel(this, track!, hit.Snippet));
             }
-            _lyricSearchStatus = result.Source == "mock" ? "Lyric matches · fixture data" :
+            _lyricSearchStatus = result.Source == "mock" ? "Lyric matches · demo data" :
                 LyricHits.Count == 0 ? "No lyric matches found." :
                 (result.Warnings ?? []).Length > 0 ? "Some lyric matches could not be matched to the catalog." : "Lyric matches · Genius";
             Notify(nameof(LyricSearchStatus), nameof(HasLyricHits));
@@ -264,14 +268,14 @@ public sealed class SearchViewModel : INotifyPropertyChanged, IDisposable
                 _timedLines = lyrics.Synced.Where(line => line is not null && double.IsFinite(line.Time) && line.Time >= 0 && line.Time < 86_400)
                     .OrderBy(line => line.Time).ToArray();
                 _lyricsText = string.Join("\n", _timedLines.Select(line => $"{TimeSpan.FromSeconds(line.Time):mm\\:ss}  {line.Text}"));
-                _lyricsStatus = lyrics.Provider == "mock" ? "Timed lyrics · fixture data" :
+                _lyricsStatus = lyrics.Provider == "mock" ? "Timed lyrics · demo data" :
                     "Timed lyrics from LRCLIB · the current line follows playback.";
                 RefreshActiveLyric();
             }
             else if (!string.IsNullOrWhiteSpace(lyrics.Plain))
             {
                 _lyricsText = lyrics.Plain;
-                _lyricsStatus = lyrics.Provider == "mock" ? "Lyrics · fixture data" : "Plain lyrics from LRCLIB.";
+                _lyricsStatus = lyrics.Provider == "mock" ? "Lyrics · demo data" : "Plain lyrics from LRCLIB.";
             }
             else _lyricsStatus = "No lyric text is available for this song.";
             Notify(nameof(LyricsText), nameof(LyricsStatus));
@@ -323,6 +327,23 @@ public sealed class SearchViewModel : INotifyPropertyChanged, IDisposable
         }
         _actionStatus = !_library.CanEdit || !_library.LastWriteSucceeded ? "Queued for this session only; library storage is unavailable." :
             "Added one song to the queue without interrupting playback.";
+        Notify(nameof(ActionStatus));
+    }
+    internal async Task DownloadTrackAsync(CatalogTrack track)
+    {
+        if (!track.IsUsable || _downloadService is null)
+        {
+            _actionStatus = "Downloads are unavailable in this build."; Notify(nameof(ActionStatus)); return;
+        }
+        try
+        {
+            var jobs = await _downloadService.StartBatchAsync([track], "mp3", "320k", CancellationToken.None);
+            _actionStatus = jobs.Count == 0 ? "Download started." : $"Started {jobs.Count} download(s).";
+        }
+        catch (Exception ex)
+        {
+            _actionStatus = Message(ex, "This song could not be downloaded. Please try again.");
+        }
         Notify(nameof(ActionStatus));
     }
     internal void ChoosePlaylist(CatalogTrack track)
@@ -447,7 +468,7 @@ public sealed class SearchTrackRowViewModel : INotifyPropertyChanged
         PlayCommand = new ActionCommand(() => owner.PlayTrack(track));
         LikeCommand = new ActionCommand(() => owner.ToggleLike(track));
         QueueCommand = new ActionCommand(() => owner.QueueTrack(track));
-        LyricsCommand = new ActionCommand(() => { _ = owner.OpenLyricsAsync(track); });
+        DownloadCommand = new ActionCommand(() => { _ = owner.DownloadTrackAsync(track); });
         PlaylistCommand = new ActionCommand(() => owner.ChoosePlaylist(track));
     }
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -461,10 +482,11 @@ public sealed class SearchTrackRowViewModel : INotifyPropertyChanged
     public bool CanPlay => IsMatched && _owner.CanPlay;
     public string LikeText => _owner.IsLiked(_track) ? "Liked" : "Like";
     public string Detail => _track.Category == "video" ? $"{Artist} · Video" : Artist;
+    public string DownloadText => "Download";
     public ICommand PlayCommand { get; }
     public ICommand LikeCommand { get; }
     public ICommand QueueCommand { get; }
-    public ICommand LyricsCommand { get; }
+    public ICommand DownloadCommand { get; }
     public ICommand PlaylistCommand { get; }
     internal void RefreshLiked()
     {

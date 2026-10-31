@@ -12,10 +12,19 @@ public sealed class CatalogTrack
     [JsonPropertyName("duration_sec")] public int? DurationSeconds { get; init; }
     [JsonPropertyName("category")] public string? Category { get; init; }
     [JsonPropertyName("album")] public string? Album { get; init; }
+    [JsonPropertyName("artwork")] public string? Artwork { get; init; }
 
     // The catalog sources all return YouTube IDs, including fallback mirrors.
     // Persist the same identity even when a different mirror answers later.
     public LibraryTrack ToLibraryTrack() => new("youtube", Id, Title, Artist, DurationSeconds);
+    public static CatalogTrack FromLibraryTrack(LibraryTrack track) => new()
+    {
+        Id = track.Id,
+        Title = track.Title,
+        Artist = track.Artist,
+        Source = track.Source,
+        DurationSeconds = track.DurationSeconds,
+    };
     public bool IsUsable => !string.IsNullOrWhiteSpace(Id) && !string.IsNullOrWhiteSpace(Title) &&
         !string.IsNullOrWhiteSpace(Artist);
 }

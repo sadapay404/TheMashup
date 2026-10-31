@@ -42,6 +42,7 @@ fun rememberArtAccents(url: String?, seed: String): ArtAccents {
                 val request = ImageRequest.Builder(context)
                     .data(url)
                     .allowHardware(false)
+                    .size(128)
                     .build()
                 val drawable = context.imageLoader.execute(request).drawable
                     ?: error("no artwork")

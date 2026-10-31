@@ -55,7 +55,7 @@ import local.themashup.music.core.domain.Shelves
 import local.themashup.music.core.domain.Track
 import local.themashup.music.core.domain.buildRadioQueue
 import local.themashup.music.core.network.ExtractionService
-import local.themashup.music.core.network.YouTubeMusicHome
+import local.themashup.music.core.network.RecommendationsRepository
 import local.themashup.music.core.network.MusicHomeShelf
 import local.themashup.music.core.network.MusicHomeItem
 import local.themashup.music.core.player.PlaybackEngine
@@ -73,35 +73,23 @@ import local.themashup.music.ui.theme.LocalArtAccents
  */
 @Composable
 fun HomeScreen(
-    extraction: ExtractionService,
-    library: LibraryRepository,
+    recommendations: RecommendationsRepository,
     engine: PlaybackEngine,
-    playerState: PlayerSnapshot,
+    currentTrackId: String?,
+    isPlaying: Boolean,
     youtubeCookie: String,
     onConnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalMashupTokens.current
     val accents = LocalArtAccents.current
-    val scope = rememberCoroutineScope()
-    var retryTick by remember { mutableIntStateOf(0) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var personalized by remember { mutableStateOf<List<MusicHomeShelf>>(emptyList()) }
-    val musicHome = remember { YouTubeMusicHome() }
-    LaunchedEffect(retryTick, youtubeCookie) {
-        personalized = emptyList()
-        error = null
-        if (youtubeCookie.isBlank()) {
-            loading = false
-        } else {
-            loading = true
-            val result = withContext(Dispatchers.IO) { runCatching { musicHome.load(youtubeCookie) } }
-            personalized = result.getOrDefault(emptyList())
-            error = result.exceptionOrNull()?.message
-            loading = false
-        }
-    }
+    val feed by recommendations.state.collectAsState()
+    LaunchedEffect(youtubeCookie) { recommendations.show(youtubeCookie) }
+    // Don't briefly display the previous account's feed after switching accounts.
+    val matches = recommendations.matches(youtubeCookie)
+    val personalized = if (matches) feed.shelves else emptyList()
+    val loading = youtubeCookie.isNotBlank() && (!matches || feed.loading)
+    val error = if (matches) feed.error else null
 
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
@@ -117,7 +105,7 @@ fun HomeScreen(
         }
         if (error != null && !loading) {
             item {
-                ChartsErrorCard(message = error.orEmpty(), onRetry = { retryTick++ })
+                ChartsErrorCard(message = error.orEmpty(), onRetry = { recommendations.show(youtubeCookie, force = true) })
                 TextButton(onClick = onConnect, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Manage connection") }
             }
         }
@@ -126,13 +114,21 @@ fun HomeScreen(
                 Text("Connect your YouTube account to see your recommendations")
             } }
         }
+        if (youtubeCookie.isNotBlank() && !loading && error == null) {
+            item {
+                TextButton(onClick = { recommendations.show(youtubeCookie, force = true) }, modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                    Text(" Refresh recommendations")
+                }
+            }
+        }
         itemsIndexed(personalized, key = { index, shelf -> "$index:${shelf.title}" }) { _, shelf ->
             RecommendationShelf(
-                shelf = shelf, cookie = youtubeCookie, musicHome = musicHome,
-                playerState = playerState,
+                shelf = shelf, cookie = youtubeCookie, recommendations = recommendations,
+                currentTrackId = currentTrackId, isPlaying = isPlaying,
                 onPlay = { track ->
                     engine.playNow(track, context = "home")
-                    scope.launch { library.recordPlay(track, context = "home") }
+
                 },
                 onQueue = { engine.addToEnd(it) },
             )
@@ -145,8 +141,9 @@ fun HomeScreen(
 private fun RecommendationShelf(
     shelf: MusicHomeShelf,
     cookie: String,
-    musicHome: YouTubeMusicHome,
-    playerState: PlayerSnapshot,
+    recommendations: RecommendationsRepository,
+    currentTrackId: String?,
+    isPlaying: Boolean,
     onPlay: (Track) -> Unit,
     onQueue: (Track) -> Unit,
 ) {
@@ -161,7 +158,7 @@ private fun RecommendationShelf(
         error = null
         if (choice != null) {
             loading = true
-            val result = withContext(Dispatchers.IO) { runCatching { musicHome.loadCollection(cookie, choice.browseId) } }
+            val result = withContext(Dispatchers.IO) { runCatching { recommendations.collection(cookie, choice.browseId) } }
             tracks = result.getOrDefault(emptyList())
             error = result.exceptionOrNull()?.message
             loading = false
@@ -182,8 +179,8 @@ private fun RecommendationShelf(
                 when (item) {
                     is MusicHomeItem.Song -> TrackCard(
                         track = item.track, contextQueue = emptyList(),
-                        isCurrent = playerState.current?.id == item.track.id,
-                        isPlaying = playerState.status == local.themashup.music.core.player.PlayStatus.PLAYING,
+                        isCurrent = currentTrackId == item.track.id,
+                        isPlaying = isPlaying,
                         onPlay = { onPlay(item.track) }, onQueue = { onQueue(item.track) }, onRadio = {}, showRadio = false,
                     )
                     is MusicHomeItem.Collection -> Column(
@@ -210,8 +207,8 @@ private fun RecommendationShelf(
                     color = tokens.textDim, modifier = Modifier.padding(16.dp))
             } else {
                 ShelfSection(title = choice.title, kindPill = "SONGS", tracks = tracks,
-                    currentTrackId = playerState.current?.id,
-                    isPlaying = playerState.status == local.themashup.music.core.player.PlayStatus.PLAYING,
+                    currentTrackId = currentTrackId,
+                    isPlaying = isPlaying,
                     showRadio = false, modifier = Modifier.padding(top = 16.dp),
                     onCardPlay = { track, _ -> onPlay(track) }, onCardQueue = onQueue)
             }

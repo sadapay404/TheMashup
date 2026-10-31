@@ -17,6 +17,9 @@ public partial class App : Application
     public static ISearchService? SearchService { get; set; }
     public static IPlaybackResolver? PlaybackResolver { get; set; }
     public static IMediaDevice? MediaDevice { get; set; }
+    public static IHomeRecommendationsService? HomeService { get; set; }
+    public static IAccountSignInLauncher? AccountSignInLauncher { get; set; }
+    public static IDownloadService? DownloadService { get; set; }
     public static Func<Control>? VideoSurfaceFactory { get; set; }
     public static Action<double, double, double, double, bool>? VideoBoundsChanged { get; set; }
     public static Func<Window, PlaybackController, IDisposable?>? DesktopTransportFactory { get; set; }
@@ -31,7 +34,8 @@ public partial class App : Application
         selection.Changed += (_, _) => ApplyTheme(selection.Current);
         var library = new Library(LibraryStore ??
             throw new InvalidOperationException("A platform library store is required."));
-        var model = new ShellViewModel(selection, library, SearchService, PlaybackResolver, MediaDevice);
+        var model = new ShellViewModel(selection, library, SearchService, PlaybackResolver, MediaDevice,
+            HomeService, AccountSignInLauncher, DownloadService);
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

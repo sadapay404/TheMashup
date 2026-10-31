@@ -85,6 +85,8 @@ rm -f "$OUT_JAR"
   "$NETWORK_TESTS"/*.kt \
   "$PLAYER"/StreamFailover.kt \
   "$PLAYER"/PlaybackStateMachine.kt \
+  "$PLAYER"/DownloadedPlayback.kt \
+  "$PLAYER"/FailureSkipPolicy.kt \
   "$PLAYER_TESTS"/*.kt \
   "$UI_LOGIC"/*.kt \
   "$UI_LOGIC_TESTS"/*.kt \
@@ -122,6 +124,8 @@ log "running..."
   local.themashup.music.core.network.logic.ExtractionWalkTest \
   local.themashup.music.core.player.StreamFailoverTest \
   local.themashup.music.core.player.PlaybackStateMachineTest \
+  local.themashup.music.core.player.DownloadedPlaybackTest \
+  local.themashup.music.core.player.FailureSkipPolicyTest \
   local.themashup.music.core.download.logic.DownloadLogicTest \
   local.themashup.music.core.download.logic.TarArchiveTest \
   local.themashup.music.core.network.logic.StreamNormalizeVideoTest

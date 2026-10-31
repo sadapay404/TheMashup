@@ -36,6 +36,8 @@ data class Track(
     val popularity: Int? = null,
     val explicit: Boolean = false,
     val category: String? = null,
+    /** Explicitly chosen offline copy; null for ordinary catalog tracks. */
+    val localDownloadId: String? = null,
 )
 
 /** One playable rendition of a track. */
@@ -113,6 +115,10 @@ data class DownloadJob(
     val warning: String? = null,
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
+    /** URI (or legacy path) returned by the storage provider; absent in old installs. */
+    val location: String? = null,
+    /** Original metadata for offline display, notifications, and library history. */
+    val track: Track? = null,
 )
 
 /** A heard track with play time (library history). */

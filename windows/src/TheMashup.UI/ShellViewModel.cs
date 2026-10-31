@@ -19,15 +19,22 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     private string _playlistMessage = "";
 
     public ShellViewModel(ThemeSelection themes, Library library, ISearchService? searchService = null,
-        IPlaybackResolver? playbackResolver = null, IMediaDevice? mediaDevice = null)
+        IPlaybackResolver? playbackResolver = null, IMediaDevice? mediaDevice = null,
+        IHomeRecommendationsService? homeService = null, IAccountSignInLauncher? signInLauncher = null,
+        IDownloadService? downloadService = null)
     {
         _themes = themes ?? throw new ArgumentNullException(nameof(themes));
         _library = library ?? throw new ArgumentNullException(nameof(library));
         Player = new PlayerViewModel(_library, playbackResolver, mediaDevice);
-        Search = new SearchViewModel(searchService ?? new UnavailableSearchService(), _library, Player);
+        Search = new SearchViewModel(searchService ?? new UnavailableSearchService(), _library, Player, downloadService);
+        Home = new HomeViewModel(homeService ?? new UnavailableHomeService(), _library, Player,
+            signInLauncher ?? new UnavailableAccountSignInLauncher());
+        Download = new DownloadViewModel(downloadService ?? new UnavailableDownloadService());
         NavigateCommand = new ParameterCommand(Navigate);
         SelectThemeCommand = new ParameterCommand(id => _themes.Select(id));
         CreatePlaylistCommand = new ActionCommand(CreatePlaylist);
+        DownloadQueueCommand = new ActionCommand(() => _ = DownloadQueueAsync());
+        DownloadPlaylistCommand = new ParameterCommand(id => _ = DownloadPlaylistAsync(id));
         _themes.Changed += (_, _) =>
         {
             Notify(nameof(CurrentThemeName), nameof(ThemeStatus), nameof(IsFrosted),
@@ -40,16 +47,20 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public SearchViewModel Search { get; }
     public PlayerViewModel Player { get; }
+    public HomeViewModel Home { get; }
+    public DownloadViewModel Download { get; }
     public ICommand NavigateCommand { get; }
     public ICommand SelectThemeCommand { get; }
     public ICommand CreatePlaylistCommand { get; }
+    public ICommand DownloadQueueCommand { get; }
+    public ICommand DownloadPlaylistCommand { get; }
     public ObservableCollection<PlaylistRowViewModel> PlaylistRows { get; } = [];
     public bool IsHome => _page == "home";
     public bool IsSearch => _page == "search";
     public bool IsLibrary => _page == "library";
     public bool IsDownloads => _page == "downloads";
     public bool IsSettings => _page == "settings";
-    public bool IsFeaturePage => IsDownloads;
+    public bool IsFeaturePage => false;
     public bool ShowNavLabels => !_compact;
     public bool ShowHeroArtwork => _showHeroArtwork;
     public GridLength SidebarWidth => new(_compact ? 76 : 224);
@@ -96,8 +107,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public string FeatureEyebrow => IsSearch ? "DISCOVER" : "OFFLINE LISTENING";
     public string FeatureTitle => IsSearch ? "Find your next favorite." : "Take your music with you.";
     public string FeatureDescription => IsSearch
-        ? "Search is not connected yet. Songs, artists, albums and lyrics are planned next."
-        : "Downloads and offline playback are not connected yet.";
+        ? "Search songs, artists, albums and lyrics."
+        : "Download and save audio or video from search, queues, and playlists.";
     public string FeatureFootnote => IsSearch ? "SEARCH & DISCOVERY" : "DOWNLOADS";
 
     public void UpdateWidth(double width)
@@ -140,10 +151,39 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         {
             PlaylistRows.Clear();
             foreach (var playlist in playlists)
-                PlaylistRows.Add(new PlaylistRowViewModel(_library, playlist, Player));
+                PlaylistRows.Add(new PlaylistRowViewModel(_library, playlist, Player, DownloadPlaylistAsync));
         }
         Notify(nameof(HasPlaylists), nameof(HasNoPlaylists), nameof(PlaylistCountText),
             nameof(LibraryStatus), nameof(CanEditLibrary));
+    }
+
+    private async Task DownloadQueueAsync()
+    {
+        var tracks = _library.Queue.Select(CatalogTrack.FromLibraryTrack).ToArray();
+        if (tracks.Length == 0)
+        {
+            Download.Status = "Nothing is queued to download.";
+            return;
+        }
+        await Download.StartBatchAsync(tracks, "mp3", "320k");
+    }
+
+    private async Task DownloadPlaylistAsync(string? playlistId)
+    {
+        if (string.IsNullOrWhiteSpace(playlistId)) return;
+        var playlist = _library.Playlists.FirstOrDefault(item => item.Id == playlistId);
+        if (playlist is null)
+        {
+            Download.Status = "That playlist no longer exists.";
+            return;
+        }
+        var tracks = playlist.Tracks.Select(CatalogTrack.FromLibraryTrack).ToArray();
+        if (tracks.Length == 0)
+        {
+            Download.Status = "That playlist has no songs to download.";
+            return;
+        }
+        await Download.StartBatchAsync(tracks, "mp3", "320k");
     }
 
     private void Navigate(string? page)
@@ -184,10 +224,13 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
     private bool _confirmingDelete;
     private bool _expanded;
     private string _message = "";
+    private readonly Func<IEnumerable<LibraryTrack>, Task>? _downloadAll;
 
-    public PlaylistRowViewModel(Library library, LibraryPlaylistView playlist, PlayerViewModel? player = null)
+    public PlaylistRowViewModel(Library library, LibraryPlaylistView playlist, PlayerViewModel? player = null,
+        Func<IEnumerable<LibraryTrack>, Task>? downloadAll = null)
     {
         _library = library;
+        _downloadAll = downloadAll;
         Id = playlist.Id;
         Name = playlist.Name;
         _draftName = Name;
@@ -205,6 +248,7 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
             _expanded = !_expanded;
             Notify(nameof(IsExpanded), nameof(ToggleSongsText), nameof(ShowEmptySongs));
         });
+        DownloadCommand = new ActionCommand(() => _ = _downloadAll?.Invoke(playlist.Tracks));
         BeginRenameCommand = new ActionCommand(() => { _editing = true; _confirmingDelete = false; UpdateState(); });
         SaveNameCommand = new ActionCommand(SaveName);
         CancelRenameCommand = new ActionCommand(() => { _editing = false; DraftName = Name; UpdateState(); });
@@ -240,6 +284,7 @@ public sealed class PlaylistRowViewModel : INotifyPropertyChanged
         }
     }
     public ICommand ToggleSongsCommand { get; }
+    public ICommand DownloadCommand { get; }
     public ICommand BeginRenameCommand { get; }
     public ICommand SaveNameCommand { get; }
     public ICommand CancelRenameCommand { get; }

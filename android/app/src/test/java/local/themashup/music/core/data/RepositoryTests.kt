@@ -1,6 +1,7 @@
 package local.themashup.music.core.data
 
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import local.themashup.music.core.domain.DownloadStatus
 import local.themashup.music.core.domain.LibraryData
@@ -42,6 +43,31 @@ class JsonFileStoreTest {
         val back = s.read()
         Assert.assertTrue(back.likes.isEmpty())
         Assert.assertTrue("corrupt file moved aside", File(tmp.root, "data.json.bak").exists())
+    }
+
+    @Test
+    fun readIoFailureIsNotTreatedAsCorruptJson() = runBlocking {
+        val directory = File(tmp.root, "not-a-file").apply { mkdirs() }
+        val s = JsonFileStore(directory, LibraryData.serializer()) { LibraryData() }
+        try {
+            s.read()
+            Assert.fail("expected read failure")
+        } catch (_: IOException) {
+            Assert.assertTrue(directory.isDirectory)
+        }
+    }
+
+    @Test
+    fun failedReplacementKeepsPreviousPath() = runBlocking {
+        val directory = File(tmp.root, "not-a-file").apply { mkdirs() }
+        File(directory, "keep").writeText("original")
+        val s = JsonFileStore(directory, LibraryData.serializer()) { LibraryData() }
+        try {
+            s.write(LibraryData())
+            Assert.fail("expected rename failure")
+        } catch (_: IOException) {
+            Assert.assertEquals("original", File(directory, "keep").readText())
+        }
     }
 
     @Test
@@ -135,17 +161,48 @@ class LibraryRepositoryTest {
     }
 
     @Test
+    fun likesAndPlaylistsDoNotPinDeletedDownloadIds() = runBlocking {
+        val store = JsonFileStore(File(tmp.root, "library.json"), local.themashup.music.core.domain.LibraryData.serializer()) {
+            local.themashup.music.core.domain.LibraryData()
+        }
+        val library = LibraryRepository(store)
+        val downloaded = local.themashup.music.core.domain.Track(
+            id = "v", externalId = "v", title = "Song", artistNames = "Artist", localDownloadId = "copy",
+        )
+        library.setLiked(downloaded, true)
+        val playlist = library.createPlaylist("Test")
+        library.addTrackToPlaylist(playlist.id, downloaded)
+        Assert.assertNull(library.state.value.likes.single().localDownloadId)
+        Assert.assertNull(library.state.value.playlistTracks[playlist.id]!!.single().localDownloadId)
+    }
+
+    @Test
+    fun oldDownloadRowsStillLoadWithoutLocationOrTrackMetadata() = runBlocking {
+        val file = File(tmp.root, "legacy-downloads.json")
+        file.writeText("""{"jobs":[{"id":"old","videoId":"v","title":"Song","container":"mp3","quality":"320k","status":"COMPLETED","filename":"Song.mp3"}]}""")
+        val store = JsonFileStore(file, local.themashup.music.core.domain.DownloadsData.serializer()) {
+            local.themashup.music.core.domain.DownloadsData()
+        }
+        val old = store.read().jobs.single()
+        Assert.assertNull(old.location)
+        Assert.assertNull(old.track)
+        Assert.assertEquals("Song.mp3", old.filename)
+    }
+
+    @Test
     fun downloadEnqueuePersistsJob() = runBlocking {
         val store = JsonFileStore(File(tmp.root, "downloads.json"), kotlinx.serialization.serializer<local.themashup.music.core.domain.DownloadsData>()) { local.themashup.music.core.domain.DownloadsData() }
         val r = DownloadsRepository(store)
         val job = r.enqueue(track("v", "Video", "Artist"), "320k", "mp3")
         Assert.assertEquals(DownloadStatus.QUEUED, job.status)
         r.updateProgress(job.id, 42, 1024)
-        r.markCompleted(job.id, "Video.mp3", 4_000_000)
+        r.markCompleted(job.id, "Video.mp3", 4_000_000, "content://media/external/downloads/42")
         val back = store.read()
         Assert.assertEquals(1, back.jobs.size)
         Assert.assertEquals(DownloadStatus.COMPLETED, back.jobs[0].status)
         Assert.assertEquals(100, back.jobs[0].progress)
         Assert.assertEquals("Video.mp3", back.jobs[0].filename)
+        Assert.assertEquals("content://media/external/downloads/42", back.jobs[0].location)
+        Assert.assertEquals("Artist", back.jobs[0].track?.artistNames)
     }
 }

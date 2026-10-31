@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import local.themashup.music.core.domain.HeardEntry
 import local.themashup.music.core.domain.LibraryData
 import local.themashup.music.core.domain.Playlist
@@ -25,6 +27,7 @@ class LibraryRepository(
 ) {
     private val _state = MutableStateFlow(LibraryData())
     val state: StateFlow<LibraryData> = _state.asStateFlow()
+    private val stateMutex = Mutex()
 
     /** Load once at startup (no-op if already hydrated). */
     fun startLoad() {
@@ -32,12 +35,12 @@ class LibraryRepository(
     }
 
     /** Awaitable hydration — used by [startLoad] and tests. */
-    suspend fun load() {
+    suspend fun load() = stateMutex.withLock {
         _state.value = store.read()
     }
 
-    /** Awaitable mutation: callers suspend until JSON is persisted. */
-    private suspend fun mutate(fn: (LibraryData) -> LibraryData) {
+    /** Serialize persistence and publication so concurrent actions cannot publish stale state. */
+    private suspend fun mutate(fn: (LibraryData) -> LibraryData) = stateMutex.withLock {
         _state.value = store.update(fn)
     }
 
@@ -47,7 +50,7 @@ class LibraryRepository(
 
     suspend fun setLiked(track: Track, liked: Boolean) = mutate { data ->
         val likes = if (liked) {
-            if (data.likes.any { it.id == track.id }) data.likes else data.likes + track
+            if (data.likes.any { it.id == track.id }) data.likes else data.likes + track.copy(localDownloadId = null)
         } else {
             data.likes.filterNot { it.id == track.id }
         }
@@ -84,7 +87,7 @@ class LibraryRepository(
     suspend fun addTrackToPlaylist(playlistId: String, track: Track) = mutate { data ->
         val tracks = data.playlistTracks[playlistId].orEmpty()
         if (tracks.any { it.id == track.id }) data
-        else data.copy(playlistTracks = data.playlistTracks + (playlistId to tracks + track))
+        else data.copy(playlistTracks = data.playlistTracks + (playlistId to tracks + track.copy(localDownloadId = null)))
     }
 
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String) = mutate { data ->

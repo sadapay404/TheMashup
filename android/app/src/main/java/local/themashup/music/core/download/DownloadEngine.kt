@@ -18,6 +18,8 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,11 +60,19 @@ class DownloadEngine(
     private val context: Context,
     workDir: File,
 ) {
-    // Repo-disk hiccups must never crash the process — jobs surface errors
-    // through DownloadStatus instead.
+    // Queue/repository failures can happen before a job row exists, so surface
+    // them separately rather than silently swallowing a tap on Download.
+    private val _actionError = MutableStateFlow<String?>(null)
+    val actionError: StateFlow<String?> = _actionError
     private val scope = CoroutineScope(
-        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> },
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ ->
+            _actionError.value = "Could not update the download. Check storage and try again."
+        },
     )
+
+    fun clearActionError(expected: String) {
+        _actionError.compareAndSet(expected, null)
+    }
     private val workRoot = workDir.apply { mkdirs() }
     private val semaphore = Semaphore(MAX_PARALLEL)
     private val running = ConcurrentHashMap<String, Job>()
@@ -76,11 +86,33 @@ class DownloadEngine(
 
     fun enqueue(track: local.themashup.music.core.domain.Track, quality: String, container: String) {
         scope.launch {
-            // Chips only ever offer matrix pairs — invalid pairs cannot reach here
-            // from the UI (QualityPicker validates), so swallow the edge defensively.
-            runCatching {
+            try {
                 val job = repository.enqueue(track, quality, container)
                 launchWorker(job)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _actionError.value = "Could not start the download. Check storage and try again."
+            }
+        }
+    }
+
+    fun enqueueBatch(tracks: List<local.themashup.music.core.domain.Track>, quality: String, container: String) {
+        scope.launch {
+            var started = 0
+            for (track in tracks) {
+                try {
+                    val job = repository.enqueue(track, quality, container)
+                    launchWorker(job)
+                    started++
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    _actionError.value = "Could not start a download. Check storage and try again."
+                }
+            }
+            if (started == 0) {
+                _actionError.value = "Could not start the download. Check storage and try again."
             }
         }
     }
@@ -98,6 +130,10 @@ class DownloadEngine(
     /** Cancellation closes every active range and removes temporary files after the worker stops. */
     @Synchronized
     fun cancel(jobId: String) {
+        val requested = repository.job(jobId) ?: return
+        // Completed rows have no cancel action. A stale UI event must not
+        // remove a file that had already completed before it was tapped.
+        if (requested.status == DownloadStatus.COMPLETED) return
         cancelling.add(jobId)
         val worker = running.remove(jobId)
         worker?.cancel()
@@ -105,6 +141,12 @@ class DownloadEngine(
         scope.launch {
             try {
                 worker?.join()
+                // Completion can race with cancellation at the final commit.
+                // In that case remove the just-created copy before its row.
+                val finished = repository.job(jobId)
+                if (finished?.status == DownloadStatus.COMPLETED && finished.location != null) {
+                    MediaStoreWriter.discard(context, MediaStoreWriter.Saved(finished.filename.orEmpty(), finished.location))
+                }
                 cleanupTemps(jobId)
                 repository.remove(jobId)
             } finally {
@@ -273,16 +315,27 @@ class DownloadEngine(
     }
 
     private suspend fun finish(job: DownloadJob, out: File) {
+        val parent = coroutineContext
+        parent.ensureActive()
         val saved = MediaStoreWriter.save(
             context,
             out,
             outputFilename(job.title, job.container),
             mimeTypeFor(job.container),
+            checkCancelled = { parent.ensureActive() },
         )
-        val size = out.length()
+        try {
+            parent.ensureActive()
+            // Complete the row and its URI as one non-interruptible commit;
+            // cancel() handles a cancellation that races with this boundary.
+            withContext(NonCancellable) {
+                repository.markCompleted(job.id, saved.displayName, out.length(), saved.location, saved.warning)
+            }
+        } catch (e: Exception) {
+            if (repository.job(job.id)?.status != DownloadStatus.COMPLETED) MediaStoreWriter.discard(context, saved)
+            throw e
+        }
         out.delete()
-        repository.markCompleted(job.id, saved.displayName, size)
-        saved.warning?.let { repository.setWarning(job.id, it) }
         cleanupTemps(job.id)
     }
 

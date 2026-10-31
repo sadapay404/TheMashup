@@ -243,6 +243,15 @@ class PlaybackStateMachineTest {
         Assert.assertEquals("b", (e2 as PlayerEffect.Resolve).track.id)
     }
 
+    @Test
+    fun playAfterServiceDetachResolvesFromLastKnownPosition() {
+        val idle = PlayerSnapshot(queue = q3, cursor = 1, status = PlayStatus.IDLE, positionMs = 12_345)
+        val (loading, effect) = PlaybackStateMachine.toggle(idle)
+        Assert.assertEquals(PlayStatus.LOADING, loading.status)
+        Assert.assertEquals("b", (effect as PlayerEffect.Resolve).track.id)
+        Assert.assertEquals(12_345L, effect.startAtMs)
+    }
+
     /* ── seek / position / playing ──────────────────────────────────────── */
 
     @Test
