@@ -1,6 +1,7 @@
-"""Private FastAPI head for Windows search and playback resolution.
+"""Private FastAPI head for the Windows-owned local host.
 
-No downloads, account or CORS endpoints; the socket is loopback-only.
+Exposes search, playback resolution and the download manager to the loopback
+host only. No account, CORS or public endpoints; the socket is loopback-only.
 """
 from __future__ import annotations
 
@@ -28,8 +29,15 @@ async def lifespan(_app: FastAPI):
     yield
 
 app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None, lifespan=lifespan)
+# Routes reachable through the private loopback host: search, playback and
+# downloads. Kept as an explicit allowlist so account/CORS/public routes stay
+# unreachable from the Windows-owned socket.
+private_paths = {
+    "/health", "/search", "/suggest", "/streams/{video_id}",
+    "/downloads", "/downloads/{job_id}", "/downloads/{job_id}/file",
+}
 for route in existing_app.routes:
-    if getattr(route, "path", None) in {"/health", "/search", "/suggest", "/streams/{video_id}"} or (
+    if getattr(route, "path", None) in private_paths or (
         os.getenv("RESOLVER_MOCK") == "1" and getattr(route, "path", None) == "/mock/audio/{video_id}"
     ):
         app.router.routes.append(route)

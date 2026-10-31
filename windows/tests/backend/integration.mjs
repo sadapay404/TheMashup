@@ -114,7 +114,11 @@ try {
     }));
   });
   assert.equal((await fetch(`${base}/api/playback/session`)).status, 200);
-  assert.equal((await fetch(`${base}/api/downloads`)).status, 404);
+  // The private downloads route is mounted for the Windows-owned host; the
+  // fixture resolver reports an empty job list rather than 404.
+  const downloads = await (await fetch(`${base}/api/downloads`)).json();
+  assert.ok(Array.isArray(downloads.jobs), 'downloads list returns a jobs array');
+  assert.equal((await fetch(`${base}/api/downloads`, { method: 'POST' })).status, 405);
   assert.equal((await fetch(`${base}/api/search?q=x`, { method: 'POST' })).status, 405);
   assert.equal((await fetch(`${base}/..%2fpackage.json`)).status, 404);
   child.stdin.end();

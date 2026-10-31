@@ -41,11 +41,12 @@ export function windowsDownloadsRouter(resolver: ResolverClient): Router {
   router.post("/start", ah(async (req, res) => {
     const body = batchSchema.parse(req.body ?? {});
     const qualities = QUALITY_BY_CONTAINER[body.container] ?? [];
-    if (qualities.length && !body.quality.endsWith("k") && !body.quality.endsWith("p")) {
-      throw badRequest("Use a numeric quality such as 320k or 720p.");
-    }
-    if (qualities.length && !qualities.some((q) => String(q).endsWith(body.quality))) {
-      throw badRequest("Quality is not available for this container.");
+    if (qualities.length) {
+      const match = body.quality.match(/^(\d+)(k|p)$/);
+      if (!match) throw badRequest("Use a numeric quality such as 320k or 720p.");
+      if (!qualities.includes(Number(match[1]))) {
+        throw badRequest("Quality is not available for this container.");
+      }
     }
 
     const jobs = [];

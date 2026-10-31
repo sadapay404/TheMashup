@@ -80,7 +80,7 @@ function start(executable, argv, options, marker) {
   });
 }
 
-const allowedApi = new Set(['/api/search', '/api/search/suggest', '/api/search/lyrics', '/api/lyrics/by-metadata']);
+const allowedApi = new Set(['/api/search', '/api/search/suggest', '/api/search/lyrics', '/api/lyrics/by-metadata', '/api/downloads']);
 const mime = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -127,18 +127,20 @@ try {
       const streaming = /^\/api\/playback\/stream\/[A-Za-z0-9_-]{24}$/.test(url.pathname) &&
         ['GET', 'HEAD'].includes(req.method || '') && !url.search;
       const downloadStart = url.pathname === '/api/downloads/start' && req.method === 'POST' && !url.search;
+      // The file route carries a short-lived ?token= query, so it must forward
+      // the query string; the gateway validates the token before serving bytes.
       const downloadFile = /^\/api\/downloads\/[A-Za-z0-9_-]{10,64}\/file$/.test(url.pathname) &&
-        ['GET', 'HEAD'].includes(req.method || '') && !url.search;
+        ['GET', 'HEAD'].includes(req.method || '');
       const downloadList = url.pathname === '/api/downloads' && req.method === 'GET' && !url.search;
-      const downloadDelete = /^\/api\/downloads\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname) &&
-        req.method === 'DELETE' && !url.search;
+      const downloadItem = /^\/api\/downloads\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname) &&
+        ['GET', 'DELETE'].includes(req.method || '') && !url.search;
       if (downloadStart) {
         const token = req.headers['x-themashup-session'];
         if (typeof token !== 'string' || Buffer.byteLength(token) !== Buffer.byteLength(sessionToken) ||
             !timingSafeEqual(Buffer.from(token), Buffer.from(sessionToken))) return error(res, 403);
         if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) return error(res, 403);
       }
-      if (downloadStart || downloadFile || downloadList || downloadDelete) {
+      if (downloadStart || downloadFile || downloadList || downloadItem) {
         const headers = downloadStart ? { 'Content-Type': 'application/json' } : { Accept: 'application/json' };
         if (!downloadStart) { forward(null, headers); return; }
         let length = 0;

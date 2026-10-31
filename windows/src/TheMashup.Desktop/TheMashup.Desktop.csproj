@@ -13,7 +13,9 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
-    <PackageReference Include="Avalonia.Controls.WebView" Version="$(AvaloniaVersion)" />
+    <!-- Avalonia.Controls.WebView lags the core release train: 12.1.4 is not
+         published for it, so pin the newest available WebView build. -->
+    <PackageReference Include="Avalonia.Controls.WebView" Version="12.1.1" />
     <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
     <ProjectReference Include="../TheMashup.UI/TheMashup.UI.csproj" />
