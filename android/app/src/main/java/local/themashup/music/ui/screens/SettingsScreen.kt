@@ -57,11 +57,11 @@ fun SettingsScreen(
     val tokens = LocalMashupTokens.current
     val scheme = MaterialTheme.colorScheme
 
-    val themeKey by settings.themeKey.collectAsState()
-    val visualizerOn by settings.visualizerOn.collectAsState(initialValue = true)
-    val lyricsOn by settings.lyricsOn.collectAsState(initialValue = true)
-    val audioQuality by settings.audioQuality.collectAsState(initialValue = "320k")
-    val ytCookie by settings.youtubeCookie.collectAsState()
+    val themeKey by settings.themeKey.collectAsState(initial = "")
+    val visualizerOn by settings.visualizerOn.collectAsState(initial = true)
+    val lyricsOn by settings.lyricsOn.collectAsState(initial = true)
+    val audioQuality by settings.audioQuality.collectAsState(initial = "320k")
+    val ytCookie by settings.youtubeCookie.collectAsState(initial = "")
 
     val currentTheme = themeFromKey(themeKey)
 
