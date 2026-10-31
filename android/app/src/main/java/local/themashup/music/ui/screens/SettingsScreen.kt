@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -57,9 +58,9 @@ fun SettingsScreen(
     val scheme = MaterialTheme.colorScheme
 
     val themeKey by settings.themeKey.collectAsState()
-    val visualizerOn by settings.visualizerOn.collectAsState(initial = true)
-    val lyricsOn by settings.lyricsOn.collectAsState(initial = true)
-    val audioQuality by settings.audioQuality.collectAsState(initial = "320k")
+    val visualizerOn by settings.visualizerOn.collectAsState(initialValue = true)
+    val lyricsOn by settings.lyricsOn.collectAsState(initialValue = true)
+    val audioQuality by settings.audioQuality.collectAsState(initialValue = "320k")
     val ytCookie by settings.youtubeCookie.collectAsState()
 
     val currentTheme = themeFromKey(themeKey)
@@ -99,7 +100,7 @@ fun SettingsScreen(
                 color = scheme.onBackground,
             )
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "Close", tint = scheme.onBackground)
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = scheme.onBackground)
             }
         }
 
@@ -109,7 +110,7 @@ fun SettingsScreen(
 
         // Sleep timer
         settingRow(
-            icon = Icons.Default.Power,
+            icon = null,
             title = "Sleep timer",
             subtitle = "Pause playback after ${if (sleepMinutes == 0) "off" else "$sleepMinutes min"}",
             trailing = {
