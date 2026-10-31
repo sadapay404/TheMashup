@@ -43,16 +43,16 @@ class SettingsRepository(private val context: Context) {
     }
 
     val themeKey: Flow<String> = context.settingsDataStore.data
-        .catch { emit(emptyPreferences()) }
+        .catch { collector, _ -> collector.emit(emptyPreferences()) }
         .map { it[Keys.THEME] ?: DEFAULT_THEME }
     val visualizerOn: Flow<Boolean> = context.settingsDataStore.data
-        .catch { emit(emptyPreferences()) }
+        .catch { collector, _ -> collector.emit(emptyPreferences()) }
         .map { it[Keys.VISUALIZER] ?: true }
     val audioQuality: Flow<String> = context.settingsDataStore.data
-        .catch { emit(emptyPreferences()) }
+        .catch { collector, _ -> collector.emit(emptyPreferences()) }
         .map { it[Keys.AUDIO_QUALITY] ?: "320k" }
     val lyricsOn: Flow<Boolean> = context.settingsDataStore.data
-        .catch { emit(emptyPreferences()) }
+        .catch { collector, _ -> collector.emit(emptyPreferences()) }
         .map { it[Keys.LYRICS_ON] ?: true }
 
     private val sessionStore = EncryptedSessionStore(context)
@@ -74,7 +74,7 @@ class SettingsRepository(private val context: Context) {
                     }
                     var cookie = try {
                         sessionStore.read()
-                    } catch (e: SessionCorruptException) {
+                    } catch (e: EncryptedSessionStore.SessionCorruptException) {
                         // Keystore keys may be invalidated by a device restore/reset.
                         // Remove the unusable ciphertext and let the user reconnect.
                         sessionStore.resetUnreadable()
