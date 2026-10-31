@@ -219,13 +219,17 @@ class TheMashupPlayerService : MediaSessionService() {
             }
         }
 
-        override fun setRepeatMode(repeatMode: Int) = engine.setRepeat(when (repeatMode) {
-            Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-            Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-            else -> RepeatMode.OFF
-        })
+        override fun setRepeatMode(repeatMode: Int) {
+            engine.setRepeat(when (repeatMode) {
+                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                else -> RepeatMode.OFF
+            })
+        }
 
-        override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) = engine.setShuffle(shuffleModeEnabled)
+        override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
+            engine.setShuffle(shuffleModeEnabled)
+        }
     }
 
     /** Export the service for system/BT controls without exposing queue replacement to other apps. */
