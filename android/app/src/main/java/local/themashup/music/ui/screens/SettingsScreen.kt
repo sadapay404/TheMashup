@@ -1,5 +1,6 @@
 package local.themashup.music.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -100,7 +101,7 @@ fun SettingsScreen(
                 color = scheme.onBackground,
             )
             IconButton(onClick = onClose) {
-                Icon(Icons.Default.Close, contentDescription = "Close", tint = scheme.onBackground)
+                Icon(Icons.Filled.Close, contentDescription = "Close", tint = scheme.onBackground)
             }
         }
 
@@ -143,9 +144,9 @@ fun SettingsScreen(
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val checked = crossfade
-                    IconButton(onClick = { crossfade = !crossfade; engine.setCrossfade(crossfade, crossfadeSec) }) {
+                    IconButton(onClick = { crossfade = !crossfade; engine.setCrossfade(crossfade, crossfadeSec.toDouble()) }) {
                         Icon(
-                            imageVector = if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                            imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
                             contentDescription = null,
                             tint = if (checked) tokens.accent else tokens.textDim,
                         )
@@ -172,7 +173,7 @@ fun SettingsScreen(
                 val checked = gapless
                 IconButton(onClick = { gapless = !gapless; engine.setGapless(gapless) }) {
                     Icon(
-                        imageVector = if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                        imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
                         contentDescription = null,
                         tint = if (checked) tokens.accent else tokens.textDim,
                     )
@@ -219,7 +220,7 @@ fun SettingsScreen(
                     val checked = eqEnabled
                     IconButton(onClick = { eqEnabled = !eqEnabled; engine.setEqualizer(eqEnabled, eqPreset) }) {
                         Icon(
-                            imageVector = if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                            imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
                             contentDescription = null,
                             tint = if (checked) tokens.accent else tokens.textDim,
                         )
@@ -256,7 +257,7 @@ fun SettingsScreen(
                     val checked = normEnabled
                     IconButton(onClick = { normEnabled = !normEnabled; engine.setNormalization(normEnabled, normStrength.toInt()) }) {
                         Icon(
-                            imageVector = if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                            imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
                             contentDescription = null,
                             tint = if (checked) tokens.accent else tokens.textDim,
                         )
@@ -285,7 +286,7 @@ fun SettingsScreen(
                 val checked = visualizerOn
                 IconButton(onClick = { scope.launch { settings.setVisualizerOn(!visualizerOn) } }) {
                     Icon(
-                        imageVector = if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                        imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
                         contentDescription = null,
                         tint = if (checked) tokens.accent else tokens.textDim,
                     )
@@ -304,7 +305,7 @@ fun SettingsScreen(
                 val checked = lyricsOn
                 IconButton(onClick = { scope.launch { settings.setLyricsOn(!lyricsOn) } }) {
                     Icon(
-                        imageVector = if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                        imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
                         contentDescription = null,
                         tint = if (checked) tokens.accent else tokens.textDim,
                     )
@@ -370,7 +371,7 @@ fun SettingsScreen(
             subtitle = if (ytCookie.isNotBlank()) "Signed in" else "Sign in for recommendations",
             trailing = {
                 IconButton(onClick = { /* handled by parent top bar */ }) {
-                    Icon(Icons.Default.Send, contentDescription = null, tint = tokens.accent)
+                    Icon(Icons.Filled.Send, contentDescription = null, tint = tokens.accent)
                 }
             },
         )
