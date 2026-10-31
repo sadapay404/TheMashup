@@ -25,7 +25,7 @@ public sealed class HomeViewModel : INotifyPropertyChanged
         ConnectCommand = new ActionCommand(() => _ = ConnectAsync());
         RefreshCommand = new ActionCommand(() => _ = LoadAsync());
         SignOutCommand = new ActionCommand(SignOut);
-        LoadAsync();
+        _ = LoadAsync();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

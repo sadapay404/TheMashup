@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TheMashup.UI"
-             xmlns:ava="using:Avalonia.Controls"
              x:Class="TheMashup.UI.Views.MainView" x:DataType="vm:ShellViewModel"
              Background="{DynamicResource AppBackground}">
   <UserControl.Resources>
@@ -231,7 +230,7 @@
                                       Width="320">
                                 <StackPanel Spacing="8">
                                   <Image Source="{Binding Artwork}" Width="120" Height="120" Stretch="UniformToFill"
-                                         RadiusX="10" RadiusY="10" VerticalAlignment="Top" />
+                                         VerticalAlignment="Top" />
                                   <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" MaxWidth="290" />
                                   <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
                                   <TextBlock Text="{Binding Album}" Classes="subtle" FontSize="10" TextTrimming="CharacterEllipsis" />
@@ -474,15 +473,13 @@
               </ItemsControl>
               <ListBox ItemsSource="{Binding Search.Tracks}" IsVisible="{Binding Search.HasTracks}" ItemTemplate="{StaticResource SearchTrackTemplate}"
                        MaxHeight="440" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                       ScrollViewer.IsDeferredScrollingEnabled="True" ava:VirtualizingStackPanel.IsVirtualizing="True"
-                       ava:VirtualizingStackPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Song search results">
+                       ScrollViewer.IsDeferredScrollingEnabled="True" AutomationProperties.Name="Song search results">
                 <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
               </ListBox>
               <TextBlock Text="{Binding Search.LyricSearchStatus}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
               <ListBox ItemsSource="{Binding Search.LyricHits}" IsVisible="{Binding Search.HasLyricHits}" ItemTemplate="{StaticResource SearchTrackTemplate}"
                        MaxHeight="400" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                       ScrollViewer.IsDeferredScrollingEnabled="True" ava:VirtualizingStackPanel.IsVirtualizing="True"
-                       ava:VirtualizingStackPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Lyric search results">
+                       ScrollViewer.IsDeferredScrollingEnabled="True" AutomationProperties.Name="Lyric search results">
                 <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /></Style></ListBox.Styles>
               </ListBox>
               <TextBlock Text="Select a result to play it. Queue adds only that song without interrupting playback. Download saves that song."
