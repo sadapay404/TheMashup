@@ -71,7 +71,7 @@ public sealed class YouTubeMusicHomeClient
     public async Task<AccountSnapshot> VerifyAsync(string cookie, CancellationToken cancellationToken)
     {
         var root = await PostAsync(cookie, "account/account_menu",
-            $$"""{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"{{ClientVersion}}","hl":"en"}}}""",
+            $$$$"""{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"{{{{ClientVersion}}}}","hl":"en"}}}""",
             cancellationToken);
         if (!HasAccountIdentity(root))
             throw new HomeProviderException("Could not verify the signed-in YouTube account. Please sign in again.");
@@ -82,7 +82,7 @@ public sealed class YouTubeMusicHomeClient
     {
         await VerifyAsync(cookie, cancellationToken);
         var root = await PostAsync(cookie, "browse",
-            $$"""{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"{{ClientVersion}}","hl":"en"}},"browseId":"FEmusic_home"}""",
+            $$$$"""{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"{{{{ClientVersion}}}}","hl":"en"}},"browseId":"FEmusic_home"}""",
             cancellationToken);
         var shelves = HomeParser.Parse(root);
         if (shelves.Count == 0)
@@ -94,7 +94,7 @@ public sealed class YouTubeMusicHomeClient
         CancellationToken cancellationToken)
     {
         var root = await PostAsync(cookie, "browse",
-            $$"""{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"{{ClientVersion}}","hl":"en"}},"browseId":"{{browseId}}"}""",
+            $$$$"""{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"{{{{ClientVersion}}}}","hl":"en"}},"browseId":"{{{{browseId}}}}"}""",
             cancellationToken);
         return HomeParser.ParseCollection(root);
     }
@@ -204,23 +204,26 @@ public sealed class YouTubeMusicHomeClient
         return null;
     }
 
-    private static string? ExtractText(JsonElement element) => element.ValueKind switch
+    private static string? ExtractText(JsonElement element)
     {
-        JsonValueKind.String => element.GetString(),
-        JsonValueKind.Object =>
+        switch (element.ValueKind)
         {
-            if (element.TryGetProperty("simpleText", out var simple) && simple.ValueKind == JsonValueKind.String)
-                return simple.GetString();
-            if (element.TryGetProperty("text", out var text)) return ExtractText(text);
-            if (element.TryGetProperty("runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
-            {
-                var parts = runs.EnumerateArray().Select(ExtractText).Where(value => !string.IsNullOrWhiteSpace(value));
-                return string.Concat(parts);
-            }
-            return null;
-        },
-        _ => null,
-    };
+            case JsonValueKind.String:
+                return element.GetString();
+            case JsonValueKind.Object:
+                if (element.TryGetProperty("simpleText", out var simple) && simple.ValueKind == JsonValueKind.String)
+                    return simple.GetString();
+                if (element.TryGetProperty("text", out var text)) return ExtractText(text);
+                if (element.TryGetProperty("runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
+                {
+                    var parts = runs.EnumerateArray().Select(ExtractText).Where(value => !string.IsNullOrWhiteSpace(value));
+                    return string.Concat(parts);
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
 
     private static bool Walk(JsonElement element, Func<JsonElement, bool> visit)
     {
@@ -659,20 +662,23 @@ public static class HomeParser
         return null;
     }
 
-    private static string? ExtractText(JsonElement element) => element.ValueKind switch
+    private static string? ExtractText(JsonElement element)
     {
-        JsonValueKind.String => element.GetString(),
-        JsonValueKind.Object =>
+        switch (element.ValueKind)
         {
-            if (element.TryGetProperty("simpleText", out var simple) && simple.ValueKind == JsonValueKind.String)
-                return simple.GetString();
-            if (element.TryGetProperty("text", out var text)) return ExtractText(text);
-            if (element.TryGetProperty("runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
-                return string.Concat(runs.EnumerateArray().SelectMany(ExtractRuns));
-            return null;
-        },
-        _ => null,
-    };
+            case JsonValueKind.String:
+                return element.GetString();
+            case JsonValueKind.Object:
+                if (element.TryGetProperty("simpleText", out var simple) && simple.ValueKind == JsonValueKind.String)
+                    return simple.GetString();
+                if (element.TryGetProperty("text", out var text)) return ExtractText(text);
+                if (element.TryGetProperty("runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
+                    return string.Concat(runs.EnumerateArray().SelectMany(ExtractRuns));
+                return null;
+            default:
+                return null;
+        }
+    }
 
     private static int? ParseDuration(string? value)
     {
