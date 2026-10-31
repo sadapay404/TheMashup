@@ -5,8 +5,9 @@
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <!-- Self-contained publish: includes .NET runtime, runs without installing anything. -->
-    <SelfContained>true</SelfContained>
+    <!-- Self-contained publish is controlled per-job via --self-contained / -p:SelfContained.
+         Leaving it unset here lets the "no EXE" CI jobs compile managed assemblies
+         without forcing the app host (which conflicts with -p:UseAppHost=false). -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>false</PublishSingleFile>
     <UseAppHost>true</UseAppHost>
