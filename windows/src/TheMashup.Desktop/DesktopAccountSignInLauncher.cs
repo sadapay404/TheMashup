@@ -34,8 +34,9 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
         };
 
         var completion = new TaskCompletionSource<AccountSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        linked.CancellationToken.Register(() => completion.TrySetCanceled(linked.CancellationToken));
+        using var linked = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var linkedToken = linked.CancellationToken;
+        linkedToken.Register(() => completion.TrySetCanceled(linkedToken));
         window.Closed += (_, _) => completion.TrySetCanceled();
         webView.NavigationCompleted += async (_, _) =>
         {
@@ -43,10 +44,10 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
             try
             {
                 var cookieManager = webView.TryGetCookieManager();
-                var cookies = cookieManager is { } manager ? await manager.GetCookiesAsync() : new CookieCollection();
+                IReadOnlyList<Cookie> cookies = cookieManager is { } manager ? await manager.GetCookiesAsync() : new CookieCollection();
                 var cookie = BuildCookieHeader(cookies);
                 var client = new YouTubeMusicHomeClient();
-                var snapshot = await client.VerifyAsync(cookie, linked.CancellationToken);
+                var snapshot = await client.VerifyAsync(cookie, linkedToken);
                 completion.TrySetResult(snapshot);
             }
             catch (Exception ex)
@@ -61,7 +62,7 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
 
         try
         {
-            return await completion.Task.WaitAsync(linked.CancellationToken);
+            return await completion.Task.WaitAsync(linkedToken);
         }
         catch (OperationCanceledException)
         {
