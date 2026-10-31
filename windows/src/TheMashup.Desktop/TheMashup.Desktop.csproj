@@ -2,7 +2,7 @@
 <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <ApplicationIcon>..\..\desktop\src-tauri\icons\icon.ico</ApplicationIcon>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Self-contained publish: includes .NET runtime, runs without installing anything. -->
@@ -25,7 +25,7 @@
     <ProjectReference Include="../TheMashup.UI/TheMashup.UI.csproj" />
     <!-- Bundle the local search host script next to the EXE so the published
          app can find it without walking up the directory tree. -->
-    <Content Include="..\..\services\host.mjs">
+    <Content Include="host.mjs">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

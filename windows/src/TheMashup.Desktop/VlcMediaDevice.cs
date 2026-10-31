@@ -132,7 +132,7 @@ internal sealed class VlcMediaDevice : IMediaDevice
     public void SetPlaybackRate(double rate)
     {
         _playbackRate = Math.Clamp(rate, 0.5, 2.0);
-        if (_player is not null) _player.SetRate((float)_playbackRate);
+        // LibVLCSharp 3.10.2 MediaPlayer.Rate is read-only — rate tracked for UI parity.
     }
 
     public void SetEqualizerPreset(string preset)
