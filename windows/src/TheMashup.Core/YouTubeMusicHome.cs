@@ -459,13 +459,15 @@ public static class HomeParser
         var items = new List<HomeItem>();
         CollectItems(root, items);
         var header = FindObject(root, "musicResponsiveHeaderRenderer") ?? FindObject(root, "musicDetailHeaderRenderer");
-        var subtitle = header is { } headerElement && headerElement.TryGetProperty("subtitle", out var value) ? ExtractText(value) : null;
+        var hasHeader = header.HasValue;
+        var headerElement = header.GetValueOrDefault();
+        var subtitle = hasHeader && headerElement.TryGetProperty("subtitle", out var value) ? ExtractText(value) : null;
         var isAlbum = subtitle?.Contains("Album", StringComparison.OrdinalIgnoreCase) == true;
-        var albumArtist = isAlbum && header is { } headerElement && headerElement.TryGetProperty("straplineTextOne", out var strapline)
+        var albumArtist = isAlbum && headerElement.TryGetProperty("straplineTextOne", out var strapline)
             ? ExtractText(strapline) : null;
-        var albumTitle = isAlbum && header is { } headerElement && headerElement.TryGetProperty("title", out var title)
+        var albumTitle = isAlbum && headerElement.TryGetProperty("title", out var title)
             ? ExtractText(title) : null;
-        var albumArt = isAlbum && header is { } headerElement && headerElement.TryGetProperty("thumbnail", out var thumbnail)
+        var albumArt = isAlbum && headerElement.TryGetProperty("thumbnail", out var thumbnail)
             ? ExtractThumbnail(thumbnail) : null;
 
         return items.OfType<HomeSong>().Select(song =>
@@ -537,9 +539,9 @@ public static class HomeParser
     private static string FindArtistNames(JsonElement element)
     {
         var runs = FindDeepArray(element, "runs");
-        if (runs is not null)
+        if (runs is { } runsArray)
         {
-            var names = runs.SelectMany(run => ExtractRuns(run)).Where(value => !string.IsNullOrWhiteSpace(value));
+            var names = runsArray.EnumerateArray().SelectMany(run => ExtractRuns(run)).Where(value => !string.IsNullOrWhiteSpace(value));
             var artist = string.Join(", ", names);
             if (artist.Length > 0) return artist;
         }
@@ -577,7 +579,7 @@ public static class HomeParser
             if (candidates.Count == 0) return null;
             return candidates.OrderByDescending(candidate => candidate.Area).First().Url;
         }
-        if (element.TryGetProperty("thumbnail", out var thumbnail)) return ExtractThumbnail(thumbnail);
+        if (element.TryGetProperty("thumbnail", out var thumbnailElement)) return ExtractThumbnail(thumbnailElement);
         return FindDeepText(element, "url");
     }
 
