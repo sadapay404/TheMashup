@@ -43,7 +43,7 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
             try
             {
                 var cookieManager = webView.TryGetCookieManager();
-                var cookies = await cookieManager?.GetCookiesAsync() ?? new CookieCollection();
+                var cookies = cookieManager is { } manager ? await manager.GetCookiesAsync() : new CookieCollection();
                 var cookie = BuildCookieHeader(cookies);
                 var client = new YouTubeMusicHomeClient();
                 var snapshot = await client.VerifyAsync(cookie, linked.CancellationToken);
@@ -73,11 +73,11 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
         }
     }
 
-    private static string BuildCookieHeader(CookieCollection cookies)
+    private static string BuildCookieHeader(IReadOnlyList<Cookie> cookies)
     {
         var parts = cookies.Cast<Cookie>()
             .Where(cookie => cookie.Name is not null && cookie.Value is not null &&
-                (cookie.Domain?.Contains("google") ?? false || cookie.Domain?.Contains("youtube") ?? false))
+                ((cookie.Domain?.Contains("google") ?? false) || (cookie.Domain?.Contains("youtube") ?? false)))
             .Select(cookie => $"{cookie.Name}={Uri.EscapeDataString(cookie.Value)}")
             .ToArray();
         return string.Join("; ", parts);

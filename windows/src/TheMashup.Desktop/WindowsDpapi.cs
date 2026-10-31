@@ -32,7 +32,7 @@ internal static class WindowsDpapi
             Marshal.Copy(plain, 0, input.pbData, plain.Length);
             if (!CryptProtectData(ref input, "TheMashup account snapshot", ref empty, IntPtr.Zero, IntPtr.Zero, 0, out var output))
                 throw new Win32Exception();
-            return ToArrayAndFree(out output);
+            return ToArrayAndFree(output);
         }
         finally
         {
@@ -50,7 +50,7 @@ internal static class WindowsDpapi
             if (!CryptUnprotectData(ref input, out var description, ref empty, IntPtr.Zero, IntPtr.Zero, 0, out var output))
                 throw new Win32Exception();
             if (description != IntPtr.Zero) Marshal.FreeHGlobal(description);
-            return ToArrayAndFree(out output);
+            return ToArrayAndFree(output);
         }
         finally
         {
@@ -58,17 +58,12 @@ internal static class WindowsDpapi
         }
     }
 
-    private static byte[] ToArrayAndFree(out DATA_BLOB blob)
+    private static byte[] ToArrayAndFree(DATA_BLOB blob)
     {
-        if (blob.cbData <= 0)
-        {
-            blob = new DATA_BLOB();
-            return [];
-        }
+        if (blob.cbData <= 0) return [];
         var result = new byte[blob.cbData];
         Marshal.Copy(blob.pbData, result, 0, blob.cbData);
         Marshal.FreeHGlobal(blob.pbData);
-        blob = new DATA_BLOB();
         return result;
     }
 }
