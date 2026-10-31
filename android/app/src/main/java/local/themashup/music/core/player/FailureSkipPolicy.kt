@@ -12,9 +12,8 @@ object FailureSkipPolicy {
         val choices = if (snapshot.shuffle) {
             snapshot.queue.indices.filter { it !in failed && it != snapshot.cursor }
         } else {
-            // Wrap around with repeat ALL: try cursor+1..end, then 0..cursor.
-            (snapshot.cursor + 1 until size).filter { it !in failed } +
-                (0 until snapshot.cursor).filter { it !in failed }
+            // Look forward only; repeat-ALL wrapping is handled by the state machine.
+            (snapshot.cursor + 1 until size).filter { it !in failed }
         }
         if (choices.isEmpty()) return null
         if (!snapshot.shuffle) return choices.first()

@@ -62,7 +62,7 @@ fun prevIndex(state: QueueSnapshot, rng: () -> Double = { Random.nextDouble() })
     }
     val prev = index - 1
     if (prev >= 0) return prev
-    if (length > 1) return if (repeat == RepeatMode.OFF) null else length - 1
+    if (length > 1) return if (repeat == RepeatMode.OFF) index else length - 1
     return index
 }
 
