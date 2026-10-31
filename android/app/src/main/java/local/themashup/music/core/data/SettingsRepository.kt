@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.emit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -43,16 +42,16 @@ class SettingsRepository(private val context: Context) {
     }
 
     val themeKey: Flow<String> = context.settingsDataStore.data
-        .catch { collector, _ -> collector.emit(emptyPreferences()) }
+        .catch { _ -> emit(emptyPreferences()) }
         .map { it[Keys.THEME] ?: DEFAULT_THEME }
     val visualizerOn: Flow<Boolean> = context.settingsDataStore.data
-        .catch { collector, _ -> collector.emit(emptyPreferences()) }
+        .catch { _ -> emit(emptyPreferences()) }
         .map { it[Keys.VISUALIZER] ?: true }
     val audioQuality: Flow<String> = context.settingsDataStore.data
-        .catch { collector, _ -> collector.emit(emptyPreferences()) }
+        .catch { _ -> emit(emptyPreferences()) }
         .map { it[Keys.AUDIO_QUALITY] ?: "320k" }
     val lyricsOn: Flow<Boolean> = context.settingsDataStore.data
-        .catch { collector, _ -> collector.emit(emptyPreferences()) }
+        .catch { _ -> emit(emptyPreferences()) }
         .map { it[Keys.LYRICS_ON] ?: true }
 
     private val sessionStore = EncryptedSessionStore(context)
