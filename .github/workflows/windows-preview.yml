@@ -3,7 +3,7 @@ name: Windows preview checks
 # This workflow does not run the Android build and does not create an EXE.
 on:
   push:
-    branches: [arena/af3d0d7b-themashup]
+    branches: [arena/9f29da6a-themashup, arena/af3d0d7b-themashup]
     paths:
       - 'windows/**'
       - 'apps/api/**'
@@ -166,3 +166,30 @@ jobs:
               Write-Output "::error title=$($_.Name)::$text"
             }
           }
+
+  windows-exe:
+    name: Publish Windows x64 EXE
+    needs: [browser-and-core, windows-native]
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish desktop EXE (win-x64, self-contained)
+        shell: pwsh
+        run: |
+          dotnet publish src/TheMashup.Desktop/TheMashup.Desktop.csproj -c Release -r win-x64 --self-contained true -p:UseAppHost=true --nologo 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/windows-exe-publish.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheMashup-desktop-exe
+          path: windows/src/TheMashup.Desktop/bin/Release/net10.0-windows*/win-x64/publish/**
+          if-no-files-found: error
+          retention-days: 7

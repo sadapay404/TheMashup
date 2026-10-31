@@ -60,6 +60,10 @@ public sealed class PlaybackUiTests
         public void Stop() { }
         public void Seek(double seconds) { }
         public void SetVolume(double volume) { }
+        public void SetPlaybackRate(double rate) { }
+        public void SetEqualizerPreset(string preset) { }
+        public void SetEqualizerBand(int band, double gainDb) { }
+        public void SetNormalization(bool enabled, int strength) { }
         public void Dispose() { }
     }
     private sealed class Search : ISearchService

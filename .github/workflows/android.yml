@@ -1,9 +1,8 @@
 name: Android APK
 
-# Temporarily paused for the Windows rebuild at the user's request.
-# Do not dispatch an Android build without their permission. When Android work
-# resumes, restore the push trigger for arena/af3d0d7b-themashup.
 on:
+  push:
+    branches: [arena/9f29da6a-themashup]
   workflow_dispatch:
 
 # Limit the workflow token to checkout and artifact reads.

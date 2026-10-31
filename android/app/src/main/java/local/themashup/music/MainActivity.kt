@@ -1,12 +1,15 @@
 package local.themashup.music
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import local.themashup.music.core.player.TheMashupPlayerService
 import local.themashup.music.ui.TheMashupRoot
 
 /**
@@ -18,7 +21,22 @@ class MainActivity : ComponentActivity() {
 
     /** Media notification must be visible in the panel (Android 13+). */
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                // Start the MediaSessionService so lock-screen / notification /
+                // Bluetooth transport controls work immediately once granted.
+                val intent = Intent(this, TheMashupPlayerService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            } else {
+                // Denied — playback still works; notification/lock-screen
+                // controls stay unavailable until the user grants it.
+                Log.w("TheMashup", "POST_NOTIFICATIONS denied; lock-screen controls unavailable")
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()

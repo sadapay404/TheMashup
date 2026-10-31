@@ -44,6 +44,18 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- Phase 5: home screen widget -->
+        <receiver
+            android:name=".TheMashupAppWidget"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/themashup_appwidget_info" />
+        </receiver>
     </application>
 
 </manifest>

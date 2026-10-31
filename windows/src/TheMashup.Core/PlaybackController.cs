@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Threading;
 
 namespace TheMashup.Core;
 
@@ -29,6 +30,35 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     private readonly HashSet<int> _failedIndices = [];
     private readonly HashSet<int> _shuffledIndices = [];
     private long _failedVersion = -1, _shuffleVersion = -1;
+
+    /* ── Sleep timer ── */
+    private Timer? _sleepTimer;
+    private DateTimeOffset _sleepTimerEnd;
+
+    /* ── Crossfade / gapless ── */
+    private bool _crossfadeEnabled;
+    private double _crossfadeDurationSec = 3.0;
+    private bool _gaplessEnabled;
+
+    public bool CrossfadeEnabled => _crossfadeEnabled;
+    public double CrossfadeDurationSec => _crossfadeDurationSec;
+    public bool GaplessEnabled => _gaplessEnabled;
+
+    /* ── Playback rate ── */
+    private double _playbackRate = 1.0;
+    public double PlaybackRate => _playbackRate;
+
+    /* ── Equalizer ── */
+    private bool _equalizerEnabled;
+    private string _equalizerPreset = "flat";
+    public bool EqualizerEnabled => _equalizerEnabled;
+    public string EqualizerPreset => _equalizerPreset;
+
+    /* ── Loudness normalization ── */
+    private bool _normalizationEnabled;
+    private int _normalizationStrength = 100;
+    public bool NormalizationEnabled => _normalizationEnabled;
+    public int NormalizationStrength => _normalizationStrength;
 
     public PlaybackController(Library library, IPlaybackResolver resolver, IMediaDevice device, Random? random = null)
     {
@@ -159,6 +189,125 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     {
         _repeat = _repeat switch { RepeatMode.Off => RepeatMode.All, RepeatMode.All => RepeatMode.One, _ => RepeatMode.Off };
         Notify(nameof(Repeat));
+    }
+
+    /* ── Sleep timer ── */
+
+    public void SetSleepTimer(int minutes)
+    {
+        CancelSleepTimer();
+        if (minutes <= 0) return;
+        _sleepTimerEnd = DateTimeOffset.UtcNow.AddMinutes(minutes);
+        _sleepTimer = new Timer(_ =>
+        {
+            try
+            {
+                if (DateTimeOffset.UtcNow >= _sleepTimerEnd)
+                {
+                    CancelSleepTimer();
+                    if (_track is not null)
+                    {
+                        _device.Pause();
+                        SetState(PlaybackState.Paused, "Sleep timer");
+                    }
+                }
+            }
+            catch { /* best-effort; never throw from a timer callback */ }
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    public void CancelSleepTimer()
+    {
+        _sleepTimer?.Dispose();
+        _sleepTimer = null;
+    }
+
+    /* ── Crossfade / gapless ── */
+
+    public void SetCrossfade(bool enabled, double durationSec = 3.0)
+    {
+        _crossfadeEnabled = enabled;
+        _crossfadeDurationSec = Math.Max(0.5, durationSec);
+        Notify(nameof(CrossfadeEnabled), nameof(CrossfadeDurationSec));
+    }
+
+    public void SetGapless(bool enabled)
+    {
+        _gaplessEnabled = enabled;
+        Notify(nameof(GaplessEnabled));
+    }
+
+    /* ── Playback rate / equalizer / normalization ── */
+
+    public void SetPlaybackRate(double rate)
+    {
+        _playbackRate = Math.Clamp(rate, 0.5, 2.0);
+        _device.SetPlaybackRate(_playbackRate);
+        Notify(nameof(PlaybackRate));
+    }
+
+    public void SetEqualizer(bool enabled, string preset)
+    {
+        _equalizerEnabled = enabled;
+        _equalizerPreset = preset;
+        _device.SetEqualizerPreset(preset);
+        Notify(nameof(EqualizerEnabled), nameof(EqualizerPreset));
+    }
+
+    public void SetEqualizerBand(int band, double gainDb)
+    {
+        _equalizerPreset = "custom";
+        _device.SetEqualizerBand(band, gainDb);
+        Notify(nameof(EqualizerPreset));
+    }
+
+    public void SetNormalization(bool enabled, int strength)
+    {
+        _normalizationEnabled = enabled;
+        _normalizationStrength = Math.Clamp(strength, 0, 100);
+        _device.SetNormalization(_normalizationEnabled, _normalizationStrength);
+        Notify(nameof(NormalizationEnabled), nameof(NormalizationStrength));
+    }
+
+    /* ── Phase 4: sharing ── */
+
+    public void ShareTrack(string title, string artist, string externalId)
+    {
+        // Desktop share is handled by the UI layer (Avalonia clipboard or
+        // native interop). This is a placeholder the view can call; the
+        // concrete share action lives in the platform shell.
+    }
+
+    /* ── Phase 4: recently added / smart playlists ── */
+
+    private readonly List<LibraryTrack> _recentlyAdded = [];
+    public IReadOnlyList<LibraryTrack> RecentlyAdded => _recentlyAdded;
+
+    public void AddToRecentlyAdded(LibraryTrack track)
+    {
+        _recentlyAdded.RemoveAll(t => t.Id == track.Id);
+        _recentlyAdded.Insert(0, track);
+        if (_recentlyAdded.Count > 50) _recentlyAdded.RemoveRange(50, _recentlyAdded.Count - 50);
+        Notify(nameof(RecentlyAdded));
+    }
+
+    public void ClearRecentlyAdded()
+    {
+        _recentlyAdded.Clear();
+        Notify(nameof(RecentlyAdded));
+    }
+
+    /* ── Phase 4: local file playback ── */
+
+    public void PlayLocalFile(string filePath, string displayName)
+    {
+        try
+        {
+            var track = new LibraryTrack("local", $"local:{filePath.GetHashCode()}", displayName, "Local File");
+            AddToRecentlyAdded(track);
+            _ = PlayNowAsync(track); // fire-and-forget
+        }
+        catch { /* best effort; local file playback handled by device layer */ }
     }
 
     private Task RetryAsync()
@@ -449,6 +598,7 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        CancelSleepTimer();
         CancelPending();
         _library.Changed -= OnLibraryChanged;
         _device.Changed -= OnDeviceChanged;

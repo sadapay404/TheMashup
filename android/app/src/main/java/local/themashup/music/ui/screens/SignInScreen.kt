@@ -72,20 +72,12 @@ fun SignInScreen(
     val scheme = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     val musicHome = remember { YouTubeMusicHome() }
-    var webView by remember { mutableStateOf<WebView?>(null) }
     var checking by remember { mutableStateOf(false) }
     var clearing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingCookie by remember { mutableStateOf<String?>(null) }
     val signed = hasCookie
 
-    DisposableEffect(Unit) {
-        onDispose {
-            webView?.stopLoading()
-            webView?.destroy()
-            webView = null
-        }
-    }
     fun verifyAndSave(cookie: String) {
         if (checking) return
         pendingCookie = cookie
@@ -105,10 +97,8 @@ fun SignInScreen(
         }
     }
 
-    // Back walks the WebView history first; leaves the screen only at its root.
     BackHandler(enabled = true) {
-        val wv = webView
-        if (wv?.canGoBack() == true) wv.goBack() else onClose()
+        onClose()
     }
 
     Box(
@@ -230,37 +220,58 @@ fun SignInScreen(
                     .clip(RoundedCornerShape(16.dp))
                     .border(1.dp, tokens.border, RoundedCornerShape(16.dp)),
             ) {
-                if (!signed && !clearing) AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { context ->
-                        WebView(context).apply {
-                            webViewClient = object : WebViewClient() {
-                                override fun doUpdateVisitedHistory(
-                                    view: WebView?,
-                                    url: String?,
-                                    isReload: Boolean,
-                                ) {
-                                    // Landed on YouTube Music → the cookie jar now
-                                    // holds the signed-in session (innertune verbatim).
-                                    if (url != null && url.startsWith(YOUTUBE_MUSIC_URL_PREFIX)) {
-                                        val cookie = CookieManager.getInstance().getCookie(url)
-                                        if (!cookie.isNullOrBlank() && YouTubeMusicHome.sessionId(cookie) != null &&
-                                            cookie != pendingCookie && !checking) {
-                                            CookieManager.getInstance().flush()
-                                            verifyAndSave(cookie)
+                if (!signed && !clearing) {
+                    // Track the WebView instance so we can destroy it when the sheet closes.
+                    val webViewRef = remember { mutableStateOf<WebView?>(null) }
+
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { context ->
+                            WebView(context).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                CookieManager.getInstance().setAcceptCookie(true)
+                                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                                loadUrl(GOOGLE_LOGIN_URL)
+                                webViewRef.value = this
+                            }
+                        },
+                        update = { webView ->
+                            webViewRef.value = webView
+                            // Only install the WebViewClient once — recomposition would
+                            // re-install it every time checking/error/pendingCookie/signed changes.
+                            if (webView.webViewClient == null) {
+                                webView.webViewClient = object : WebViewClient() {
+                                    override fun doUpdateVisitedHistory(
+                                        view: WebView?,
+                                        url: String?,
+                                        isReload: Boolean,
+                                    ) {
+                                        // Landed on YouTube Music → the cookie jar now
+                                        // holds the signed-in session (innertune verbatim).
+                                        if (url != null && url.startsWith(YOUTUBE_MUSIC_URL_PREFIX)) {
+                                            scope.launch(Dispatchers.IO) {
+                                                val cookie = CookieManager.getInstance().getCookie(url)
+                                                if (!cookie.isNullOrBlank() && YouTubeMusicHome.sessionId(cookie) != null &&
+                                                    cookie != pendingCookie && !checking) {
+                                                    CookieManager.getInstance().flush()
+                                                    withContext(Dispatchers.Main) { verifyAndSave(cookie) }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            CookieManager.getInstance().setAcceptCookie(true)
-                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                            webView = this
-                            loadUrl(GOOGLE_LOGIN_URL)
+                        },
+                    )
+                    DisposableEffect(webViewRef.value) {
+                        onDispose {
+                            webViewRef.value?.stopLoading()
+                            webViewRef.value?.destroy()
+                            webViewRef.value = null
                         }
-                    },
-                )
+                    }
+                }
             }
         }
     }

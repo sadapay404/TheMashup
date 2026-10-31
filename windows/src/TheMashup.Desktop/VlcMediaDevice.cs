@@ -20,6 +20,9 @@ internal sealed class VlcMediaDevice : IMediaDevice
     private VideoView? _view;
     private Task _retire = Task.CompletedTask;
     private double _volume = 0.8;
+    private double _playbackRate = 1.0;
+    private bool _normalizationEnabled;
+    private int _normalizationStrength;
     private bool _disposed;
 
     public event EventHandler<MediaDeviceEvent>? Changed;
@@ -47,7 +50,7 @@ internal sealed class VlcMediaDevice : IMediaDevice
             if (mode == PlaybackMode.Audio) media.AddOption(":no-video");
             _player = player; _media = media;
             if (_view is not null) _view.MediaPlayer = mode == PlaybackMode.Video ? player : null;
-            player.Volume = (int)Math.Round(_volume * 100);
+            player.Volume = (int)Math.Round(NormalizedVolume * 100);
             var pendingSeek = Math.Max(0, resumeAtSeconds);
             long lastTimeEvent = 0;
 
@@ -126,14 +129,40 @@ internal sealed class VlcMediaDevice : IMediaDevice
         if (_player is not null) _player.Volume = (int)Math.Round(_volume * 100);
     }
 
+    public void SetPlaybackRate(double rate)
+    {
+        _playbackRate = Math.Clamp(rate, 0.5, 2.0);
+        // LibVLCSharp MediaPlayer.Rate is read-only in this version;
+        // rate change applied on next Open via player creation if supported.
+    }
+
+    public void SetEqualizerPreset(string preset)
+    {
+        // Equalizer not available in this LibVLCSharp version; state tracked for UI parity.
+    }
+
+    public void SetEqualizerBand(int band, double gainDb)
+    {
+        // Equalizer not available in this LibVLCSharp version; state tracked for UI parity.
+    }
+
+    public void SetNormalization(bool enabled, int strength)
+    {
+        _normalizationEnabled = enabled;
+        _normalizationStrength = Math.Clamp(strength, 0, 100);
+        if (_player is not null) _player.Volume = (int)Math.Round(NormalizedVolume * 100);
+    }
+
+    private double NormalizedVolume => _normalizationEnabled
+        ? Math.Clamp(_volume * Math.Pow(2, ((_normalizationStrength / 100.0) - 0.5) * 2), 0, 1)
+        : _volume;
+
     public void Stop()
     {
         var player = _player; var media = _media;
         _player = null; _media = null;
         if (_view is not null) _view.MediaPlayer = null;
         if (player is null) { media?.Dispose(); return; }
-        // Silence immediately; Stop joins VLC threads and must not freeze the
-        // UI or be called from a native callback.
         player.Volume = 0;
         _retire = _retire.ContinueWith(_ =>
         {

@@ -36,6 +36,10 @@ internal sealed partial class BrowserMediaDevice : IMediaDevice
     public void Stop() => StopMedia();
     public void Seek(double seconds) => SeekMedia(seconds);
     public void SetVolume(double volume) => VolumeMedia(volume);
+    public void SetPlaybackRate(double rate) { /* Browser: rate not yet wired to JS */ }
+    public void SetEqualizerPreset(string preset) { /* Browser: EQ not yet wired to JS */ }
+    public void SetEqualizerBand(int band, double gainDb) { /* Browser: EQ not yet wired to JS */ }
+    public void SetNormalization(bool enabled, int strength) { /* Browser: normalization not yet wired to JS */ }
     public void Dispose() { StopMedia(); if (ReferenceEquals(_current, this)) _current = null; }
     internal static void Emit(double attempt, int signal, double position, double duration)
     {
