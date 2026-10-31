@@ -10,7 +10,7 @@ namespace TheMashup.Desktop;
 
 internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
 {
-    private const string CookieDomainFilter = ".google.com|.youtube.com|.music.youtube.com";
+    private static readonly string[] CookieDomains = { ".google.com", ".youtube.com", ".music.youtube.com" };
 
     public async Task<AccountSnapshot> LaunchAsync(CancellationToken cancellationToken)
     {
@@ -77,7 +77,7 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
     {
         var parts = cookies.Cast<Cookie>()
             .Where(cookie => cookie.Name is not null && cookie.Value is not null &&
-                ((cookie.Domain?.Contains("google") ?? false) || (cookie.Domain?.Contains("youtube") ?? false)))
+                CookieDomains.Any(domain => cookie.Domain?.Contains(domain) == true))
             .Select(cookie => $"{cookie.Name}={Uri.EscapeDataString(cookie.Value)}")
             .ToArray();
         return string.Join("; ", parts);
