@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -188,7 +189,7 @@ fun SettingsScreen(
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     rateOptions.forEach { r ->
-                        val selected = (r - rate).absoluteValue < 0.001f
+                        val selected = kotlin.math.abs(r - rate) < 0.001f
                         Box(
                             modifier = Modifier
                                 .size(34.dp)
