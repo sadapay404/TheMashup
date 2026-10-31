@@ -1,6 +1,7 @@
 package local.themashup.music.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,8 +16,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -101,7 +100,7 @@ fun SettingsScreen(
                 color = scheme.onBackground,
             )
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "Close", tint = scheme.onBackground)
+                Text(text = "×", color = scheme.onBackground)
             }
         }
 
@@ -145,10 +144,9 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val checked = crossfade
                     IconButton(onClick = { crossfade = !crossfade; engine.setCrossfade(crossfade, crossfadeSec.toDouble()) }) {
-                        Icon(
-                            imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                            contentDescription = null,
-                            tint = if (checked) tokens.accent else tokens.textDim,
+                        Text(
+                            text = if (checked) "✓" else "☐",
+                            color = if (checked) tokens.accent else tokens.textDim,
                         )
                     }
                     Slider(
@@ -172,11 +170,10 @@ fun SettingsScreen(
             trailing = {
                 val checked = gapless
                 IconButton(onClick = { gapless = !gapless; engine.setGapless(gapless) }) {
-                    Icon(
-                        imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                        contentDescription = null,
-                        tint = if (checked) tokens.accent else tokens.textDim,
-                    )
+                    Text(
+                            text = if (checked) "✓" else "☐",
+                            color = if (checked) tokens.accent else tokens.textDim,
+                        )
                 }
             },
         )
@@ -219,10 +216,9 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val checked = eqEnabled
                     IconButton(onClick = { eqEnabled = !eqEnabled; engine.setEqualizer(eqEnabled, eqPreset) }) {
-                        Icon(
-                            imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                            contentDescription = null,
-                            tint = if (checked) tokens.accent else tokens.textDim,
+                        Text(
+                            text = if (checked) "✓" else "☐",
+                            color = if (checked) tokens.accent else tokens.textDim,
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
@@ -256,10 +252,9 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val checked = normEnabled
                     IconButton(onClick = { normEnabled = !normEnabled; engine.setNormalization(normEnabled, normStrength.toInt()) }) {
-                        Icon(
-                            imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                            contentDescription = null,
-                            tint = if (checked) tokens.accent else tokens.textDim,
+                        Text(
+                            text = if (checked) "✓" else "☐",
+                            color = if (checked) tokens.accent else tokens.textDim,
                         )
                     }
                     Slider(
@@ -285,11 +280,10 @@ fun SettingsScreen(
             trailing = {
                 val checked = visualizerOn
                 IconButton(onClick = { scope.launch { settings.setVisualizerOn(!visualizerOn) } }) {
-                    Icon(
-                        imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                        contentDescription = null,
-                        tint = if (checked) tokens.accent else tokens.textDim,
-                    )
+                    Text(
+                            text = if (checked) "✓" else "☐",
+                            color = if (checked) tokens.accent else tokens.textDim,
+                        )
                 }
             },
         )
@@ -304,11 +298,10 @@ fun SettingsScreen(
             trailing = {
                 val checked = lyricsOn
                 IconButton(onClick = { scope.launch { settings.setLyricsOn(!lyricsOn) } }) {
-                    Icon(
-                        imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                        contentDescription = null,
-                        tint = if (checked) tokens.accent else tokens.textDim,
-                    )
+                    Text(
+                            text = if (checked) "✓" else "☐",
+                            color = if (checked) tokens.accent else tokens.textDim,
+                        )
                 }
             },
         )
@@ -371,7 +364,7 @@ fun SettingsScreen(
             subtitle = if (ytCookie.isNotBlank()) "Signed in" else "Sign in for recommendations",
             trailing = {
                 IconButton(onClick = { /* handled by parent top bar */ }) {
-                    Icon(Icons.Filled.Send, contentDescription = null, tint = tokens.accent)
+                    Text(text = "→", color = tokens.accent)
                 }
             },
         )
@@ -415,7 +408,6 @@ private fun settingRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
             Spacer(modifier = Modifier.width(12.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
