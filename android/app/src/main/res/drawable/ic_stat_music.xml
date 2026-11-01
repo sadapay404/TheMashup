@@ -3,7 +3,20 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- Waveform bars on left (from logo) -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M12,3v11.55A4,4 0,1 0,14 18V7h4V3z" />
+        android:pathData="M4,22v-2M4,18v-4M4,12v-8M7,22v-1M7,16v-6M10,22v-3M10,13v-5" />
+    <!-- TheMashup M shape (center) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,8L14,16L16,8M14,16L12,16L14,8" />
+    <!-- Play triangle (center of M) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M13,11L15,14L13,17Z" />
+    <!-- Waveform bars on right -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18,22v-1M18,16v-6M20,22v-3M20,13v-5M22,20v-2" />
 </vector>

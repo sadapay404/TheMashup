@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.Icon
@@ -85,6 +86,7 @@ import local.themashup.music.ui.components.FfmpegSheet
 import local.themashup.music.ui.components.FadeSlideIn
 import local.themashup.music.ui.components.MiniPlayer
 import local.themashup.music.ui.screens.SignInScreen
+import local.themashup.music.ui.screens.SettingsScreen
 import local.themashup.music.ui.components.QualityPicker
 import local.themashup.music.ui.components.ThemeSwatchPicker
 import local.themashup.music.ui.logic.DEFAULT_THEME_ID
@@ -105,6 +107,7 @@ private val PAGE_TITLES: Map<String, Pair<String, String>> = mapOf(
     "search" to ("Search" to "Songs, artists & lyrics"),
     "library" to ("Library" to "Likes, playlists & history"),
     "downloads" to ("Downloads" to "MP3, FLAC and MP4 in every quality"),
+    "settings" to ("Settings" to "Playback & app preferences"),
 )
 
 private data class NavItem(val id: String, val label: String, val icon: ImageVector)
@@ -114,6 +117,7 @@ private val NAV_ITEMS = listOf(
     NavItem("search", "Search", Icons.Filled.Search),
     NavItem("library", "Library", Icons.Filled.LibraryMusic),
     NavItem("downloads", "Downloads", Icons.Filled.Download),
+    NavItem("settings", "Settings", Icons.Filled.Settings),
 )
 
 /**
@@ -251,6 +255,11 @@ private fun MashupShell(container: AppContainer) {
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
+                            "settings" -> SettingsScreen(
+                                container = container,
+                                onClose = { page = "home" },
+                                modifier = Modifier.fillMaxSize(),
+                            )
                             else -> DownloadsScreen(
                                 downloads = container.downloads,
                                 engine = container.downloadEngine,

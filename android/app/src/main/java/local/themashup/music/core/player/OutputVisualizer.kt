@@ -89,7 +89,9 @@ class OutputVisualizer {
         viz = null
         bound = false
         fft = null
-        unavailable = false // a future session may bind again
+        // Do NOT clear unavailable here: if the hardware genuinely refused
+        // Visualizer, retrying every 10 s forever wastes the IO thread.
+        // allowRetry() (called after RECORD_AUDIO grant) is the only retry path.
         if (fx != null) {
             runCatching { fx.enabled = false }
             runCatching { fx.release() }

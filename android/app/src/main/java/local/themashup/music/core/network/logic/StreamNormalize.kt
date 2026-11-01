@@ -1,5 +1,6 @@
 package local.themashup.music.core.network.logic
 
+import java.security.MessageDigest
 import java.time.Instant
 import local.themashup.music.core.domain.StreamCandidate
 
@@ -62,7 +63,7 @@ object StreamNormalize {
         val kbps = kbpsFromBits(bitrateBps)
         val ext = extFromMimeOrType(mime)
         return StreamCandidate(
-            id = "${source}:${url.hashCode()}",
+            id = "${source}:${sha1(url).take(16)}",
             source = source,
             url = url,
             mime = mime,
@@ -150,7 +151,7 @@ object StreamNormalize {
         if (url.isNullOrBlank()) return null
         val ext = videoExtFromMime(mime)
         return StreamCandidate(
-            id = "${source}:${url.hashCode()}",
+            id = "${source}:${sha1(url).take(16)}",
             source = source,
             url = url,
             mime = mime,
@@ -166,5 +167,11 @@ object StreamNormalize {
             expiresAt = expiresIso(url),
             httpHeaders = YOUTUBE_HEADERS,
         )
+    }
+
+    /** SHA-1 hex of [input], stable across processes (unlike String.hashCode()). */
+    private fun sha1(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-1")
+        return digest.digest(input.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 }

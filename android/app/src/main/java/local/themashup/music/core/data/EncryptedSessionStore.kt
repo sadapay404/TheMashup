@@ -16,14 +16,23 @@ import javax.crypto.spec.GCMParameterSpec
 internal class EncryptedSessionStore(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "youtube-session"))
 
+    /** Returns the decrypted session, or "" if the file doesn't exist or is unreadable. */
     fun read(): String {
         if (!file.baseFile.exists()) return ""
-        val bytes = file.readFully()
-        if (bytes.size <= IV_BYTES) throw IOException("Invalid saved session")
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, IV_BYTES)))
-        return cipher.doFinal(bytes.copyOfRange(IV_BYTES, bytes.size)).toString(Charsets.UTF_8)
+        val bytes = try { file.readFully() } catch (_: Exception) { return "" }
+        if (bytes.size <= IV_BYTES) return ""
+        return try {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, IV_BYTES)))
+            cipher.doFinal(bytes.copyOfRange(IV_BYTES, bytes.size)).toString(Charsets.UTF_8)
+        } catch (_: Exception) {
+            // Corrupt ciphertext (wrong key, bad decrypt) — signal caller to reset.
+            throw SessionCorruptException()
+        }
     }
+
+    /** Thrown when the saved ciphertext cannot be decrypted — key material is invalid. */
+    internal class SessionCorruptException : Exception()
 
     fun resetUnreadable() {
         file.delete()

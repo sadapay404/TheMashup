@@ -274,7 +274,7 @@ export const api = {
 
   /** Fire-and-forget listening event (buffered gateway-side). */
   event: (ev: { type: string; track_id: string; listened_ms?: number; context?: string }) => {
-    void fetch("/api/events", {
+    void fetch(apiUrl("/api/events"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(ev),

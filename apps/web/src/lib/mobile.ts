@@ -16,7 +16,6 @@ import type { DownloadJob } from "@themashup/shared";
 import { api } from "./api";
 import type { SaveOutcome } from "./desktop";
 
-export { isCapacitor } from "./bridge";
 import { isCapacitor } from "./bridge";
 
 /** Base64 without stack-overflowing String.fromCharCode.apply on big files. */

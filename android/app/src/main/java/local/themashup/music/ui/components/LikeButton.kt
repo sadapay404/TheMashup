@@ -41,11 +41,11 @@ fun LikeButton(
     val libState by library.state.collectAsState()
     val isLiked = libState.likes.any { it.id == track.id }
 
-    Box(
+        Box(
         modifier = modifier
             .size(size + 20.dp)
             .clickable {
-                scope.launch { library.setLiked(track, !isLiked) }
+                scope.launch { runCatching { library.setLiked(track, !isLiked) } }
             },
         contentAlignment = Alignment.Center,
     ) {

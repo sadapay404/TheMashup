@@ -122,16 +122,23 @@ fun ExpandedPlayer(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) engine.retryVisualizer()
+        if (granted) {
+            askedPermission = true
+            engine.retryVisualizer()
+        }
     }
     androidx.compose.runtime.LaunchedEffect(visualizerActive) {
-        if (visualizerActive && !askedPermission) {
+        if (!visualizerActive) {
+            // Allow re-prompt after a denial when the user toggles back on.
+            askedPermission = false
+        } else if (!askedPermission) {
             askedPermission = true
             val granted = ContextCompat.checkSelfPermission(
                 context,
                 android.Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            if (granted) engine.retryVisualizer()
+            else permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
         }
     }
 
