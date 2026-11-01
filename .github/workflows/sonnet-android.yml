@@ -1,0 +1,47 @@
+name: Sonnet Android APK
+
+on:
+  push:
+    branches: [arena/9f29da6a-themashup]
+    paths:
+      - 'sonnet-build/android/**'
+      - '.github/workflows/sonnet-android.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      # Optional: bundle static ffmpeg binaries (arm64-v8a + armeabi-v7a) as libffmpeg.so for MP3 conversion.
+      - name: Fetch ffmpeg binaries
+        continue-on-error: true
+        run: |
+          set -e
+          base="https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0"
+          mkdir -p sonnet-build/android/app/src/main/jniLibs/arm64-v8a sonnet-build/android/app/src/main/jniLibs/armeabi-v7a
+          curl -fL --retry 3 -o sonnet-build/android/app/src/main/jniLibs/arm64-v8a/libffmpeg.so  "$base/ffmpeg-linux-arm64"
+          curl -fL --retry 3 -o sonnet-build/android/app/src/main/jniLibs/armeabi-v7a/libffmpeg.so "$base/ffmpeg-linux-arm"
+          chmod +x sonnet-build/android/app/src/main/jniLibs/*/libffmpeg.so
+          ls -la sonnet-build/android/app/src/main/jniLibs/*
+
+      - name: Build debug APK
+        working-directory: sonnet-build/android
+        run: gradle assembleDebug --stacktrace --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TheMashup-debug-apk
+          path: sonnet-build/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

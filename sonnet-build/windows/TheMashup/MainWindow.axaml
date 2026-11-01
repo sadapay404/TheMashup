@@ -1,0 +1,633 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TheMashup.MainWindow"
+        x:Name="Root"
+        Title="TheMashup"
+        Icon="avares://TheMashup/Assets/icon.ico"
+        Width="1200" Height="780" MinWidth="880" MinHeight="600"
+        WindowStartupLocation="CenterScreen">
+
+  <Window.Resources>
+    <!-- ===== track row ===== -->
+    <DataTemplate x:Key="TrackRowTpl">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,2">
+        <Button Grid.Column="0" Classes="row" Command="{Binding $parent[Window].DataContext.PlayTrackCmd}" CommandParameter="{Binding}">
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <Border Width="46" Height="46" CornerRadius="8" ClipToBounds="True" Background="{DynamicResource RaisedBrush}">
+              <Image Source="{Binding Art}" Stretch="UniformToFill" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Classes.cur="{Binding IsCurrent}" />
+              <TextBlock Text="{Binding Subtitle}" Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{Binding LyricLine}" IsVisible="{Binding HasLyricLine}" FontSize="12" FontStyle="Italic" Foreground="{DynamicResource Accent2Brush}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <TextBlock Grid.Column="2" Text="{Binding DurationText}" Classes="subtle" VerticalAlignment="Center" />
+          </Grid>
+        </Button>
+        <Button Grid.Column="1" Classes="icon" FontFamily="Segoe UI Symbol" Content="{Binding LikeGlyph}" ToolTip.Tip="Like" Command="{Binding $parent[Window].DataContext.LikeCmd}" CommandParameter="{Binding}" />
+        <Button Grid.Column="2" Classes="icon" FontFamily="Segoe UI Symbol" Content="☰" ToolTip.Tip="Add to queue" Command="{Binding $parent[Window].DataContext.AddQueueCmd}" CommandParameter="{Binding}" />
+        <Button Grid.Column="3" Classes="icon" FontFamily="Segoe UI Symbol" Content="＋" ToolTip.Tip="Add to playlist" Command="{Binding $parent[Window].DataContext.PickerOpenCmd}" CommandParameter="{Binding}" />
+        <Button Grid.Column="4" Classes="icon" FontFamily="Segoe UI Symbol" Content="⬇" ToolTip.Tip="Download" Command="{Binding $parent[Window].DataContext.DownloadCmd}" CommandParameter="{Binding}" />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate x:Key="PlaylistTrackTpl">
+      <Grid ColumnDefinitions="*,Auto">
+        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource TrackRowTpl}" />
+        <Button Grid.Column="1" Classes="icon" FontFamily="Segoe UI Symbol" Content="✕" ToolTip.Tip="Remove from playlist" Command="{Binding $parent[Window].DataContext.RemoveFromPlaylistCmd}" CommandParameter="{Binding}" />
+      </Grid>
+    </DataTemplate>
+
+    <!-- ===== shelf card ===== -->
+    <DataTemplate x:Key="ShelfTpl">
+      <Button Width="150" Padding="4" CornerRadius="14" Command="{Binding $parent[Window].DataContext.PlayTrackCmd}" CommandParameter="{Binding}">
+        <StackPanel Spacing="2">
+          <Border Width="140" Height="140" CornerRadius="12" ClipToBounds="True" Background="{DynamicResource RaisedBrush}">
+            <Image Source="{Binding Art}" Stretch="UniformToFill" />
+          </Border>
+          <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" Classes.cur="{Binding IsCurrent}" />
+          <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </Button>
+    </DataTemplate>
+
+    <DataTemplate x:Key="ChipTpl">
+      <Button Classes="chip" Classes.chipOn="{Binding IsOn}" Content="{Binding Label}" />
+    </DataTemplate>
+  </Window.Resources>
+
+  <Grid>
+    <Grid RowDefinitions="*,Auto" ColumnDefinitions="230,*">
+
+      <!-- ================= sidebar ================= -->
+      <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource OutlineBrush}" BorderThickness="0,0,1,0" Padding="16">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="4,4,0,24">
+            <Border Width="38" Height="38" CornerRadius="11">
+              <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                  <GradientStop Offset="0" Color="{DynamicResource AccentColor}" />
+                  <GradientStop Offset="1" Color="{DynamicResource Accent2Color}" />
+                </LinearGradientBrush>
+              </Border.Background>
+              <TextBlock Text="m." FontSize="22" FontWeight="Black" Foreground="{DynamicResource AccentTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-3,0,0" />
+            </Border>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="The" FontSize="19" FontWeight="Bold" />
+              <TextBlock Text="Mashup" FontSize="19" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
+            </StackPanel>
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <Button Classes="nav" Classes.navOn="{Binding IsHome}" Content="⌂   Home" Command="{Binding NavigateCmd}" CommandParameter="home" />
+            <Button Classes="nav" Classes.navOn="{Binding IsSearch}" Content="⌕   Search" Command="{Binding NavigateCmd}" CommandParameter="search" />
+            <Button Classes="nav" Classes.navOn="{Binding IsLibrary}" Content="♫   Library" Command="{Binding NavigateCmd}" CommandParameter="library" />
+            <Button Classes="nav" Classes.navOn="{Binding IsDownloads}" Content="⬇   Downloads" Command="{Binding NavigateCmd}" CommandParameter="downloads" />
+            <Button Classes="nav" Classes.navOn="{Binding IsSettings}" Content="⚙   Settings" Command="{Binding NavigateCmd}" CommandParameter="settings" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- ================= content ================= -->
+      <Grid Grid.Row="0" Grid.Column="1">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="34,28,34,28" MaxWidth="980" HorizontalAlignment="Stretch">
+
+            <Border Classes="card" Background="{DynamicResource RaisedBrush}" Padding="14" Margin="0,0,0,16" IsVisible="{Binding HasBanner}">
+              <TextBlock Text="{Binding Banner}" TextWrapping="Wrap" />
+            </Border>
+
+            <!-- ============ HOME ============ -->
+            <StackPanel IsVisible="{Binding IsHome}">
+              <Border Classes="card" Padding="28">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="{Binding Greeting}" Classes="h1" TextWrapping="Wrap" />
+                  <TextBlock Classes="muted" TextWrapping="Wrap" Text="Search any song or lyric line, build playlists, download for offline. Local-first, no subscription." />
+                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,10,0,0">
+                    <Button Classes="outline" Content="Search" Command="{Binding NavigateCmd}" CommandParameter="search" />
+                    <Button Classes="outline" Content="Library" Command="{Binding NavigateCmd}" CommandParameter="library" />
+                    <Button Classes="primary" Content="{Binding ThemeName, StringFormat='Theme: {0}'}" Command="{Binding CycleThemeCmd}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+              <Border Classes="card" Padding="14" Margin="0,12,0,0" IsVisible="{Binding SignedOut}">
+                <TextBlock Classes="muted" TextWrapping="Wrap" Text="Sign in to YouTube Music in Settings to unlock recommendation shelves." />
+              </Border>
+              <StackPanel IsVisible="{Binding HasMade}">
+                <TextBlock Classes="h2" Text="{Binding MadeTitle}" />
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                  <ItemsControl ItemsSource="{Binding MadeTracks}" ItemTemplate="{StaticResource ShelfTpl}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="10" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  </ItemsControl>
+                </ScrollViewer>
+              </StackPanel>
+              <StackPanel IsVisible="{Binding HasRecent}">
+                <TextBlock Classes="h2" Text="Recently played" />
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                  <ItemsControl ItemsSource="{Binding Recent}" ItemTemplate="{StaticResource ShelfTpl}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="10" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  </ItemsControl>
+                </ScrollViewer>
+              </StackPanel>
+              <TextBlock Classes="h2" Text="Trending charts" />
+              <TextBlock Classes="muted" Text="Loading…" IsVisible="{Binding TrendingLoading}" />
+              <Border Classes="card" Padding="20" IsVisible="{Binding TrendingEmpty}">
+                <TextBlock Classes="muted" TextWrapping="Wrap" Text="Charts are unavailable right now. Check your connection — search still works." />
+              </Border>
+              <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Trending}" ItemTemplate="{StaticResource ShelfTpl}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="10" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                </ItemsControl>
+              </ScrollViewer>
+            </StackPanel>
+
+            <!-- ============ SEARCH ============ -->
+            <StackPanel IsVisible="{Binding IsSearch}" Spacing="10">
+              <TextBlock Text="Search" Classes="h1" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox x:Name="SearchBox" Text="{Binding Query, Mode=TwoWay}" Watermark="Songs, artists, albums, or a line from the lyrics…">
+                  <TextBox.KeyBindings>
+                    <KeyBinding Gesture="Enter" Command="{Binding SearchCmd}" />
+                  </TextBox.KeyBindings>
+                </TextBox>
+                <Button Grid.Column="1" Classes="primary" Content="Search" Margin="10,0,0,0" Command="{Binding SearchCmd}" />
+              </Grid>
+              <Border Classes="card" Background="{DynamicResource RaisedBrush}" IsVisible="{Binding HasSuggestions}" Padding="4">
+                <ItemsControl ItemsSource="{Binding Suggestions}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Button Classes="row" HorizontalAlignment="Stretch" Padding="12,9" Content="{Binding}" Command="{Binding $parent[Window].DataContext.SuggestPickCmd}" CommandParameter="{Binding}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Border>
+              <ItemsControl ItemsSource="{Binding FilterChips}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Classes="chip" Classes.chipOn="{Binding IsOn}" Content="{Binding Label}" Command="{Binding $parent[Window].DataContext.FilterCmd}" CommandParameter="{Binding}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <ProgressBar IsIndeterminate="True" IsVisible="{Binding Searching}" Foreground="{DynamicResource AccentBrush}" />
+              <Border Classes="card" Padding="26" IsVisible="{Binding HasSearchMessage}">
+                <TextBlock Text="{Binding SearchMessage}" Classes="muted" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
+              </Border>
+              <StackPanel IsVisible="{Binding ShowArtists}">
+                <TextBlock Classes="h2" Text="Artists" />
+                <ItemsControl ItemsSource="{Binding ArtistNames}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate><Button Classes="chip" Content="{Binding}" Command="{Binding $parent[Window].DataContext.SearchTextCmd}" CommandParameter="{Binding}" /></DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+              <StackPanel IsVisible="{Binding ShowAlbums}">
+                <TextBlock Classes="h2" Text="Albums" />
+                <ItemsControl ItemsSource="{Binding AlbumNames}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate><Button Classes="chip" Content="{Binding}" Command="{Binding $parent[Window].DataContext.SearchTextCmd}" CommandParameter="{Binding}" /></DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+              <StackPanel IsVisible="{Binding ShowSongs}">
+                <TextBlock Classes="h2" Text="Songs" />
+                <ItemsControl ItemsSource="{Binding Songs}" ItemTemplate="{StaticResource TrackRowTpl}" />
+              </StackPanel>
+              <StackPanel IsVisible="{Binding ShowLyricHits}">
+                <TextBlock Classes="h2" Text="Matched in lyrics" />
+                <ItemsControl ItemsSource="{Binding LyricHits}" ItemTemplate="{StaticResource TrackRowTpl}" />
+              </StackPanel>
+            </StackPanel>
+
+            <!-- ============ LIBRARY ============ -->
+            <StackPanel IsVisible="{Binding IsLibrary}" Spacing="10">
+              <TextBlock Text="Library" Classes="h1" IsVisible="{Binding LibTabsVisible}" />
+              <ItemsControl ItemsSource="{Binding LibChips}" IsVisible="{Binding LibTabsVisible}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Classes="chip" Classes.chipOn="{Binding IsOn}" Content="{Binding Label}" Command="{Binding $parent[Window].DataContext.LibTabCmd}" CommandParameter="{Binding}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <!-- playlists -->
+              <StackPanel IsVisible="{Binding LibPlaylists}" Spacing="10">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBox Text="{Binding NewPlaylistName, Mode=TwoWay}" Watermark="New playlist name">
+                    <TextBox.KeyBindings><KeyBinding Gesture="Enter" Command="{Binding CreatePlaylistCmd}" /></TextBox.KeyBindings>
+                  </TextBox>
+                  <Button Grid.Column="1" Classes="primary" Content="＋ Create" Margin="10,0,0,0" Command="{Binding CreatePlaylistCmd}" />
+                </Grid>
+                <Button Classes="primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" CornerRadius="18" Padding="18" Command="{Binding LibTabCmd}" CommandParameter="{Binding LibChips[1]}">
+                  <StackPanel>
+                    <TextBlock Text="♥  Liked songs" FontWeight="Bold" FontSize="16" Foreground="{DynamicResource AccentTextBrush}" />
+                    <TextBlock Text="{Binding LikedCount}" Foreground="{DynamicResource AccentTextBrush}" Opacity="0.75" />
+                  </StackPanel>
+                </Button>
+                <ItemsControl ItemsSource="{Binding Playlists}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="16" CornerRadius="16" Margin="0,3" Background="{DynamicResource SurfaceBrush}" BorderThickness="1" BorderBrush="{DynamicResource OutlineBrush}" Command="{Binding $parent[Window].DataContext.OpenPlaylistCmd}" CommandParameter="{Binding}">
+                        <StackPanel>
+                          <TextBlock Text="{Binding Name}" FontWeight="Bold" />
+                          <TextBlock Text="{Binding CountText}" Classes="muted" FontSize="12" />
+                        </StackPanel>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="muted" Text="No playlists yet — create your first one above." IsVisible="{Binding NoPlaylists}" />
+              </StackPanel>
+
+              <!-- open playlist -->
+              <StackPanel IsVisible="{Binding LibPlaylistOpen}" Spacing="10">
+                <Button Classes="outline" HorizontalAlignment="Left" Content="‹  Library" Command="{Binding ClosePlaylistCmd}" />
+                <TextBlock Text="{Binding OpenPlaylistName}" Classes="h1" />
+                <TextBlock Text="{Binding OpenPlaylistCount}" Classes="muted" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Classes="primary" Content="▶  Play" Command="{Binding PlayOpenPlaylistCmd}" />
+                  <Button Classes="outline" Content="Delete playlist" Command="{Binding DeletePlaylistCmd}" />
+                </StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBox Text="{Binding RenameText, Mode=TwoWay}" Watermark="Rename playlist" />
+                  <Button Grid.Column="1" Classes="outline" Content="Rename" Margin="10,0,0,0" Command="{Binding RenamePlaylistCmd}" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding OpenTracks}" ItemTemplate="{StaticResource PlaylistTrackTpl}" />
+                <TextBlock Classes="muted" Text="This playlist is empty. Use ＋ on any song to add it." IsVisible="{Binding OpenEmpty}" />
+              </StackPanel>
+
+              <!-- liked -->
+              <StackPanel IsVisible="{Binding LibLiked}" Spacing="8">
+                <Button Classes="primary" HorizontalAlignment="Left" Content="▶  Play all" Command="{Binding PlayLikedCmd}" />
+                <ItemsControl ItemsSource="{Binding Liked}" ItemTemplate="{StaticResource TrackRowTpl}" />
+                <TextBlock Classes="muted" Text="No liked songs yet — tap ♡ on any track." IsVisible="{Binding NoLiked}" />
+              </StackPanel>
+
+              <!-- queue -->
+              <StackPanel IsVisible="{Binding LibQueue}" Spacing="8">
+                <Button Classes="outline" HorizontalAlignment="Left" Content="Clear queue" Command="{Binding ClearQueueCmd}" />
+                <ItemsControl ItemsSource="{Binding QueueItems}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                        <Button Classes="row" Command="{Binding $parent[Window].DataContext.QueueJumpCmd}" CommandParameter="{Binding}">
+                          <StackPanel Margin="8,4">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Classes.cur="{Binding IsCurrent}" />
+                            <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="12" />
+                          </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1" Classes="icon" Content="▲" Command="{Binding $parent[Window].DataContext.QueueUpCmd}" CommandParameter="{Binding}" />
+                        <Button Grid.Column="2" Classes="icon" Content="▼" Command="{Binding $parent[Window].DataContext.QueueDownCmd}" CommandParameter="{Binding}" />
+                        <Button Grid.Column="3" Classes="icon" Content="✕" Command="{Binding $parent[Window].DataContext.QueueRemoveCmd}" CommandParameter="{Binding}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="muted" Text="Queue is empty. Play something or add songs with ☰." IsVisible="{Binding NoQueue}" />
+              </StackPanel>
+
+              <!-- history -->
+              <StackPanel IsVisible="{Binding LibHistory}" Spacing="8">
+                <Button Classes="outline" HorizontalAlignment="Left" Content="Clear history" Command="{Binding ClearHistoryCmd}" />
+                <ItemsControl ItemsSource="{Binding HistoryList}" ItemTemplate="{StaticResource TrackRowTpl}" />
+                <TextBlock Classes="muted" Text="Nothing played yet." IsVisible="{Binding NoHistory}" />
+              </StackPanel>
+            </StackPanel>
+
+            <!-- ============ DOWNLOADS ============ -->
+            <StackPanel IsVisible="{Binding IsDownloads}" Spacing="10">
+              <TextBlock Text="Downloads" Classes="h1" />
+              <TextBlock Classes="muted" TextWrapping="Wrap" Text="Saved to Music\TheMashup. Quality for new downloads:" />
+              <ItemsControl ItemsSource="{Binding QualityChips}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Classes="chip" Classes.chipOn="{Binding IsOn}" Content="{Binding Label}" Command="{Binding $parent[Window].DataContext.QualityCmd}" CommandParameter="{Binding}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="h2" Text="Queue" Margin="0,10,0,6" />
+                <Button Grid.Column="1" Classes="outline" Content="Clear finished" Command="{Binding ClearFinishedCmd}" VerticalAlignment="Bottom" />
+              </Grid>
+              <Border Classes="card" Padding="22" IsVisible="{Binding NoJobs}">
+                <TextBlock Classes="muted" Text="No downloads yet. Use ⬇ on any track." HorizontalAlignment="Center" />
+              </Border>
+              <ItemsControl ItemsSource="{Binding Downloads.Jobs}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border Classes="card" Padding="14" Margin="0,4">
+                      <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                          <StackPanel>
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap">
+                              <Run Text="{Binding Subtitle}" /><Run Text=" · " /><Run Text="{Binding StatusText}" />
+                            </TextBlock>
+                          </StackPanel>
+                          <Button Grid.Column="1" Classes="outline" Content="Pause" IsVisible="{Binding CanPause}" Command="{Binding $parent[Window].DataContext.PauseJobCmd}" CommandParameter="{Binding}" />
+                          <Button Grid.Column="2" Classes="primary" Content="Resume" IsVisible="{Binding CanResume}" Command="{Binding $parent[Window].DataContext.ResumeJobCmd}" CommandParameter="{Binding}" Margin="6,0" />
+                          <Button Grid.Column="3" Classes="icon" Content="✕" ToolTip.Tip="Cancel" Command="{Binding $parent[Window].DataContext.CancelJobCmd}" CommandParameter="{Binding}" />
+                        </Grid>
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding Progress}" Foreground="{DynamicResource AccentBrush}" />
+                        <TextBlock Text="{Binding SizeText}" Classes="subtle" FontSize="11" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="h2" Text="On this device" />
+                <Button Grid.Column="1" Classes="outline" Content="▶  Play all" Command="{Binding PlayAllOfflineCmd}" VerticalAlignment="Bottom" />
+              </Grid>
+              <TextBlock Classes="muted" Text="No offline tracks yet." IsVisible="{Binding NoOffline}" />
+              <ItemsControl ItemsSource="{Binding Offline}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                      <Button Classes="row" Command="{Binding $parent[Window].DataContext.PlayOfflineCmd}" CommandParameter="{Binding}">
+                        <StackPanel Margin="8,4">
+                          <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding Subtitle}" Classes="muted" FontSize="12" />
+                        </StackPanel>
+                      </Button>
+                      <Button Grid.Column="1" Classes="icon" Content="🗑" FontFamily="Segoe UI Symbol" ToolTip.Tip="Delete" Command="{Binding $parent[Window].DataContext.DeleteOfflineCmd}" CommandParameter="{Binding}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <!-- ============ SETTINGS ============ -->
+            <StackPanel IsVisible="{Binding IsSettings}" Spacing="8">
+              <TextBlock Text="Settings" Classes="h1" />
+              <TextBlock Text="Appearance" Classes="h2" />
+              <ItemsControl ItemsSource="{Binding ThemeCards}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Padding="0" Margin="0,0,12,12" Width="172" Background="Transparent" Command="{Binding $parent[Window].DataContext.SetThemeCmd}" CommandParameter="{Binding Id}">
+                      <Border Background="{Binding Bg}" BorderBrush="{Binding Border}" BorderThickness="{Binding BorderWidth}" CornerRadius="18" ClipToBounds="True">
+                        <StackPanel>
+                          <Border Background="{Binding Surface}" Height="72">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="12">
+                              <Ellipse Width="20" Height="20" Fill="{Binding Accent}" />
+                              <Ellipse Width="20" Height="20" Fill="{Binding Accent2}" />
+                              <Ellipse Width="20" Height="20" Fill="{Binding Raised}" />
+                            </StackPanel>
+                          </Border>
+                          <StackPanel Margin="12" Spacing="2">
+                            <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="{Binding Text}" />
+                            <TextBlock Text="{Binding Tagline}" FontSize="11" Foreground="{Binding Muted}" />
+                          </StackPanel>
+                        </StackPanel>
+                      </Border>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <TextBlock Text="Playback" Classes="h2" />
+              <Border Classes="card" Padding="20">
+                <StackPanel Spacing="14">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel><TextBlock Text="Gapless playback" FontWeight="SemiBold" /><TextBlock Classes="muted" FontSize="12" Text="Pre-resolves the next track's stream." /></StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Gapless, Mode=TwoWay}" OnContent="" OffContent="" />
+                  </Grid>
+                  <StackPanel>
+                    <TextBlock FontWeight="SemiBold"><Run Text="Crossfade · " /><Run Text="{Binding CrossfadeText}" /></TextBlock>
+                    <Slider Minimum="0" Maximum="12" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Crossfade, Mode=TwoWay}" />
+                  </StackPanel>
+                  <StackPanel>
+                    <TextBlock FontWeight="SemiBold"><Run Text="Playback speed · " /><Run Text="{Binding RateText}" /></TextBlock>
+                    <TextBlock Classes="muted" FontSize="12" Text="Stored as a preference; the LibVLC binding in this build exposes read-only rate." />
+                    <Slider Minimum="0.5" Maximum="2" TickFrequency="0.25" IsSnapToTickEnabled="True" Value="{Binding Rate, Mode=TwoWay}" />
+                  </StackPanel>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel><TextBlock Text="Loudness normalization" FontWeight="SemiBold" /><TextBlock Classes="muted" FontSize="12" Text="Evens out volume by trimming peaks." /></StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Normalize, Mode=TwoWay}" OnContent="" OffContent="" />
+                  </Grid>
+                  <StackPanel IsVisible="{Binding NormalizeOpen}">
+                    <TextBlock FontWeight="SemiBold"><Run Text="Strength · " /><Run Text="{Binding NormText}" /></TextBlock>
+                    <Slider Minimum="0" Maximum="100" Value="{Binding NormStrength, Mode=TwoWay}" />
+                  </StackPanel>
+                  <StackPanel>
+                    <TextBlock Text="Equalizer preset" FontWeight="SemiBold" />
+                    <TextBlock Classes="muted" FontSize="12" Text="Preset is saved; no native equalizer binding in this build." Margin="0,0,0,8" />
+                    <ItemsControl ItemsSource="{Binding EqChips}">
+                      <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Button Classes="chip" Classes.chipOn="{Binding IsOn}" Content="{Binding Label}" Command="{Binding $parent[Window].DataContext.EqCmd}" CommandParameter="{Binding}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                  <StackPanel>
+                    <TextBlock Text="Sleep timer" FontWeight="SemiBold" />
+                    <TextBlock Classes="muted" FontSize="12" Text="{Binding SleepText}" Margin="0,0,0,8" />
+                    <ItemsControl ItemsSource="{Binding SleepChips}">
+                      <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Button Classes="chip" Classes.chipOn="{Binding IsOn}" Content="{Binding Label}" Command="{Binding $parent[Window].DataContext.SleepCmd}" CommandParameter="{Binding}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="Local search host (optional)" FontWeight="SemiBold" />
+                    <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="Not bundled with this build. If nothing is listening there, TheMashup searches public sources directly." />
+                    <TextBox Text="{Binding HostUrl, Mode=TwoWay}" Watermark="http://127.0.0.1:8787" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <TextBlock Text="Account" Classes="h2" />
+              <Border Classes="card" Padding="20">
+                <StackPanel Spacing="10">
+                  <TextBlock Text="{Binding AccountText}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                  <Button Classes="primary" HorizontalAlignment="Left" Content="Sign in to YouTube" IsVisible="{Binding SignedOut}" Command="{Binding SignInCmd}" />
+                  <Button Classes="outline" HorizontalAlignment="Left" Content="Sign out" IsVisible="{Binding SignedIn}" Command="{Binding SignOutCmd}" />
+                  <Border Background="{DynamicResource RaisedBrush}" CornerRadius="12" Padding="12" IsVisible="{Binding HasSignInMessage}">
+                    <StackPanel Spacing="8">
+                      <TextBlock Text="{Binding SignInMessage}" TextWrapping="Wrap" />
+                      <Button Classes="outline" HorizontalAlignment="Left" Content="Download WebView2 Runtime" IsVisible="{Binding WebView2Missing}" Command="{Binding OpenWebView2Cmd}" />
+                    </StackPanel>
+                  </Border>
+                  <StackPanel Spacing="8" IsVisible="{Binding ShowCookieBox}">
+                    <TextBox Text="{Binding CookieInput, Mode=TwoWay}" Watermark="SID=…; SAPISID=…; __Secure-3PAPISID=…" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" />
+                    <Button Classes="primary" HorizontalAlignment="Left" Content="Verify &amp; save" Command="{Binding VerifyCookieCmd}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <Border Height="90" />
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+
+      <!-- ================= mini player ================= -->
+      <Border Grid.Row="1" Grid.Column="1" Classes="card" Margin="14,0,14,12" Padding="12" IsVisible="{Binding HasCurrent}" Background="{DynamicResource RaisedBrush}">
+        <Grid ColumnDefinitions="*,1.7*,*">
+          <Button Classes="row" Padding="0" HorizontalAlignment="Stretch" Command="{Binding ToggleExpandedCmd}">
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+              <Border Width="52" Height="52" CornerRadius="10" ClipToBounds="True" Background="{DynamicResource SurfaceBrush}">
+                <Image Source="{Binding Current.Art}" Stretch="UniformToFill" />
+              </Border>
+              <StackPanel VerticalAlignment="Center" MaxWidth="190">
+                <TextBlock Text="{Binding Current.Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding Current.Artist}" Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding StateText}" Classes="subtle" FontSize="11" />
+              </StackPanel>
+            </StackPanel>
+          </Button>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
+              <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="⇄" Command="{Binding ShuffleCmd}" Classes.on="{Binding ShuffleOn}" ToolTip.Tip="Shuffle" />
+              <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="⏮" FontSize="20" Command="{Binding PrevCmd}" ToolTip.Tip="Previous" />
+              <Button Classes="primary" FontFamily="Segoe UI Symbol" Content="{Binding PlayGlyph}" Width="46" Height="46" FontSize="20" Padding="0" HorizontalContentAlignment="Center" Command="{Binding ToggleCmd}" ToolTip.Tip="Play / pause" />
+              <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="⏭" FontSize="20" Command="{Binding NextCmd}" ToolTip.Tip="Next" />
+              <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="{Binding RepeatGlyph}" Command="{Binding RepeatCmd}" Classes.on="{Binding RepeatOn}" ToolTip.Tip="Repeat" />
+            </StackPanel>
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <TextBlock Text="{Binding PositionText}" Classes="muted" FontSize="11" VerticalAlignment="Center" Width="40" />
+              <Slider x:Name="SeekSlider" Grid.Column="1" Minimum="0" Maximum="{Binding DurationSec}" Value="{Binding PositionSec, Mode=OneWay}" />
+              <TextBlock Grid.Column="2" Text="{Binding DurationText}" Classes="muted" FontSize="11" VerticalAlignment="Center" Width="40" TextAlignment="Right" />
+            </Grid>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
+            <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="☰" Command="{Binding ToggleQueueCmd}" ToolTip.Tip="Queue" />
+            <TextBlock Text="🔊" FontFamily="Segoe UI Symbol" VerticalAlignment="Center" />
+            <Slider Width="90" Minimum="0" Maximum="100" Value="{Binding Volume, Mode=TwoWay}" VerticalAlignment="Center" />
+            <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="⤢" Command="{Binding ToggleExpandedCmd}" ToolTip.Tip="Expand" />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- ================= expanded player ================= -->
+    <Grid IsVisible="{Binding Expanded}" Background="{DynamicResource BgBrush}" RowDefinitions="Auto,*,Auto">
+      <Grid Margin="20,16" ColumnDefinitions="Auto,*,Auto">
+        <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="⌄" FontSize="22" Command="{Binding ToggleExpandedCmd}" ToolTip.Tip="Collapse" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+          <Button Classes="primary" Content="Now playing" Command="{Binding ShowLyricsCmd}" CommandParameter="art" />
+          <Button Classes="outline" Content="Lyrics" Command="{Binding ShowLyricsCmd}" CommandParameter="lyrics" />
+        </StackPanel>
+        <Button Grid.Column="2" Classes="icon" FontFamily="Segoe UI Symbol" Content="☰" Command="{Binding ToggleQueueCmd}" ToolTip.Tip="Queue" />
+      </Grid>
+
+      <Grid Grid.Row="1" Margin="40,0">
+        <Border IsVisible="{Binding ShowArt}" Width="380" Height="380" CornerRadius="28" ClipToBounds="True" Background="{DynamicResource SurfaceBrush}" HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Image Source="{Binding Current.Art}" Stretch="UniformToFill" />
+        </Border>
+        <Border IsVisible="{Binding ShowLyrics}" Classes="card" Padding="16" MaxWidth="760">
+          <Grid>
+            <ScrollViewer x:Name="LyricsScroll" VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="6">
+                <TextBlock Text="{Binding LyricsStatus}" IsVisible="{Binding HasLyricsStatus}" Classes="muted" HorizontalAlignment="Center" Margin="0,30" />
+                <TextBlock Text="{Binding LyricsPlain}" IsVisible="{Binding HasPlainOnly}" Classes="muted" TextWrapping="Wrap" TextAlignment="Center" FontSize="17" />
+                <ItemsControl x:Name="LyricsList" ItemsSource="{Binding Lyrics}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding Text}" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" TextAlignment="Center" Margin="0,7" Opacity="0.55" Classes.cur="{Binding IsCurrent}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </ScrollViewer>
+          </Grid>
+        </Border>
+      </Grid>
+
+      <StackPanel Grid.Row="2" Margin="40,10,40,28" MaxWidth="720" Spacing="8">
+        <TextBlock Text="{Binding Current.Title}" FontSize="26" FontWeight="ExtraBold" TextTrimming="CharacterEllipsis" />
+        <TextBlock Text="{Binding Current.Subtitle}" Classes="muted" TextTrimming="CharacterEllipsis" />
+        <Border Background="{DynamicResource RaisedBrush}" CornerRadius="10" Padding="10" IsVisible="{Binding HasPlayerNote}">
+          <TextBlock Text="{Binding PlayerNote}" FontSize="12" TextWrapping="Wrap" />
+        </Border>
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <TextBlock Text="{Binding PositionText}" Classes="muted" VerticalAlignment="Center" Width="46" />
+          <Slider x:Name="SeekSliderBig" Grid.Column="1" Minimum="0" Maximum="{Binding DurationSec}" Value="{Binding PositionSec, Mode=OneWay}" />
+          <TextBlock Grid.Column="2" Text="{Binding DurationText}" Classes="muted" VerticalAlignment="Center" Width="46" TextAlignment="Right" />
+        </Grid>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="10">
+          <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="⇄" Command="{Binding ShuffleCmd}" />
+          <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="⏮" FontSize="24" Command="{Binding PrevCmd}" />
+          <Button Classes="primary" FontFamily="Segoe UI Symbol" Content="{Binding PlayGlyph}" Width="64" Height="64" FontSize="26" Padding="0" HorizontalContentAlignment="Center" Command="{Binding ToggleCmd}" />
+          <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="⏭" FontSize="24" Command="{Binding NextCmd}" />
+          <Button Classes="icon" FontFamily="Segoe UI Symbol" Content="{Binding RepeatGlyph}" Command="{Binding RepeatCmd}" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+          <TextBlock Text="🔊" FontFamily="Segoe UI Symbol" VerticalAlignment="Center" />
+          <Slider Width="220" Minimum="0" Maximum="100" Value="{Binding Volume, Mode=TwoWay}" />
+        </StackPanel>
+      </StackPanel>
+    </Grid>
+
+    <!-- ================= queue drawer ================= -->
+    <Border IsVisible="{Binding QueueOpen}" Width="350" HorizontalAlignment="Right" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource OutlineBrush}" BorderThickness="1,0,0,0">
+      <DockPanel Margin="14">
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+          <TextBlock Text="{Binding QueueTitle}" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Classes="outline" Content="Clear" Command="{Binding ClearQueueCmd}" />
+          <Button Grid.Column="2" Classes="icon" Content="✕" Command="{Binding ToggleQueueCmd}" />
+        </Grid>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+            <TextBlock Classes="muted" Text="Your queue is empty." IsVisible="{Binding NoQueue}" Margin="8" />
+            <ItemsControl ItemsSource="{Binding QueueItems}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                    <Button Classes="row" Command="{Binding $parent[Window].DataContext.QueueJumpCmd}" CommandParameter="{Binding}">
+                      <StackPanel Margin="6,3">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" Classes.cur="{Binding IsCurrent}" />
+                        <TextBlock Text="{Binding Artist}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </Button>
+                    <Button Grid.Column="1" Classes="icon" Width="30" Height="30" FontSize="11" Content="▲" Command="{Binding $parent[Window].DataContext.QueueUpCmd}" CommandParameter="{Binding}" />
+                    <Button Grid.Column="2" Classes="icon" Width="30" Height="30" FontSize="11" Content="▼" Command="{Binding $parent[Window].DataContext.QueueDownCmd}" CommandParameter="{Binding}" />
+                    <Button Grid.Column="3" Classes="icon" Width="30" Height="30" FontSize="12" Content="✕" Command="{Binding $parent[Window].DataContext.QueueRemoveCmd}" CommandParameter="{Binding}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+
+    <!-- ================= add to playlist ================= -->
+    <Grid IsVisible="{Binding PickerOpen}" Background="#99000000">
+      <Border Classes="card" Background="{DynamicResource SurfaceBrush}" Width="400" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel Spacing="10">
+          <TextBlock Text="Add to playlist" FontSize="18" FontWeight="Bold" />
+          <TextBlock Text="{Binding PickerTitle}" Classes="muted" TextTrimming="CharacterEllipsis" />
+          <ScrollViewer MaxHeight="220">
+            <ItemsControl ItemsSource="{Binding Playlists}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Classes="row" HorizontalAlignment="Stretch" Padding="12,10" Command="{Binding $parent[Window].DataContext.PickPlaylistCmd}" CommandParameter="{Binding}">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Text="{Binding Name}" />
+                      <TextBlock Grid.Column="1" Text="{Binding CountText}" Classes="muted" FontSize="12" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox Text="{Binding NewPlaylistName, Mode=TwoWay}" Watermark="New playlist" />
+            <Button Grid.Column="1" Classes="primary" Content="Create" Margin="8,0,0,0" Command="{Binding PickerCreateCmd}" />
+          </Grid>
+          <Button Classes="outline" HorizontalAlignment="Right" Content="Close" Command="{Binding PickerCloseCmd}" />
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

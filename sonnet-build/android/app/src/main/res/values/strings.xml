@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">TheMashup</string>
+    <string name="widget_desc">Current track and playback controls</string>
+</resources>

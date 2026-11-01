@@ -1,0 +1,7 @@
+<resources>
+    <color name="mashup_bg">#0A0A0F</color>
+    <color name="mashup_accent">#9B80FF</color>
+    <color name="widget_bg">#E615151F</color>
+    <color name="widget_text">#F4F4F8</color>
+    <color name="widget_muted">#A8A8BC</color>
+</resources>

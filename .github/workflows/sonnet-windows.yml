@@ -1,0 +1,49 @@
+name: Sonnet Windows EXE
+
+on:
+  push:
+    branches: [arena/9f29da6a-themashup]
+    paths:
+      - 'sonnet-build/windows/**'
+      - 'sonnet-build/TheMashup.csproj'
+      - '.github/workflows/sonnet-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+          dotnet-quality: "ga"
+
+      - name: Publish self-contained win-x64
+        run: >-
+          dotnet publish sonnet-build/windows/TheMashup/TheMashup.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none
+          -o publish
+
+      - name: Launch smoke test (must stay alive for 8s)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "publish/TheMashup.exe" -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { throw "TheMashup.exe exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          Write-Host "Launch OK"
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path publish/* -DestinationPath TheMashup-win-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TheMashup-win-x64
+          path: TheMashup-win-x64.zip
+          if-no-files-found: error
