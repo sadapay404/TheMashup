@@ -28,6 +28,10 @@ public interface IMediaDevice : IDisposable
     void Stop();
     void Seek(double seconds);
     void SetVolume(double volume);
+    void SetPlaybackRate(double rate);
+    void SetEqualizerPreset(string preset);
+    void SetEqualizerBand(int band, double gainDb);
+    void SetNormalization(bool enabled, int strength);
 }
 
 public sealed class PlaybackProviderException(string message) : Exception(message) { }

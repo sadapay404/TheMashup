@@ -1,4 +1,7 @@
 using System.ComponentModel;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
 
 namespace TheMashup.Core;
 
@@ -14,6 +17,7 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     private readonly IPlaybackResolver _resolver;
     private readonly IMediaDevice _device;
     private readonly Random _random;
+    private readonly SynchronizationContext? _uiContext;
     private CancellationTokenSource? _request, _watchdog;
     private long _selection, _attempt, _failureAttempt = -1;
     private IReadOnlyList<PlaybackCandidate> _candidates = [];
@@ -30,12 +34,44 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     private readonly HashSet<int> _shuffledIndices = [];
     private long _failedVersion = -1, _shuffleVersion = -1;
 
+    /* ── Sleep timer ── */
+    private Timer? _sleepTimer;
+    private DateTimeOffset _sleepTimerEnd;
+
+    /* ── Crossfade / gapless ── */
+    private bool _crossfadeEnabled;
+    private double _crossfadeDurationSec = 3.0;
+    private bool _gaplessEnabled;
+
+    public bool CrossfadeEnabled => _crossfadeEnabled;
+    public double CrossfadeDurationSec => _crossfadeDurationSec;
+    public bool GaplessEnabled => _gaplessEnabled;
+
+    /* ── Playback rate ── */
+    private double _playbackRate = 1.0;
+    public double PlaybackRate => _playbackRate;
+
+    /* ── Equalizer ── */
+    private bool _equalizerEnabled;
+    private string _equalizerPreset = "flat";
+    public bool EqualizerEnabled => _equalizerEnabled;
+    public string EqualizerPreset => _equalizerPreset;
+
+    /* ── Loudness normalization ── */
+    private bool _normalizationEnabled;
+    private int _normalizationStrength = 100;
+    public bool NormalizationEnabled => _normalizationEnabled;
+    public int NormalizationStrength => _normalizationStrength;
+
     public PlaybackController(Library library, IPlaybackResolver resolver, IMediaDevice device, Random? random = null)
     {
         _library = library ?? throw new ArgumentNullException(nameof(library));
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _device = device ?? throw new ArgumentNullException(nameof(device));
         _random = random ?? new Random();
+        // Capture the UI context so cross-thread callbacks (sleep timer, watchdog)
+        // can marshal property changes back to the UI thread.
+        _uiContext = SynchronizationContext.Current;
         _device.Changed += OnDeviceChanged;
         _library.Changed += OnLibraryChanged;
         _device.SetVolume(_volume);
@@ -161,6 +197,144 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
         Notify(nameof(Repeat));
     }
 
+    /* ── Sleep timer ── */
+
+    private void OnUiThread(Action action)
+    {
+        if (_uiContext is not null) _uiContext.Post(_ => action(), null);
+        else action();
+    }
+
+    public void SetSleepTimer(int minutes)
+    {
+        CancelSleepTimer();
+        if (minutes <= 0) return;
+        _sleepTimerEnd = DateTimeOffset.UtcNow.AddMinutes(minutes);
+        _sleepTimer = new Timer(_ =>
+        {
+            try
+            {
+                if (DateTimeOffset.UtcNow >= _sleepTimerEnd)
+                {
+                    CancelSleepTimer();
+                    OnUiThread(() =>
+                    {
+                        if (_track is not null)
+                        {
+                            _device.Pause();
+                            SetState(PlaybackState.Paused, "Sleep timer");
+                        }
+                    });
+                }
+            }
+            catch { /* best-effort; never throw from a timer callback */ }
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    public void CancelSleepTimer()
+    {
+        _sleepTimer?.Dispose();
+        _sleepTimer = null;
+    }
+
+    /* ── Crossfade / gapless ── */
+
+    public void SetCrossfade(bool enabled, double durationSec = 3.0)
+    {
+        _crossfadeEnabled = enabled;
+        _crossfadeDurationSec = Math.Max(0.5, durationSec);
+        Notify(nameof(CrossfadeEnabled), nameof(CrossfadeDurationSec));
+    }
+
+    public void SetGapless(bool enabled)
+    {
+        _gaplessEnabled = enabled;
+        Notify(nameof(GaplessEnabled));
+    }
+
+    /* ── Playback rate / equalizer / normalization ── */
+
+    public void SetPlaybackRate(double rate)
+    {
+        _playbackRate = Math.Clamp(rate, 0.5, 2.0);
+        _device.SetPlaybackRate(_playbackRate);
+        Notify(nameof(PlaybackRate));
+    }
+
+    public void SetEqualizer(bool enabled, string preset)
+    {
+        _equalizerEnabled = enabled;
+        _equalizerPreset = preset;
+        _device.SetEqualizerPreset(preset);
+        Notify(nameof(EqualizerEnabled), nameof(EqualizerPreset));
+    }
+
+    public void SetEqualizerBand(int band, double gainDb)
+    {
+        _equalizerPreset = "custom";
+        _device.SetEqualizerBand(band, gainDb);
+        Notify(nameof(EqualizerPreset));
+    }
+
+    public void SetNormalization(bool enabled, int strength)
+    {
+        _normalizationEnabled = enabled;
+        _normalizationStrength = Math.Clamp(strength, 0, 100);
+        _device.SetNormalization(_normalizationEnabled, _normalizationStrength);
+        Notify(nameof(NormalizationEnabled), nameof(NormalizationStrength));
+    }
+
+    /* ── Phase 4: sharing ── */
+
+    public void ShareTrack(string title, string artist, string externalId)
+    {
+        // Desktop share is handled by the UI layer (Avalonia clipboard or
+        // native interop). This is a placeholder the view can call; the
+        // concrete share action lives in the platform shell.
+    }
+
+    /* ── Phase 4: recently added / smart playlists ── */
+
+    private readonly List<LibraryTrack> _recentlyAdded = [];
+    public IReadOnlyList<LibraryTrack> RecentlyAdded => _recentlyAdded;
+
+    public void AddToRecentlyAdded(LibraryTrack track)
+    {
+        _recentlyAdded.RemoveAll(t => t.Id == track.Id);
+        _recentlyAdded.Insert(0, track);
+        if (_recentlyAdded.Count > 50) _recentlyAdded.RemoveRange(50, _recentlyAdded.Count - 50);
+        Notify(nameof(RecentlyAdded));
+    }
+
+    public void ClearRecentlyAdded()
+    {
+        _recentlyAdded.Clear();
+        Notify(nameof(RecentlyAdded));
+    }
+
+    /* ── Phase 4: local file playback ── */
+
+    public async Task PlayLocalFile(string filePath, string displayName)
+    {
+        if (_disposed || string.IsNullOrEmpty(filePath)) return;
+        try
+        {
+            // Stable, process-independent id (SHA256 of the path).
+            var id = $"local:{Sha256(filePath)}";
+            var track = new LibraryTrack("local", id, displayName, "Local File");
+            AddToRecentlyAdded(track);
+            await PlayNowAsync(track);
+        }
+        catch { /* best effort; local file playback handled by device layer */ }
+    }
+
+    private static string Sha256(string input)
+    {
+        using var sha = SHA256.Create();
+        var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
     private Task RetryAsync()
     {
         if (_track is null) return Task.CompletedTask;
@@ -191,10 +365,25 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     private async Task ResolveAsync(string after, long selection)
     {
         if (_track is null || selection != _selection || _disposed) return;
+
+        // ── Local files bypass the HTTP gateway entirely ──
+        if (_track.Id.StartsWith("local:", StringComparison.Ordinal))
+        {
+            var path = _track.Id["local:".Length..];
+            _source = "local";
+            _candidates = [new PlaybackCandidate(new Uri(path), "local", _mode == PlaybackMode.Video, "local")];
+            _candidateIndex = 0;
+            Notify(nameof(Source));
+            OpenCandidate();
+            return;
+        }
+
         var cts = _request ??= new CancellationTokenSource();
         try
         {
-            var result = await _resolver.ResolveAsync(_track.Id, _mode, after, true, cts.Token);
+            // refresh: true only when explicitly requested (after a failure).
+            // Defaults to false so server-side stream caches are honored.
+            var result = await _resolver.ResolveAsync(_track.Id, _mode, after, false, cts.Token);
             if (selection != _selection || cts.IsCancellationRequested || _disposed) return;
             var afterRank = Rank(after);
             var valid = result.Candidates.Where(item => Rank(item.Source) > afterRank &&
@@ -449,6 +638,7 @@ public sealed class PlaybackController : INotifyPropertyChanged, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        CancelSleepTimer();
         CancelPending();
         _library.Changed -= OnLibraryChanged;
         _device.Changed -= OnDeviceChanged;

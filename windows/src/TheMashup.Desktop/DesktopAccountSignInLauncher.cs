@@ -14,6 +14,16 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
 
     public async Task<AccountSnapshot> LaunchAsync(CancellationToken cancellationToken)
     {
+        NativeWebView? webView;
+        try
+        {
+            webView = new NativeWebView();
+        }
+        catch (Exception ex)
+        {
+            throw new HomeProviderException("YouTube sign-in requires the WebView2 runtime, which is not installed on this system.");
+        }
+
         var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var userDataFolder = Path.Combine(root, "TheMashup", "signin-webview");
         var window = new Window
@@ -22,7 +32,6 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
             Width = 920,
             Height = 680,
         };
-        var webView = new NativeWebView();
         webView.EnvironmentRequested += (_, e) =>
         {
             if (e is WindowsWebView2EnvironmentRequestedEventArgs args)
@@ -55,8 +64,15 @@ internal sealed class DesktopAccountSignInLauncher : IAccountSignInLauncher
         };
 
         window.Content = webView;
-        webView.Source = new Uri(YouTubeMusicHomeClient.GoogleLoginUrl);
-        window.Show();
+        try
+        {
+            webView.Source = new Uri(YouTubeMusicHomeClient.GoogleLoginUrl);
+            window.Show();
+        }
+        catch (Exception ex)
+        {
+            throw new HomeProviderException("Could not open the sign-in window. Please try again.");
+        }
 
         try
         {

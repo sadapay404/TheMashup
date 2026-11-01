@@ -81,9 +81,16 @@ internal sealed class LocalSearchHost : IDisposable
     {
         var explicitPath = Environment.GetEnvironmentVariable("THEMASHUP_SEARCH_HOST");
         if (!string.IsNullOrWhiteSpace(explicitPath) && File.Exists(explicitPath)) return Path.GetFullPath(explicitPath);
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+
+        // Look next to the executable first (publish output bundles host.mjs as content).
+        var baseDir = AppContext.BaseDirectory;
+        var candidate = Path.Combine(baseDir, "host.mjs");
+        if (File.Exists(candidate)) return candidate;
+
+        // Fall back to walking up the directory tree (source-tree layout).
+        for (var dir = new DirectoryInfo(baseDir); dir is not null; dir = dir.Parent)
         {
-            var candidate = Path.Combine(dir.FullName, "windows", "services", "host.mjs");
+            candidate = Path.Combine(dir.FullName, "windows", "services", "host.mjs");
             if (File.Exists(candidate)) return candidate;
         }
         return null;
