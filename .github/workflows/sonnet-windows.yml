@@ -21,11 +21,11 @@ jobs:
           dotnet-version: "10.0.x"
           dotnet-quality: "ga"
 
-      - name: Publish self-contained win-x64
+      - name: Publish self-contained win-x64 (folder, libvlc.dll must sit next to exe)
         run: >-
           dotnet publish sonnet-build/windows/TheMashup/TheMashup.csproj
           -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none
+          -p:PublishSingleFile=false -p:DebugType=none
           -o publish
 
       - name: Launch smoke test (must stay alive for 8s)
