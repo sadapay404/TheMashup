@@ -93,3 +93,19 @@ public interface ISearchService
 
 /// <summary>Provider/transport failure, distinct from a legitimate empty result.</summary>
 public sealed class SearchProviderException(string message) : Exception(message) { }
+
+/// <summary>Search service used when the local search backend is not available (e.g. Node.js not installed).</summary>
+public sealed class UnavailableSearchService : ISearchService
+{
+    private static readonly SearchProviderException Error = new(
+        "Search is not available in this build. The local search backend is not included.");
+
+    public Task<CatalogSearchResult> SearchAsync(string query, CancellationToken cancellationToken) =>
+        Task.FromException<CatalogSearchResult>(Error);
+    public Task<SuggestionResult> SuggestAsync(string query, CancellationToken cancellationToken) =>
+        Task.FromException<SuggestionResult>(Error);
+    public Task<LyricSearchResult> SearchLyricsAsync(string query, CancellationToken cancellationToken) =>
+        Task.FromException<LyricSearchResult>(Error);
+    public Task<LyricDocument?> GetLyricsAsync(CatalogTrack track, CancellationToken cancellationToken) =>
+        Task.FromException<LyricDocument?>(Error);
+}

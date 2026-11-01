@@ -40,8 +40,22 @@ internal static class Program
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         var gateway = new GatewayPlaybackClient(http, _ => Task.FromResult(endpoint ?? new Uri("http://127.0.0.1:4000/")));
+<<<<<<< HEAD
         App.SearchService = new GatewaySearchClient(http, _ => Task.FromResult(endpoint ?? new Uri("http://127.0.0.1:4000/")));
         App.PlaybackResolver = gateway;
+=======
+        App.PlaybackResolver = gateway;
+        if (endpoint == null)
+        {
+            // Local search host (Node.js) is not available — degrade gracefully
+            // instead of throwing cryptic connection errors on every search.
+            App.SearchService = new UnavailableSearchService();
+        }
+        else
+        {
+            App.SearchService = new GatewaySearchClient(http, _ => Task.FromResult(endpoint));
+        }
+>>>>>>> a7ba09a (Fix Windows: TextBox dark-theme styling, YT login WebView2 error handling, search unavailable graceful fallback)
         App.DownloadService = new GatewayDownloadClient(http, _ => Task.FromResult(endpoint ?? new Uri("http://127.0.0.1:4000/")));
         var homeClient = new YouTubeMusicHomeClient();
         var homeStore = new WindowsAccountStore(Path.Combine(root, "TheMashup", "account.txt"));
