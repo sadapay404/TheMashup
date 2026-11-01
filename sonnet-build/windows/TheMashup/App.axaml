@@ -2,6 +2,18 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="TheMashup.App"
              RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <SolidColorBrush x:Key="BgBrush">#0A0A0F</SolidColorBrush>
+    <SolidColorBrush x:Key="SurfaceBrush">#15151F</SolidColorBrush>
+    <SolidColorBrush x:Key="RaisedBrush">#1D1D2A</SolidColorBrush>
+    <SolidColorBrush x:Key="TextBrush">#F4F4F8</SolidColorBrush>
+    <SolidColorBrush x:Key="MutedBrush">#A8A8BC</SolidColorBrush>
+    <SolidColorBrush x:Key="SubtleBrush">#74748A</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentBrush">#9B80FF</SolidColorBrush>
+    <SolidColorBrush x:Key="Accent2Brush">#6C9BFF</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentTextBrush">#0B0B12</SolidColorBrush>
+    <SolidColorBrush x:Key="OutlineBrush">#2C2C3B</SolidColorBrush>
+  </Application.Resources>
   <Application.Styles>
     <FluentTheme />
 

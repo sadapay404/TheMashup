@@ -3,7 +3,7 @@
         x:Class="TheMashup.MainWindow"
         x:Name="Root"
         Title="TheMashup"
-        Icon="avares://TheMashup/Assets/icon.ico"
+        
         Width="1200" Height="780" MinWidth="880" MinHeight="600"
         WindowStartupLocation="CenterScreen">
 
