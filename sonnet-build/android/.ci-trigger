@@ -1,0 +1,2 @@
+Trigger file for sonnet-android.yml push-based CI (workflow_dispatch returns 403 from this environment; push auto-starts the build).
+Do not delete — used to (re)trigger Android APK builds.
