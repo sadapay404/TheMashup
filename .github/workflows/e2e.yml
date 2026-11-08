@@ -31,7 +31,38 @@ jobs:
       - run: npx playwright install --with-deps chromium
 
       - name: Run Playwright
-        run: npx playwright test --config apps/web/playwright.config.ts
+        id: pw
+        run: |
+          set +e
+          npx playwright test --config apps/web/playwright.config.ts --reporter=json > pw.json 2> pw.err
+          STATUS=$?
+          node -e "
+            const fs = require('fs');
+            let raw = '';
+            try { raw = fs.readFileSync('pw.json', 'utf8'); } catch {}
+            const out = [];
+            try {
+              const r = JSON.parse(raw.slice(raw.indexOf('{')));
+              const walk = (suite, path = '') => {
+                const here = suite.title ? (path ? path + ' › ' + suite.title : suite.title) : path;
+                for (const spec of suite.specs || []) {
+                  for (const t of spec.tests || []) {
+                    const res = (t.results || [])[0];
+                    if (res && res.status !== 'passed' && res.status !== 'skipped') {
+                      const msg = (res.error && (res.error.message || res.error.value)) || 'no message';
+                      out.push('::error title=Playwright: ' + spec.title.replace(/[%\r\n]/g, ' ') + '::' + here.replace(/[%\r\n]/g,' ').slice(0,120) + ' — ' + String(msg).replace(/[%\r\n]/g, ' ').slice(0, 900));
+                    }
+                  }
+                }
+                for (const s2 of suite.suites || []) walk(s2, here);
+              };
+              for (const s of r.suites || []) walk(s);
+            } catch (e) { out.push('::error title=Playwright report unreadable::' + String(e).slice(0,200)); }
+            console.log(out.join('\n') || '::warning title=Playwright::no failures parsed');
+          " || true
+          echo "--- stderr tail ---"
+          tail -40 pw.err || true
+          exit $STATUS
         env:
           CI: true
 

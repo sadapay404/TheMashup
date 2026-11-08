@@ -38,6 +38,13 @@ class DownloadService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
 
+    /**
+     * Cancellation is a plain atomic flag rather than coroutine introspection: the copy loop runs
+     * several lambdas deep (Response.use → RandomAccessFile.use), where `isActive` and even a
+     * self-referential `job` reference do not resolve.
+     */
+    private val cancelFlags = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean>()
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -57,7 +64,13 @@ class DownloadService : Service() {
                 enqueue(id, url, File(dest), name)
             }
             ACTION_CANCEL -> {
-                intent.getStringExtra(EXTRA_ID)?.let { jobs.remove(it)?.cancel() }
+                intent.getStringExtra(EXTRA_ID)?.let { id ->
+                    // Set the cooperative flag first so the copy loop stops at the next chunk,
+                    // then cancel the coroutine for anything that is still suspending.
+                    cancelFlags.remove(id)?.set(true)
+                    jobs.remove(id)?.cancel()
+                    DownloadEvents.failed(id, "cancelled")
+                }
             }
         }
         return START_STICKY
@@ -88,6 +101,8 @@ class DownloadService : Service() {
 
     private fun enqueue(id: String, url: String, dest: File, displayName: String) {
         if (jobs.containsKey(id)) return
+        val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+        cancelFlags[id] = cancelled
         val job = scope.launch {
             val part = File(dest.absolutePath + ".part")
             try {
@@ -115,7 +130,7 @@ class DownloadService : Service() {
                             val buffer = ByteArray(64 * 1024)
                             var lastReport = 0L
                             while (true) {
-                                if (!isActive) return@launch
+                                if (cancelled.get()) return@launch
                                 val read = input.read(buffer)
                                 if (read <= 0) break
                                 raf.write(buffer, 0, read)
@@ -146,6 +161,7 @@ class DownloadService : Service() {
                 Log.w(TAG, "download $id failed", t)
                 DownloadEvents.failed(id, t.message ?: t::class.java.simpleName)
             } finally {
+                cancelFlags.remove(id)
                 jobs.remove(id)
                 if (jobs.isEmpty()) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
