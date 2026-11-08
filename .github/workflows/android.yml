@@ -135,6 +135,34 @@ jobs:
           find apps/android/android/app/build/outputs -name "*.apk" -exec cp {} out/ \; 2>/dev/null || true
           ls -lh out/ || echo "no APKs found"
 
+      # Prove the artefact is a real, signed APK rather than a renamed zip. The verdict is emitted
+      # as a check annotation so it is visible without downloading 8 MB.
+      - name: Verify APK integrity
+        if: always()
+        run: |
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          BT="$(ls -d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -1)"
+          APK="$(ls out/*.apk 2>/dev/null | head -1)"
+          if [ -z "$APK" ]; then
+            echo "::error title=No APK::the build produced no .apk in out/"
+            exit 1
+          fi
+          if [ -x "$BT/aapt2" ]; then
+            BADGING="$("$BT/aapt2" dump badging "$APK" 2>&1 | grep -E "^package:|^application-label:|sdkVersion|targetSdkVersion" | tr '\n' ' ')"
+          else
+            BADGING="aapt2 unavailable"
+          fi
+          if [ -x "$BT/apksigner" ]; then
+            SIGNER="$("$BT/apksigner" verify --print-certs "$APK" 2>&1 | grep -i "certificate DN" | head -1)"
+            VERIFY="$( "$BT/apksigner" verify "$APK" > /dev/null 2>&1 && echo SIGNED-VALID || echo SIGNATURE-INVALID )"
+          else
+            SIGNER="apksigner unavailable"; VERIFY="unknown"
+          fi
+          SIZE="$(du -h "$APK" | cut -f1)"
+          echo "APK: $APK ($SIZE) — $VERIFY"
+          echo "::notice title=APK built ($SIZE)::$BADGING | $VERIFY | $SIGNER"
+          echo "$BADGING | $VERIFY | $SIGNER" > out/apk-verification.txt
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
