@@ -138,15 +138,23 @@ jobs:
       - name: Report outcome as annotations
         if: always()
         shell: bash
+        # `set -e` is on by default for GH runners: a `grep` with no match exits 1 and would fail
+        # this reporting step. Every probe below is therefore explicitly non-fatal.
         run: |
-          for f in apps/desktop/src-tauri/rust-test.log apps/desktop/src-tauri/clippy.log apps/desktop/src-tauri/cargo-build.log; do
-            if [ -f "$f" ]; then
-              LINE="$(grep -m1 -E '^error(\[|:)|FAILED|panicked|warning: unused' "$f" | head -c 800)"
-              if [ -n "$LINE" ]; then echo "::warning title=$(basename $f)::$(echo "$LINE" | tr '\n' ' ')"; fi
-            fi
+          set +e
+          for f in apps/desktop/src-tauri/rust-test.log apps/desktop/src-tauri/clippy.log apps/desktop/src-tauri/tauri-build.log; do
+            [ -f "$f" ] || continue
+            LINE="$(grep -m1 -E '^error(\[|:)|FAILED|panicked at|error TS' "$f" | head -c 800)"
+            [ -n "$LINE" ] && echo "::warning title=$(basename "$f")::$(echo "$LINE" | tr '\n' ' ')"
           done
+
           EXE="$(find apps/desktop/src-tauri/target -maxdepth 3 -name 'themashup*' -type f 2>/dev/null | head -1)"
-          if [ -n "$EXE" ]; then echo "::notice title=Desktop binary built::$(ls -lh "$EXE" | awk '{print $5, $9}')"; fi
+          if [ -n "$EXE" ]; then
+            echo "::notice title=Desktop binary built::$(ls -lh "$EXE" | awk '{print $5, $9}')"
+          else
+            echo "::notice title=Desktop binary::not produced (see build step)"
+          fi
+          exit 0
 
       - name: Upload logs
         if: always()
