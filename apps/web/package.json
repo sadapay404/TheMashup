@@ -7,11 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:apk": "npm run build -w @themashup/web && node scripts/sync-android.mjs",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "@capacitor/core": "^6.2.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
@@ -25,6 +28,9 @@
     "jsdom": "^31.0.0",
     "tailwindcss": "^4.1.11",
     "vite": "^6.3.5",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/android": "^6.2.0",
+    "@playwright/test": "^1.55.0"
   }
 }

@@ -17,6 +17,16 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { service } from '@/lib/service';
+import {
+  hasNativePlayback,
+  nativePause,
+  nativePlay,
+  nativeResume,
+  nativeSeek,
+  nativeSetVolume,
+  nativeState,
+  onNativeEvent,
+} from '@/lib/native';
 import { store, useApp } from '@/state/store';
 import type { Track } from '@themashup/core';
 
@@ -81,6 +91,7 @@ export function usePlayer() {
     async (t: Track) => {
       const gen = ++generation.current;
       const el = ensureAudio();
+      const art = t.thumbs[t.thumbs.length - 1]?.url;
       store.set({ loading: true, streamError: null, positionSec: 0, stream: null, lyrics: null });
 
       const resolved = await service.resolveStream(t.id);
@@ -99,6 +110,27 @@ export function usePlayer() {
           loading: false,
           playing: false,
           streamError: 'Every source for this track is signature-locked right now.',
+        });
+        return;
+      }
+
+      // Native shell: Media3 owns playback so audio survives backgrounding + screen-off and
+      // appears on the lockscreen. Falls back to the element if the plugin is absent.
+      const handedToNative = await nativePlay({
+        url: playable.url,
+        title: t.title,
+        artist: t.artist,
+        ...(art ? { artUrl: art } : {}),
+        durationMs: Math.round(t.durationSec * 1000),
+      });
+      if (handedToNative) {
+        el.removeAttribute('src');
+        store.set({ loading: false, durationSec: t.durationSec });
+        lastTimeUpdate.current = Date.now();
+        store.set({ lyricsLoading: true });
+        void service.lyricsFor(t).then((lyrics) => {
+          if (gen !== generation.current) return;
+          store.set({ lyrics, lyricsLoading: false });
         });
         return;
       }
@@ -122,6 +154,15 @@ export function usePlayer() {
   const setPlaying = useCallback(
     async (next: boolean) => {
       const el = ensureAudio();
+
+      // Native Media3 path: no element src, the service owns transport.
+      if (!el.src && hasNativePlayback()) {
+        if (next) await nativeResume();
+        else await nativePause();
+        store.set({ playing: next });
+        return;
+      }
+
       if (!el.src) return;
       const ctx = ctxRef.current;
       const gain = gainRef.current;
@@ -229,6 +270,11 @@ export function usePlayer() {
 
   const seek = useCallback((sec: number) => {
     const el = audioRef.current;
+    if (el && !el.src && hasNativePlayback()) {
+      void nativeSeek(Math.round(sec * 1000));
+      store.set({ positionSec: sec });
+      return;
+    }
     if (!el || !Number.isFinite(el.duration)) return;
     el.currentTime = Math.max(0, Math.min(el.duration - 0.25, sec));
     store.set({ positionSec: el.currentTime });
@@ -286,6 +332,45 @@ export function usePlayer() {
       el.removeEventListener('playing', onPlaying);
     };
   }, [ensureAudio, load, next]);
+
+  // Native transport polling (Media3 is the source of truth once handed off).
+  useEffect(() => {
+    if (!hasNativePlayback()) return;
+    let alive = true;
+    const tick = async () => {
+      if (!alive) return;
+      const s = store.getState();
+      if (!s.playing) return;
+      const st = await nativeState();
+      if (st && alive) {
+        store.set({
+          positionSec: st.positionMs / 1000,
+          durationSec: st.durationMs > 0 ? st.durationMs / 1000 : s.durationSec,
+        });
+      }
+    };
+    const id = window.setInterval(() => void tick(), 1000);
+    const offEnded = onNativeEvent('ended', () => next(true));
+    const offError = onNativeEvent('error', () => {
+      const st = store.getState();
+      const t = st.queue[st.index];
+      if (t) {
+        store.notify('Native player error — re-resolving…', 'error');
+        void load(t);
+      }
+    });
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+      offEnded();
+      offError();
+    };
+  }, [load, next]);
+
+  // Volume mirroring for the native path.
+  useEffect(() => {
+    if (hasNativePlayback()) void nativeSetVolume(muted ? 0 : volume);
+  }, [volume, muted]);
 
   // Stall watchdog: "playing" but no progress for 8 s → re-resolve once.
   useEffect(() => {

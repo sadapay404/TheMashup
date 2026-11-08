@@ -71,6 +71,12 @@ if (!globalThis.crypto?.getRandomValues) {
   });
 }
 
+// Object URLs (jsdom does not implement them; the download path legitimately uses them).
+if (typeof URL.createObjectURL !== 'function') {
+  Object.defineProperty(URL, 'createObjectURL', { writable: true, value: () => 'blob:mock' });
+  Object.defineProperty(URL, 'revokeObjectURL', { writable: true, value: () => undefined });
+}
+
 // Storage API used by Diagnostics.
 if (!navigator.storage) {
   Object.defineProperty(navigator, 'storage', {

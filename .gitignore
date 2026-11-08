@@ -16,3 +16,5 @@ android/.gradle/
 *.aab
 *.keystore
 *.jks
+# Generated: the web bundle copied into Android assets is built in CI, not committed.
+apps/android/android/app/src/main/assets/public/

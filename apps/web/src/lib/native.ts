@@ -1,0 +1,173 @@
+/**
+ * Native bridge (Android via Capacitor).
+ *
+ * The web build runs everywhere; this module is the only place that knows native plugins exist.
+ * Every call is capability-detected and returns a Result-like value, so the browser build is
+ * byte-for-byte functional without them.
+ *
+ * Playback note: when the native Media3 service is available we hand it the resolved stream URL and
+ * stop the local <audio> element, so audio continues with the screen off and shows on the lockscreen.
+ */
+
+interface CapacitorGlobal {
+  isNativePlatform?: () => boolean;
+  Plugins?: Record<string, unknown>;
+}
+
+interface PluginRef {
+  addListener?: (event: string, cb: (data: unknown) => void) => { remove: () => void };
+  [method: string]: unknown;
+}
+
+function cap(): CapacitorGlobal | undefined {
+  return (window as unknown as { Capacitor?: CapacitorGlobal }).Capacitor;
+}
+
+export function isNative(): boolean {
+  return Boolean(cap()?.isNativePlatform?.());
+}
+
+function plugin(name: 'MashupPlayer' | 'MashupDownloads' | 'MashupAccount'): PluginRef | null {
+  const c = cap();
+  if (!c?.Plugins) return null;
+  return (c.Plugins[name] as PluginRef | undefined) ?? null;
+}
+
+async function invoke(name: 'MashupPlayer' | 'MashupDownloads' | 'MashupAccount', method: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  const p = plugin(name);
+  if (!p) throw new Error(`${name} unavailable`);
+  const fn = p[method];
+  if (typeof fn !== 'function') throw new Error(`${name}.${method} missing`);
+  return (fn as (a: Record<string, unknown>) => Promise<unknown>).call(p, args);
+}
+
+export interface NativePlayPayload {
+  url: string;
+  title: string;
+  artist: string;
+  artUrl?: string;
+  durationMs: number;
+}
+
+/** True when a native Media3 session exists and can take over playback. */
+export function hasNativePlayback(): boolean {
+  return Boolean(plugin('MashupPlayer'));
+}
+
+export async function nativePlay(p: NativePlayPayload): Promise<boolean> {
+  if (!hasNativePlayback()) return false;
+  try {
+    await invoke('MashupPlayer', 'play', { ...p });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function nativePause(): Promise<void> {
+  try {
+    await invoke('MashupPlayer', 'pause');
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function nativeResume(): Promise<void> {
+  try {
+    await invoke('MashupPlayer', 'resume');
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function nativeSeek(positionMs: number): Promise<void> {
+  try {
+    await invoke('MashupPlayer', 'seek', { positionMs });
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function nativeSetVolume(volume: number): Promise<void> {
+  try {
+    await invoke('MashupPlayer', 'setVolume', { volume });
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function nativeState(): Promise<{ positionMs: number; durationMs: number; isPlaying: boolean } | null> {
+  try {
+    const res = (await invoke('MashupPlayer', 'getState')) as { positionMs?: number; durationMs?: number; isPlaying?: boolean };
+    return {
+      positionMs: Number(res.positionMs ?? 0),
+      durationMs: Number(res.durationMs ?? 0),
+      isPlaying: Boolean(res.isPlaying),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribe to native playback/download events. Returns an unsubscribe function. */
+export function onNativeEvent(
+  event: 'playing' | 'ended' | 'error' | 'downloadProgress' | 'downloadComplete' | 'downloadFailed' | 'accountSignedIn' | 'accountSignedOut',
+  cb: (data: unknown) => void,
+): () => void {
+  const p = plugin('MashupPlayer') ?? plugin('MashupDownloads') ?? plugin('MashupAccount');
+  const listener = p?.addListener;
+  if (typeof listener !== 'function') return () => undefined;
+  try {
+    const handle = (listener as (e: string, f: (d: unknown) => void) => { remove: () => void }).call(p, event, cb);
+    return () => handle?.remove?.();
+  } catch {
+    return () => undefined;
+  }
+}
+
+/** Download through the native foreground service (resumable, chunked, survives screen-off). */
+export async function nativeDownload(args: {
+  id: string;
+  url: string;
+  fileName: string;
+  subdir?: string;
+  publicMusicDir?: boolean;
+}): Promise<{ id: string; path: string } | null> {
+  if (!plugin('MashupDownloads')) return null;
+  try {
+    const res = (await invoke('MashupDownloads', 'enqueue', { ...args })) as { id?: string; path?: string };
+    return { id: String(res.id ?? args.id), path: String(res.path ?? '') };
+  } catch {
+    return null;
+  }
+}
+
+/** Account: native WebView sign-in (Android only). */
+export async function nativeAccountStatus(): Promise<{ signedIn: boolean; visitorData: string } | null> {
+  if (!plugin('MashupAccount')) return null;
+  try {
+    const res = (await invoke('MashupAccount', 'status')) as { signedIn?: boolean; visitorData?: string };
+    return { signedIn: Boolean(res.signedIn), visitorData: String(res.visitorData ?? '') };
+  } catch {
+    return null;
+  }
+}
+
+export async function nativeSignIn(): Promise<boolean> {
+  try {
+    await invoke('MashupAccount', 'signIn');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function nativeCookie(): Promise<string | null> {
+  try {
+    const res = (await invoke('MashupAccount', 'cookie')) as { cookie?: string };
+    const cookie = res.cookie;
+    return cookie && cookie.length > 0 ? cookie : null;
+  } catch {
+    return null;
+  }
+}

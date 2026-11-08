@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AudioFormat, StreamInfo, Track, VideoFormat } from '@themashup/core';
 import { service } from '@/lib/service';
+import { startDownload, type Target } from '@/lib/downloader';
 import { store } from '@/state/store';
 import { glide, Skeleton, snap } from '@/components/ui/primitives';
 import { CloseIcon, DownloadIcon } from '@/components/ui/icons';
@@ -67,20 +68,20 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
   }
 
   const start = (row: Row) => {
-    store.set((s) => ({
-      downloads: [
-        {
-          id: `${row.kind}-${row.format.itag}-${track.id}-${Date.now()}`,
-          track,
-          target: row.label,
-          progress: 0,
-          state: 'queued' as const,
-          createdAt: Date.now(),
-        },
-        ...s.downloads,
-      ].slice(0, 60),
-    }));
-    store.notify('Added to download queue', 'success');
+    const url = stream?.urls[row.format.itag];
+    if (!url) {
+      store.notify('This tier has no direct URL — try another.', 'error');
+      return;
+    }
+    const container = ('container' in row.format ? row.format.container : 'm4a') as Target['container'];
+    const target: Target = {
+      label: row.label,
+      container,
+      itag: row.format.itag,
+      needsTranscode: false,
+      ...(row.kind === 'audio' ? { kbps: row.format.nominalKbps } : {}),
+    };
+    void startDownload(track, url, target);
     onClose();
   };
 
