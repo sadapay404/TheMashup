@@ -51,7 +51,7 @@ idiomatically. See `03-OSS-HARVEST.md` for the full attribution and license matr
 
 | Source | What we take | Form of adaptation |
 |---|---|---|
-| **OuterTune** (GPLv3, fork of InnerTune) | Google account OAuth **device-code flow** for `music.youtube.com` scopes; InnerTube request body shapes; radio (`RDAMVM`) conventions; queue/gapless rules | Re-implemented in TypeScript from protocol observation. GPLv3 code is **not** copied. |
+| **OuterTune** (GPLv3, fork of InnerTune) | InnerTube request body shapes; `SAPISIDHASH` signing; radio (`RDAMVM`) conventions; queue/gapless rules | Re-implemented in TypeScript from protocol observation. GPLv3 code is **not** copied. *(OAuth device-code was evaluated and rejected — it needs a client secret; see Amendment A-1.)* |
 | **LibreTube** (GPLv3) | Notification/`MediaSession` lifecycle discipline; foreground-service policy for long playback; "proxy-by-default" transport fallback ladder | Re-implemented as a Kotlin Media3 service + a TS transport adapter chain. |
 | **NewPipe Extractor** (GPLv3, *optional native dependency*) | Signature/`n-sig` and PoToken strategies, format extraction rules | Used as an **optional runtime dependency** behind a Kotlin plugin boundary (see ADR-005), or reimplemented. |
 | **Ryder / SimpMusic / ViMusic** (reference only) | UX conventions for lyric views and mini-player gestures | Design reference only. No code. |
@@ -72,16 +72,19 @@ opinion.
 - [x] Design system / motion specification (pre-code)
 - **Gate G0:** documents reviewed; 4 architectural decisions ratified.
 
-### Phase 1 — Deep Technical Research & API Strategy
-- [ ] `youtubei` endpoint catalogue: `search`, `browse`, `next`, `player`, `get_search_suggestions`
-- [ ] Client-profile matrix (`WEB_REMIX` / `ANDROID_MUSIC` / `IOS` / `TVHTML5_SIMPLY_EMBEDDED_PLAYER`) and which yields un-ciphered URLs
-- [ ] Search-filter protobuf parameter table (songs/albums/artists/playlists/podcasts)
-- [ ] PoToken + `visitorData` risk analysis and mitigation ladder
-- [ ] Lyrics pipeline: LRCLIB full-text behaviour, normalization, inverted index, BM25 scoring design
-- [ ] Recommendation heuristic spec: radio seeding + on-device artist co-occurrence graph + epsilon-greedy walk
-- [ ] Storage schema (IndexedDB + OPFS), eviction policy, cache-key strategy
-- [ ] Error taxonomy, retry/backoff/circuit-breaker spec, safe-mode boot
-- **Gate G1:** endpoint catalogue frozen; a runnable probe script proves search + stream URL resolution.
+### Phase 1 — Deep Technical Research & API Strategy ✅
+- [x] `youtubei` endpoint catalogue: `search`, `browse`, `next`, `player`, `get_search_suggestions` (+ write endpoints)
+- [x] Client-profile matrix and which profiles are free of PoToken/cipher
+- [x] Search-filter protobuf parameter table (songs/albums/artists/playlists/podcasts/uploads/library)
+- [x] PoToken risk analysis and the resolution ladder
+- [x] Lyrics pipeline: LRCLIB contract read from source, local BM25 index design
+- [x] Recommendation heuristic spec (structural + affinity graph + ε-greedy)
+- [x] Storage schema (IndexedDB + OPFS), eviction policy, cache-key strategy
+- [x] Error taxonomy, retry/backoff/circuit-breaker, safe-mode boot
+- [x] Download engine spec with an honest capability matrix
+- [x] **Two runnable spikes** (41 + 22 checks, all passing offline)
+- **Gate G1:** endpoint catalogue frozen. *Live verification deferred to the in-app Diagnostics probe
+  (this sandbox has no YouTube/LRCLIB egress) — see report.*
 
 ### Phase 2 — Web Application Core (Foundation)
 - [ ] Vite + React 19 + TS + Tailwind v4 + Framer Motion scaffold; design tokens; app shell
