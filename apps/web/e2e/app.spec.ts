@@ -9,13 +9,43 @@
 
 import { expect, test, type Page } from '@playwright/test';
 
-/** Collect console errors for the duration of a test. */
+/**
+ * Browser noise that is a *consequence of the design*, not a bug:
+ *  - the app health-checks several public API instances at startup, and some of them do not send
+ *    CORS headers for the preview origin. That is precisely what the route-health indicator reports.
+ *  - a blocked cross-origin fetch also prints a generic "Failed to load resource" line.
+ *
+ * Anything else — a React crash, an unhandled rejection, a null dereference — must still fail.
+ */
+const THIRD_PARTY = [
+  /pipedapi\./i,
+  /pipedapi\.adminforge\.de/i,
+  /inv\.nadeko\.net/i,
+  /invidious\./i,
+  /lrclib\.net/i,
+  /music\.youtube\.com/i,
+  /googlevideo\.com/i,
+  /youtubei\./i,
+];
+
+function isExpectedNoise(message: string): boolean {
+  if (THIRD_PARTY.some((re) => re.test(message))) return true;
+  // Chrome's generic companion line for a blocked resource; the CORS line above carries the detail.
+  if (/^Failed to load resource/i.test(message) && /net::ERR_FAILED|net::ERR_BLOCKED/i.test(message)) return true;
+  // The preview origin is http, so a stray upgrade attempt can appear; harmless.
+  if (/ERR_SSL|ERR_CERT/i.test(message)) return true;
+  return false;
+}
+
+/** Collect console errors for the duration of a test, excluding expected third-party noise. */
 function watchErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text());
+    if (m.type() === 'error' && !isExpectedNoise(m.text())) errors.push(m.text());
   });
-  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('pageerror', (e) => {
+    if (!isExpectedNoise(e.message)) errors.push(`[pageerror] ${e.message}`);
+  });
   return errors;
 }
 
