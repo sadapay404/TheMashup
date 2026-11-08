@@ -75,20 +75,52 @@ jobs:
 
       # Rust unit tests run before any packaging: a failing assertion must stop the build here,
       # not after ten minutes of compiling an installer.
+      # Each of these emits its first few error lines as annotations, so a failure is readable
+      # without downloading logs (and without depending on a later step running).
       - name: Rust unit tests
         working-directory: apps/desktop/src-tauri
-        run: cargo test --all-features --no-fail-fast 2>&1 | tee rust-test.log
+        shell: bash
+        run: |
+          set +e
+          cargo test --all-features --no-fail-fast 2>&1 | tee rust-test.log
+          STATUS=${PIPESTATUS[0]}
+          if [ $STATUS -ne 0 ]; then
+            grep -E '^error(\[|:)|FAILED|panicked|assertion' rust-test.log | head -12 | while IFS= read -r line; do
+              echo "::error title=rust test::$(echo "$line" | head -c 800)"
+            done
+          fi
+          exit $STATUS
 
       - name: Clippy
         working-directory: apps/desktop/src-tauri
-        run: cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee clippy.log
+        shell: bash
+        run: |
+          set +e
+          cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee clippy.log
+          STATUS=${PIPESTATUS[0]}
+          if [ $STATUS -ne 0 ]; then
+            grep -E '^error(\[|:)|^warning:' clippy.log | head -12 | while IFS= read -r line; do
+              echo "::error title=clippy::$(echo "$line" | head -c 800)"
+            done
+          fi
+          exit $STATUS
 
       # `tauri build` drives cargo itself and knows where the bundle must go. Doing it in one step
       # avoids compiling twice and keeps the artifact path in a single, canonical location.
       - name: Build (debug, no bundle)
         if: github.event.inputs.target != 'bundle'
         working-directory: apps/desktop
-        run: npx tauri build --debug --no-bundle 2>&1 | tee tauri-build.log
+        shell: bash
+        run: |
+          set +e
+          npx tauri build --debug --no-bundle 2>&1 | tee tauri-build.log
+          STATUS=${PIPESTATUS[0]}
+          if [ $STATUS -ne 0 ]; then
+            grep -E '^error(\[|:)|error TS|Failed to|cannot find' tauri-build.log | head -12 | while IFS= read -r line; do
+              echo "::error title=tauri build::$(echo "$line" | head -c 800)"
+            done
+          fi
+          exit $STATUS
 
       - name: Build installers
         if: github.event.inputs.target == 'bundle'
