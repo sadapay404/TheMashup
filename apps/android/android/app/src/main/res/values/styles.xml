@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches --color-void so there is no white flash before the WebView paints. -->
-    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <!--
+      The app is dark-only by design (the UI has its own light/dark controls in Settings).
+      A DayNight parent would let the system invert the WebView background at night and flash
+      white between the native splash and the first paint, so this is deliberately not DayNight.
+      The colour matches the CSS color-void token.
+    -->
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@color/mashup_void</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -9,6 +14,6 @@
     </style>
 
     <style name="AppTheme.NoActionBarLaunch" parent="AppTheme">
-        <item name="android:windowBackground">@color/mashup_void</item>
+        <item name="android:windowBackground">@drawable/splash</item>
     </style>
 </resources>

@@ -5,25 +5,28 @@ plugins {
 
 android {
     namespace = "app.themashup.music"
-    compileSdk = 35
+    compileSdk = rootProject.ext.get("compileSdkVersion") as Int
 
     defaultConfig {
         applicationId = "app.themashup.music"
-        minSdk = 26            // Media3 + EncryptedSharedPreferences floor
-        targetSdk = 35
-        versionCode = 2
+        minSdk = rootProject.ext.get("minSdkVersion") as Int
+        targetSdk = rootProject.ext.get("targetSdkVersion") as Int
+        versionCode = 3
         versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        resourceConfigurations += listOf("en", "ur", "hi", "ar")
+
+        // Keep the packaged web assets lean; the pattern mirrors Capacitor's own default.
+        androidResources {
+            ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~"
+        }
     }
 
     signingConfigs {
-        // Populated from CI secrets; falls back to debug signing for local builds so the project
-        // always assembles. Never commit a real keystore (see docs/03 §4 and CI workflow).
+        // CI provides these; local builds fall back to the debug key so the project always assembles.
         create("release") {
             val storePath = System.getenv("MASHUP_KEYSTORE_PATH")
-            if (storePath != null && java.io.File(storePath).exists()) {
-                storeFile = java.io.File(storePath)
+            if (storePath != null && file(storePath).exists()) {
+                storeFile = file(storePath)
                 storePassword = System.getenv("MASHUP_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("MASHUP_KEY_ALIAS") ?: "themashup"
                 keyPassword = System.getenv("MASHUP_KEY_PASSWORD")
@@ -36,8 +39,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            val hasRelease = System.getenv("MASHUP_KEYSTORE_PATH") != null
-            signingConfig = if (hasRelease) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            val signed = System.getenv("MASHUP_KEYSTORE_PATH") != null
+            signingConfig = if (signed) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -53,21 +56,19 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlinOptions {
         jvmTarget = "17"
-        freeCompilerArgs += listOf("-opt-in=kotlin.RequiresOptIn")
     }
 
     packaging {
         resources.excludes += setOf(
             "META-INF/LICENSE*",
             "META-INF/NOTICE*",
-            "META-INF/*.kotlin_module",
-            "kotlin/**",
         )
     }
 
-    // Two flavours implement ADR-005: the default ships zero GPL code.
+    // ADR-005: the default artefact contains no GPL code.
     flavorDimensions += "extractor"
     productFlavors {
         create("standard") {
@@ -75,38 +76,45 @@ android {
         }
         create("withNativeExtractor") {
             dimension = "extractor"
-            // Only this flavour adds the GPL extractor dependency and its attribution screen.
             versionNameSuffix = "-gpl"
         }
     }
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("androidx.activity:activity-ktx:1.9.2")
+    implementation(fileTree(mapOf("include" to listOf("*.jar"), "dir" to "libs")))
 
-    // Capacitor shell
-    implementation("com.capacitorjs:core:6.1.2")
-    implementation("androidx.webkit:webkit:1.11.0")
+    implementation("androidx.appcompat:appcompat:${rootProject.ext["androidxAppCompatVersion"]}")
+    implementation("androidx.coordinatorlayout:coordinatorlayout:${rootProject.ext["androidxCoordinatorLayoutVersion"]}")
+    implementation("androidx.core:core-splashscreen:${rootProject.ext["coreSplashScreenVersion"]}")
+    implementation("androidx.core:core-ktx:${rootProject.ext["androidxCoreVersion"]}")
+    implementation("androidx.webkit:webkit:${rootProject.ext["androidxWebkitVersion"]}")
 
-    // Playback: Media3 (session service, notification, lockscreen, media keys, audio focus)
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-session:1.4.1")
-    implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
+    // Capacitor: a Gradle source module, wired up by capacitor.settings.gradle.
+    implementation(project(":capacitor-android"))
+    implementation(project(":capacitor-cordova-android-plugins"))
 
-    // Networking for the downloader
+    // Background playback: Media3 session service, notification, lockscreen + media keys.
+    val media3 = rootProject.ext["media3Version"]
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-session:$media3")
+    implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+
+    // Downloader + coroutines
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // Keystore-backed cookie storage
+    // Keystore-backed session storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Optional GPL extractor — resolved only in the enhanced flavour.
+    // GPL extractor — resolved only for the enhanced flavour.
+    // Optional GPL extractor. NewPipe publishes to JitPack; the enhanced flavour is built separately.
     "withNativeExtractorImplementation"("com.github.TeamNewPipe:NewPipeExtractor:v0.24.6")
 
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation("junit:junit:${rootProject.ext["junitVersion"]}")
+    androidTestImplementation("androidx.test.ext:junit:${rootProject.ext["androidxJunitVersion"]}")
+    androidTestImplementation("androidx.test.espresso:espresso-core:${rootProject.ext["androidxEspressoCoreVersion"]}")
 }
+
+apply(from = "capacitor.build.gradle")

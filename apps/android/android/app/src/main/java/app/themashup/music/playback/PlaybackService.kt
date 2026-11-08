@@ -121,18 +121,18 @@ class PlaybackService : MediaSessionService() {
         ): MediaSession.ConnectionResult =
             MediaSession.ConnectionResult.AcceptedResultBuilder(session).build()
 
+        /**
+         * Media3 1.3.x signature: (session, controller, items) -> ListenableFuture.
+         * We accept whatever URI the JS layer already resolved (googlevideo or a public mirror);
+         * anything without a URI is dropped rather than throwing inside the session thread.
+         */
         override fun onAddMediaItems(
             mediaSession: MediaSession,
-            mediaItem: MediaItem,
-        ): MutableList<MediaItem> {
-            // Accept whatever URI the JS layer resolved (googlevideo or a public API mirror).
-            val uri = mediaItem.localConfiguration?.uri ?: return mutableListOf()
-            return mutableListOf(
-                mediaItem.buildUpon()
-                    .setUri(uri)
-                    .setMediaMetadata(mediaItem.mediaMetadata)
-                    .build(),
-            )
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+        ): com.google.common.util.concurrent.ListenableFuture<MutableList<MediaItem>> {
+            val resolved = mediaItems.filter { it.localConfiguration?.uri != null }
+            return com.google.common.util.concurrent.Futures.immediateFuture(resolved.toMutableList())
         }
     }
 }

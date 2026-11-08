@@ -1,0 +1,14 @@
+{
+  "appId": "app.themashup.music",
+  "appName": "TheMashup",
+  "webDir": "../web/dist",
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": false,
+    "webContentsDebuggingEnabled": false,
+    "backgroundColor": "#07070A"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

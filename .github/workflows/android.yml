@@ -1,7 +1,7 @@
 name: Android APK
 
-# Produces a real, installable APK on GitHub's runners (which have the Android SDK + JDK that the
-# development sandbox does not). Artifacts are attached to the workflow run; no hosting required.
+# Builds a real, installable APK on GitHub's runners (which have the JDK + Android SDK that the
+# development sandbox lacks). Artifacts attach to the run; no hosting, no app store needed.
 
 on:
   workflow_dispatch:
@@ -12,6 +12,12 @@ on:
         default: 'standard'
         type: choice
         options: [standard, withNativeExtractor, both]
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options: [debug, release]
   push:
     tags:
       - 'v*'
@@ -31,9 +37,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Set up Node 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
@@ -44,50 +50,66 @@ jobs:
       - name: Build web bundle
         run: npm run build
 
-      - name: Verify the bundle exists
+      - name: Verify bundle
         run: test -f apps/web/dist/index.html
-
-      - name: Sync web bundle into Android assets
-        run: node scripts/sync-android.mjs
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('apps/android/android/**/*.gradle*', 'apps/android/android/gradle/wrapper/*') }}
-
-      - name: Decode signing keystore (optional)
-        if: ${{ secrets.MASHUP_KEYSTORE_BASE64 != '' }}
+      - name: Accept SDK licences and install platforms
         run: |
-          echo "${{ secrets.MASHUP_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/themashup.jks"
-          echo "MASHUP_KEYSTORE_PATH=$RUNNER_TEMP/themashup.jks" >> $GITHUB_ENV
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null
 
-      - name: Assemble APKs
+      # The Capacitor CLI is the authoritative sync path: it validates capacitor.config.json and
+      # copies web assets where the Gradle build expects them.
+      - name: Sync Capacitor
+        working-directory: apps/android
+        run: npx cap copy android
+
+      # `secrets` is unavailable in step-level `if:` — pass it through env and branch in shell.
+      - name: Decode signing keystore (optional)
+        env:
+          KEYSTORE_B64: ${{ secrets.MASHUP_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/themashup.jks"
+            echo "MASHUP_KEYSTORE_PATH=$RUNNER_TEMP/themashup.jks" >> "$GITHUB_ENV"
+            echo "✓ signing keystore decoded"
+          else
+            echo "ℹ no keystore secret — building with the debug key"
+          fi
+
+      - name: Assemble
         working-directory: apps/android/android
         env:
           MASHUP_KEYSTORE_PASSWORD: ${{ secrets.MASHUP_KEYSTORE_PASSWORD }}
           MASHUP_KEY_ALIAS: ${{ secrets.MASHUP_KEY_ALIAS }}
           MASHUP_KEY_PASSWORD: ${{ secrets.MASHUP_KEY_PASSWORD }}
         run: |
+          chmod +x gradlew
           FLAVOR="${{ github.event.inputs.flavor || 'standard' }}"
+          TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          TASK_TYPE="$(tr '[:lower:]' '[:upper:]' <<< "${TYPE:0:1}")${TYPE:1}"
+
+          TASKS=""
           if [ "$FLAVOR" = "both" ]; then
-            ./gradlew :app:assembleStandardRelease :app:assembleWithNativeExtractorRelease --no-daemon
+            TASKS=":app:assembleStandard${TASK_TYPE} :app:assembleWithNativeExtractor${TASK_TYPE}"
           elif [ "$FLAVOR" = "withNativeExtractor" ]; then
-            ./gradlew :app:assembleWithNativeExtractorRelease --no-daemon
+            TASKS=":app:assembleWithNativeExtractor${TASK_TYPE}"
           else
-            ./gradlew :app:assembleStandardRelease --no-daemon
+            TASKS=":app:assembleStandard${TASK_TYPE}"
           fi
 
+          echo "Running: ./gradlew $TASKS"
+          ./gradlew $TASKS --no-daemon --stacktrace
+
       - name: Collect artifacts
+        if: always()
         run: |
           mkdir -p out
-          find apps/android/android/app/build/outputs/apk -name "*.apk" -exec cp {} out/ \;
-          ls -lh out/
+          find apps/android/android/app/build/outputs -name "*.apk" -exec cp {} out/ \; 2>/dev/null || true
+          ls -lh out/ || echo "no APKs found"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -95,3 +117,4 @@ jobs:
           name: themashup-apk
           path: out/*.apk
           retention-days: 30
+          if-no-files-found: warn

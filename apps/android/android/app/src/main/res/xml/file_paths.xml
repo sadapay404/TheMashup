@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Scoped paths the FileProvider may expose. Downloads land in app-private files/Music and, when the
+  user opts in, the public Music collection. Nothing else is shared.
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="internal_music" path="Music/" />
+    <cache-path name="cache" path="." />
+    <external-path name="public_music" path="Music/" />
+</paths>
