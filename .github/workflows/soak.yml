@@ -1,0 +1,57 @@
+name: Leak Soak (long)
+
+# Gate G4 asks for a long soak. CI cannot wait four hours on every push, so the fast soak runs in the
+# e2e job and this one runs the long form nightly or on demand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Target soak duration (minutes)'
+        required: true
+        default: '30'
+        type: string
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+
+      - name: Long soak
+        env:
+          CI: true
+        run: |
+          MINUTES="${{ github.event.inputs.minutes || '30' }}"
+          # 90 cycles/1500 ms ≈ 2.25 min per batch; scale cycles from the requested duration.
+          CYCLES=$(( MINUTES * 40 ))
+          echo "running $CYCLES cycles (~${MINUTES} min)"
+          SOAK_CYCLES="$CYCLES" SOAK_CYCLE_MS=1500 SOAK_BUDGET_MIB=32 \
+            npx playwright test --config apps/web/playwright.config.ts soak.spec.ts \
+            --reporter=line 2>&1 | tee soak.log
+
+      - name: Upload soak report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-report
+          path: |
+            soak.log
+            apps/web/test-results/**
+          retention-days: 30
+          if-no-files-found: ignore

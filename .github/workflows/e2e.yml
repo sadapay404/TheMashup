@@ -66,6 +66,16 @@ jobs:
         env:
           CI: true
 
+      # The soak is its own job so a memory regression is reported separately from a UI regression.
+      - name: Leak soak (fast)
+        run: |
+          npx playwright test --config apps/web/playwright.config.ts soak.spec.ts \
+            --reporter=line 2>&1 | tee soak.log
+        env:
+          CI: true
+          SOAK_CYCLES: 12
+          SOAK_CYCLE_MS: 1200
+
       - name: Upload screenshots + report
         if: always()
         uses: actions/upload-artifact@v4
