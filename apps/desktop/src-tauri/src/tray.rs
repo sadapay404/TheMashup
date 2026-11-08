@@ -17,6 +17,17 @@ pub const EVENT_TRAY_ACTION: &str = "desktop://tray-action";
 ///
 /// All failures are returned rather than panicking: a desktop without a system tray (some Linux
 /// configurations) should still run with a normal window.
+/// Our own icon, embedded at compile time.
+///
+/// `app.default_window_icon()` returns an image borrowed from the app handle, and the tray builder
+/// needs an owned `'static` image — so the borrow checker is right to reject it. Embedding the PNG
+/// also means the tray can never disagree with the window icon.
+const TRAY_ICON_PNG: &[u8] = include_bytes!("../icons/32x32.png");
+
+fn tray_icon() -> tauri::image::Image<'static> {
+    tauri::image::Image::from_bytes(TRAY_ICON_PNG).unwrap_or_else(|_| placeholder_icon())
+}
+
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show TheMashup", true, None::<&str>)?;
     let play = MenuItem::with_id(app, "toggle-play", "Play / Pause", true, Some("MediaPlayPause"))?;
@@ -27,8 +38,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 
     let menu = Menu::with_items(app, &[&show, &play, &next, &prev, &separator, &quit])?;
 
-    let _tray = TrayIconBuilder::with_id("main-tray")
-        .icon(app.default_window_icon().cloned().unwrap_or_else(placeholder_icon))
+    let tray = TrayIconBuilder::with_id("main-tray")
+        .icon(tray_icon())
         .tooltip("TheMashup")
         .menu(&menu)
         // Left-click shows/hides; the menu stays on right-click, which is what users expect on
@@ -46,6 +57,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+
+    // Hand ownership to the app. A local `TrayIcon` would be dropped on return, taking the tray
+    // with it — the icon would appear and vanish at startup.
+    app.manage(tray);
 
     Ok(())
 }
