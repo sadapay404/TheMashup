@@ -13,7 +13,7 @@
 
 import { store, type DownloadJob } from '@/state/store';
 import type { Track } from '@themashup/core';
-import { nativeDownload, isNative } from './native';
+import { nativeDownload, isNative, onNativeEvent } from './native';
 
 export type DownloadState = DownloadJob['state'];
 
@@ -154,6 +154,7 @@ export async function startDownload(track: Track, url: string, target: Target): 
       ...(track.album ? { subdir: track.album } : {}),
     });
     if (res) {
+      bindNativeDownloadEvents();
       update(id, { state: 'downloading' });
       return id;
     }
@@ -197,6 +198,50 @@ export async function startDownload(track: Track, url: string, target: Target): 
   }
 
   return id;
+}
+
+/**
+ * Mirror the native foreground service into the job list.
+ *
+ * Without this the UI would show 0 % forever on Android: the Kotlin service owns the transfer and
+ * reports over its own event bus. Registered once per session.
+ */
+let nativeBound = false;
+export function bindNativeDownloadEvents(): void {
+  if (nativeBound || !isNative()) return;
+  nativeBound = true;
+
+  onNativeEvent('downloadProgress', (data) => {
+    const d = data as { id?: string; bytes?: number; total?: number };
+    if (!d?.id) return;
+    const total = Number(d.total ?? 0);
+    const bytes = Number(d.bytes ?? 0);
+    // exactOptionalPropertyTypes: only include totalBytes when it is actually known.
+    update(d.id, {
+      state: 'downloading',
+      bytes,
+      progress: total > 0 ? Math.min(1, bytes / total) : 0,
+      ...(total > 0 ? { totalBytes: total } : {}),
+    });
+  });
+
+  onNativeEvent('downloadComplete', (data) => {
+    const d = data as { id?: string; name?: string };
+    if (!d?.id) return;
+    update(d.id, { state: 'done', progress: 1 });
+    store.notify(`Saved ${d.name ?? 'track'}`, 'success');
+  });
+
+  onNativeEvent('downloadFailed', (data) => {
+    const d = data as { id?: string; reason?: string };
+    if (!d?.id) return;
+    const cancelled = (d.reason ?? '').toLowerCase().includes('cancel');
+    update(d.id, {
+      // A cancel is not an error; anything else is, and carries the reason verbatim.
+      state: cancelled ? 'partial' : 'failed',
+      error: d.reason ?? 'download failed',
+    });
+  });
 }
 
 /** Bytes currently queued/in-flight, for the Library storage line. */
