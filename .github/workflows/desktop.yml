@@ -85,9 +85,14 @@ jobs:
           cargo test --all-features --no-fail-fast 2>&1 | tee rust-test.log
           STATUS=${PIPESTATUS[0]}
           if [ $STATUS -ne 0 ]; then
-            grep -E '^error(\[|:)|FAILED|panicked|assertion' rust-test.log | head -12 | while IFS= read -r line; do
-              echo "::error title=rust test::$(echo "$line" | head -c 800)"
+            # First the structured errors, then the raw tail: a panic's message is often not
+            # prefixed with "error", so the tail is the only reliable way to see it.
+            grep -E '^error(\[|:)|FAILED|panicked at|assertion' rust-test.log | head -8 | while IFS= read -r line; do
+              echo "::error title=rust test::$(echo "$line" | head -c 700)"
             done
+            tail -40 rust-test.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=rust test tail::$(echo "$line" | head -c 700)"
+            done | tail -20
           fi
           exit $STATUS
 
@@ -99,8 +104,8 @@ jobs:
           cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee clippy.log
           STATUS=${PIPESTATUS[0]}
           if [ $STATUS -ne 0 ]; then
-            grep -E '^error(\[|:)|^warning:' clippy.log | head -12 | while IFS= read -r line; do
-              echo "::error title=clippy::$(echo "$line" | head -c 800)"
+            grep -E '^error(\[|:)|^warning:' clippy.log | head -10 | while IFS= read -r line; do
+              echo "::error title=clippy::$(echo "$line" | head -c 700)"
             done
           fi
           exit $STATUS
@@ -116,9 +121,12 @@ jobs:
           npx tauri build --debug --no-bundle 2>&1 | tee tauri-build.log
           STATUS=${PIPESTATUS[0]}
           if [ $STATUS -ne 0 ]; then
-            grep -E '^error(\[|:)|error TS|Failed to|cannot find' tauri-build.log | head -12 | while IFS= read -r line; do
-              echo "::error title=tauri build::$(echo "$line" | head -c 800)"
+            grep -E '^error(\[|:)|error TS|panicked at|Failed to|Caused by' tauri-build.log | head -10 | while IFS= read -r line; do
+              echo "::error title=tauri build::$(echo "$line" | head -c 700)"
             done
+            tail -40 tauri-build.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=tauri build tail::$(echo "$line" | head -c 700)"
+            done | tail -20
           fi
           exit $STATUS
 
