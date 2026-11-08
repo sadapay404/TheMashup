@@ -1,11 +1,23 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["vite/client", "node"],
+    "types": [
+      "vite/client",
+      "node"
+    ],
     "paths": {
-      "@themashup/core": ["../../packages/core/src/index.ts"],
-      "@/*": ["./src/*"]
-    }
+      "@themashup/core": [
+        "../../packages/core/src/index.ts"
+      ],
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "noEmit": true
   },
-  "include": ["src", "../../packages/core/src", "vite.config.ts"]
+  "include": [
+    "src",
+    "../../packages/core/src",
+    "vite.config.ts"
+  ]
 }

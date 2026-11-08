@@ -12,7 +12,7 @@
     "dev": "npm run dev -w @themashup/web",
     "build": "npm run build -w @themashup/web",
     "preview": "npm run preview -w @themashup/web",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc --noEmit -p apps/web/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.e2e.json",
     "spike": "node spike/innertube-probe.mjs && node spike/lyric-matcher.mjs"
   },
   "devDependencies": {
