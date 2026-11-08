@@ -108,7 +108,25 @@ jobs:
           fi
 
           echo "Running: ./gradlew $TASKS"
-          ./gradlew $TASKS --no-daemon --stacktrace
+          set +e
+          ./gradlew $TASKS --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
+          STATUS=${PIPESTATUS[0]}
+          # Surface the first real error lines as a check annotation so failures are readable
+          # without downloading logs.
+          if [ $STATUS -ne 0 ]; then
+            echo "::error title=Gradle failed::$(grep -m1 -E '^e: |error:|FAILURE:|What went wrong' gradle-build.log | head -c 900)"
+            grep -nE '^e: |error:|FAILURE:|What went wrong|Caused by' gradle-build.log | head -40
+          fi
+          exit $STATUS
+
+      - name: Upload Gradle log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: apps/android/android/gradle-build.log
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Collect artifacts
         if: always()
