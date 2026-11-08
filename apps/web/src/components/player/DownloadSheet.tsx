@@ -1,0 +1,204 @@
+/**
+ * Download sheet.
+ *
+ * Shows the *actual* ladder returned for this track and states plainly what each target does:
+ * stream copy / remux / transcode. Premium-locked tiers are visible but locked — hiding them would
+ * be less honest, and showing them as available would be a lie.
+ */
+
+import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import type { AudioFormat, StreamInfo, Track, VideoFormat } from '@themashup/core';
+import { service } from '@/lib/service';
+import { store } from '@/state/store';
+import { glide, Skeleton, snap } from '@/components/ui/primitives';
+import { CloseIcon, DownloadIcon } from '@/components/ui/icons';
+
+type Row =
+  | { kind: 'audio'; label: string; detail: string; format: AudioFormat; usable: boolean }
+  | { kind: 'video'; label: string; detail: string; format: VideoFormat; usable: boolean };
+
+export function DownloadSheet({ track, onClose }: { track: Track; onClose: () => void }) {
+  const [stream, setStream] = useState<StreamInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true);
+    void service.resolveStream(track.id).then((res) => {
+      if (cancelled) return;
+      setBusy(false);
+      if (!res.ok) {
+        setError(res.error.message);
+        return;
+      }
+      setStream(res.info);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [track.id]);
+
+  const rows: Row[] = [];
+  if (stream) {
+    for (const f of stream.audio) {
+      const usable = f.deliver === 'url' && !f.premiumOnly;
+      rows.push({
+        kind: 'audio',
+        label: `${f.container.toUpperCase()} · ${f.nominalKbps} kbps`,
+        detail: `${f.codec}${f.premiumOnly ? ' · needs Premium' : ''} · ${
+          f.deliver === 'url' ? 'direct stream copy' : f.deliver === 'cipher' ? 'signature-locked' : 'unavailable'
+        }`,
+        format: f,
+        usable,
+      });
+    }
+    for (const v of stream.video) {
+      const usable = v.deliver === 'url';
+      rows.push({
+        kind: 'video',
+        label: `${v.container.toUpperCase()} · ${v.res}${v.fps > 30 ? ` ${v.fps}fps` : ''}`,
+        detail: `${v.codec} · ${v.kbps} kbps · ${service.describeTarget(v)}${v.hasAudio ? ' · includes audio' : ' · video only'}`,
+        format: v,
+        usable,
+      });
+    }
+  }
+
+  const start = (row: Row) => {
+    store.set((s) => ({
+      downloads: [
+        {
+          id: `${row.kind}-${row.format.itag}-${track.id}-${Date.now()}`,
+          track,
+          target: row.label,
+          progress: 0,
+          state: 'queued' as const,
+          createdAt: Date.now(),
+        },
+        ...s.downloads,
+      ].slice(0, 60),
+    }));
+    store.notify('Added to download queue', 'success');
+    onClose();
+  };
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/55 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Download ${track.title}`}
+    >
+      <motion.div
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={glide}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-t-[var(--radius-sheet)] border-t border-[var(--hairline)] bg-[var(--color-raised)] pb-[max(20px,env(safe-area-inset-bottom))]"
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--hairline)] bg-[var(--color-raised)]/95 px-5 py-3 backdrop-blur">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">Download</div>
+            <div className="truncate text-[11.5px] text-[var(--color-text-2)]">
+              {track.title} · {track.artist}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/8"
+          >
+            <CloseIcon width={18} height={18} />
+          </button>
+        </div>
+
+        <div className="px-5 pt-3">
+          {busy ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" />
+              ))}
+            </div>
+          ) : error ? (
+            <div className="rounded-2xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 p-4 text-[13px] text-[var(--color-danger)]">
+              {error}
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 rounded-2xl bg-white/4 p-3 text-[11.5px] leading-relaxed text-[var(--color-text-2)]">
+                Resolved via <strong className="text-[var(--color-text)]">{stream?.profile}</strong> · URLs expire in{' '}
+                {stream ? Math.round(stream.expiresInSec / 3600) : 0} h, so downloads start immediately. FLAC is a
+                lossless <em>container</em> — the source itself is lossy, and the app will never pretend otherwise.
+              </div>
+
+              <div className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-3)]">
+                Audio
+              </div>
+              <AnimatePresence initial={false}>
+                {rows
+                  .filter((r) => r.kind === 'audio')
+                  .map((r) => (
+                    <FormatRow key={`a-${r.format.itag}`} row={r} onPick={() => start(r)} />
+                  ))}
+              </AnimatePresence>
+
+              <div className="mb-1.5 mt-4 px-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-3)]">
+                Video
+              </div>
+              <AnimatePresence initial={false}>
+                {rows
+                  .filter((r) => r.kind === 'video')
+                  .map((r) => (
+                    <FormatRow key={`v-${r.format.itag}`} row={r} onPick={() => start(r)} />
+                  ))}
+              </AnimatePresence>
+            </>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function FormatRow({ row, onPick }: { row: Row; onPick: () => void }) {
+  return (
+    <motion.button
+      type="button"
+      layout
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={snap}
+      disabled={!row.usable}
+      onClick={onPick}
+      className={`mb-1.5 flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
+        row.usable
+          ? 'border-[var(--hairline)] bg-white/4 hover:border-[var(--accent)]/50 hover:bg-white/8'
+          : 'cursor-not-allowed border-white/6 bg-white/2 opacity-50'
+      }`}
+    >
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/6">
+        <DownloadIcon width={16} height={16} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-medium">{row.label}</div>
+        <div className="truncate text-[11px] text-[var(--color-text-3)]">{row.detail}</div>
+      </div>
+      {row.usable ? (
+        <span className="shrink-0 rounded-full bg-[var(--accent)]/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+          Get
+        </span>
+      ) : (
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-text-3)]">Locked</span>
+      )}
+    </motion.button>
+  );
+}

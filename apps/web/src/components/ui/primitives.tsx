@@ -1,0 +1,145 @@
+/** Design-system primitives. Every one honours the motion + a11y contract. */
+
+import { motion, type HTMLMotionProps } from 'framer-motion';
+import type { ReactNode } from 'react';
+
+export const snap = { type: 'spring', stiffness: 420, damping: 34, mass: 1 } as const;
+export const settle = { type: 'spring', stiffness: 320, damping: 30, mass: 1 } as const;
+export const glide = { type: 'spring', stiffness: 180, damping: 26, mass: 1 } as const;
+export const melt = { type: 'spring', stiffness: 260, damping: 28, mass: 1 } as const;
+
+export function Pressable({
+  children,
+  className = '',
+  label,
+  onClick,
+  ...rest
+}: {
+  children: ReactNode;
+  className?: string;
+  label: string;
+  onClick?: (() => void) | undefined;
+} & Omit<HTMLMotionProps<'button'>, 'onClick'>) {
+  return (
+    <motion.button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      whileTap={{ scale: 0.94 }}
+      transition={snap}
+      className={`relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-full ${className}`}
+      {...rest}
+    >
+      {children}
+    </motion.button>
+  );
+}
+
+export function IconButton({
+  children,
+  label,
+  onClick,
+  active = false,
+  size = 'md',
+}: {
+  children: ReactNode;
+  label: string;
+  onClick?: (() => void) | undefined;
+  active?: boolean;
+  size?: 'sm' | 'md' | 'lg';
+}) {
+  const dim = size === 'sm' ? 'h-9 w-9' : size === 'lg' ? 'h-16 w-16' : 'h-11 w-11';
+  return (
+    <Pressable
+      label={label}
+      onClick={onClick}
+      className={`${dim} ${active ? 'text-[var(--accent)]' : 'text-[var(--color-text)]'} hover:bg-white/8`}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+/** Skeleton with a travelling sheen — used by every loading state. */
+export function Skeleton({ className = '' }: { className?: string }) {
+  return (
+    <div className={`relative overflow-hidden rounded-[var(--radius-row)] bg-white/5 ${className}`}>
+      <motion.div
+        className="absolute inset-0"
+        style={{
+          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)',
+        }}
+        animate={{ x: ['-100%', '100%'] }}
+        transition={{ duration: 1.4, repeat: Infinity, ease: 'linear' }}
+      />
+    </div>
+  );
+}
+
+export function EmptyState({
+  title,
+  detail,
+  action,
+  icon,
+}: {
+  title: string;
+  detail: string;
+  action?: { label: string; onClick: () => void };
+  icon?: ReactNode;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={glide}
+      className="flex flex-col items-center justify-center gap-3 px-8 py-16 text-center"
+    >
+      {icon ? <div className="mb-1 text-[var(--color-text-3)]">{icon}</div> : null}
+      <h3 className="text-balance text-lg font-semibold">{title}</h3>
+      <p className="max-w-sm text-balance text-sm leading-relaxed text-[var(--color-text-2)]">{detail}</p>
+      {action ? (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="mt-2 rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-black transition active:scale-95"
+        >
+          {action.label}
+        </button>
+      ) : null}
+    </motion.div>
+  );
+}
+
+export function Chip({
+  children,
+  active = false,
+  onClick,
+}: {
+  children: ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileTap={{ scale: 0.95 }}
+      transition={snap}
+      className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
+        active
+          ? 'border-transparent bg-[var(--accent)] text-black'
+          : 'border-[var(--hairline)] bg-white/4 text-[var(--color-text-2)] hover:text-[var(--color-text)]'
+      }`}
+    >
+      {children}
+    </motion.button>
+  );
+}
+
+export function formatTime(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}

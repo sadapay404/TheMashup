@@ -1,0 +1,21 @@
+{
+  "name": "themashup",
+  "private": true,
+  "version": "0.2.0",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @themashup/web",
+    "build": "npm run build -w @themashup/web",
+    "preview": "npm run preview -w @themashup/web",
+    "typecheck": "tsc -b --pretty false",
+    "spike": "node spike/innertube-probe.mjs && node spike/lyric-matcher.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
