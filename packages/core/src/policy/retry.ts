@@ -21,14 +21,21 @@ export interface BackoffOptions {
   maxAttempts?: number;
 }
 
-/** Full-jitter exponential backoff: min(max, base·factor^n) · (1 − jitter + 2·jitter·rand). */
+/**
+ * Full-jitter exponential backoff, clamped to `maxMs`.
+ *
+ * The clamp is applied *after* jitter on purpose: clamping first and then multiplying by up to
+ * (1 + jitter) can exceed the ceiling (with the defaults, 30 s becomes 33.3 s), which defeats the
+ * point of having a ceiling. Verified by the stress suite.
+ */
 export function backoffDelay(attempt: number, opts: BackoffOptions = {}, rand: () => number = Math.random): number {
   const base = opts.baseMs ?? 400;
   const max = opts.maxMs ?? 30_000;
   const factor = opts.factor ?? 2;
-  const jitter = opts.jitter ?? 0.3;
-  const raw = Math.min(max, base * Math.pow(factor, attempt));
-  return Math.round(raw * (1 - jitter + 2 * jitter * rand()));
+  const jitter = Math.max(0, Math.min(1, opts.jitter ?? 0.3));
+  const raw = base * Math.pow(factor, Math.max(0, attempt));
+  const jittered = raw * (1 - jitter + 2 * jitter * rand());
+  return Math.round(Math.min(max, Math.max(0, jittered)));
 }
 
 export interface RetryResult<T> {
