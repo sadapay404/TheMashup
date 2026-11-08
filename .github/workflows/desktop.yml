@@ -148,7 +148,7 @@ jobs:
             [ -n "$LINE" ] && echo "::warning title=$(basename "$f")::$(echo "$LINE" | tr '\n' ' ')"
           done
 
-          EXE="$(find apps/desktop/src-tauri/target -maxdepth 3 -name 'themashup*' -type f 2>/dev/null | head -1)"
+          EXE="$(find apps/desktop/src-tauri/target -maxdepth 3 -name 'themashup' -o -maxdepth 3 -name 'themashup.exe' -type f 2>/dev/null | head -1)"
           if [ -n "$EXE" ]; then
             echo "::notice title=Desktop binary built::$(ls -lh "$EXE" | awk '{print $5, $9}')"
           else
