@@ -5,6 +5,21 @@ import { cleanup } from '@testing-library/react';
 
 afterEach(() => cleanup());
 
+/**
+ * Hermetic network. On a machine with internet (CI) the app's startup probe really connects to
+ * public API instances: that makes tests slow and lets state land after teardown. Locally there is
+ * no network, so the same tests passed by accident. Tests must never depend on the outside world.
+ */
+const realFetch = globalThis.fetch;
+globalThis.fetch = vi.fn(async () => {
+  throw new TypeError('Failed to fetch');
+}) as unknown as typeof fetch;
+
+/** Escape hatch for a test that deliberately exercises the real global. */
+export function restoreFetch(): void {
+  globalThis.fetch = realFetch;
+}
+
 // matchMedia (framer-motion probes it for reduced-motion)
 if (!window.matchMedia) {
   Object.defineProperty(window, 'matchMedia', {
