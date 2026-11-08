@@ -41,11 +41,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck + test (gate)
-        run: |
-          npm run typecheck
-          npx vitest run --root apps/web
-
       - name: Build web bundle
         run: npm run build
 

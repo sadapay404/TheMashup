@@ -1,0 +1,43 @@
+name: CI
+
+# The always-on gate. Deliberately tiny and fast so a red X always means "something real broke",
+# and so an infrastructure hiccup in the heavier jobs cannot masquerade as a code failure.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web — typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck (strict)
+        run: npm run typecheck
+
+      - name: Unit + UI tests
+        run: npx vitest run --root apps/web
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify bundle
+        run: |
+          test -f apps/web/dist/index.html
+          du -sh apps/web/dist
