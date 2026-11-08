@@ -10,6 +10,7 @@
  */
 
 import {
+  NATIVE_ROUTE as _NATIVE_ROUTE,
   InnerTube,
   LyricIndex,
   PublicApiProvider,
@@ -33,6 +34,9 @@ import {
   type VideoFormat,
   type AppError,
 } from '@themashup/core';
+
+import { isDesktop, nativeHttp } from './desktop';
+import type { RawResponse } from '@themashup/core';
 
 const LS_VISITOR = 'mashup.visitorData';
 const LS_COOKIE = 'mashup.cookie';
@@ -65,6 +69,34 @@ function isNativeShell(): boolean {
   return Boolean(w.Capacitor?.isNativePlatform?.() || w.__TAURI__);
 }
 
+/**
+ * The desktop transport. Registered with the chain so it is tried *before* any relay: Rust has no
+ * origin, so InnerTube accepts the request directly and the third-party dependency disappears.
+ *
+ * Errors are thrown (not swallowed) so the chain can demote this route and fall through — that is
+ * what keeps a broken shell from bricking search.
+ */
+async function desktopFetch(req: { url: string; method: string; headers: Record<string, string>; body: unknown }): Promise<RawResponse> {
+  const result = await nativeHttp({
+    url: req.url,
+    method: req.method,
+    headers: req.headers,
+    body: JSON.stringify(req.body),
+  });
+  if (!result) throw new Error('desktop bridge unavailable');
+  if (!result.ok) throw new Error(result.error ?? 'native http failed');
+
+  let json: unknown = null;
+  try {
+    json = JSON.parse(result.body);
+  } catch {
+    // A non-JSON body (an HTML error page, a captive portal) is an upstream fault, not a crash:
+    // the parser downstream treats null as "nothing usable" and the chain can move on.
+    json = null;
+  }
+  return { status: result.status, json };
+}
+
 export class MusicService {
   readonly transport: TransportChain;
   readonly innertube: InnerTube;
@@ -78,7 +110,8 @@ export class MusicService {
   lastRoute = 'unknown';
 
   constructor() {
-    this.transport = new TransportChain();
+    // Native first whenever the shell provides it; otherwise the ladder is unchanged.
+    this.transport = new TransportChain(undefined, false, isDesktop() ? desktopFetch : undefined);
     this.provider = new PublicApiProvider();
     this.native = isNativeShell();
 

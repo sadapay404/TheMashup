@@ -9,6 +9,7 @@ import type { Track } from '@themashup/core';
 import { store, useApp, currentTrack } from '@/state/store';
 import { usePlayer } from '@/hooks/usePlayer';
 import { service } from '@/lib/service';
+import { isDesktop, onDesktopAction, onWindowHidden } from '@/lib/desktop';
 import { applyPalette, extractPalette } from '@/lib/palette';
 import { Boundary } from '@/components/shell/Boundary';
 import { NavPill } from '@/components/shell/NavPill';
@@ -84,6 +85,40 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [player]);
+
+  // Desktop shell: tray + OS media keys drive the same player the UI uses, so there is exactly one
+  // transport authority. Registered once; unlistened on teardown to avoid duplicate handlers.
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let off: () => void = () => undefined;
+    void onDesktopAction((action) => {
+      const p = store.getState();
+      if (action === 'toggle-play') void player.setPlaying(!p.playing);
+      else if (action === 'next') player.next(false);
+      else if (action === 'prev') player.prev();
+      else if (action === 'stop') void player.setPlaying(false);
+    }).then((fn) => {
+      off = fn;
+    });
+    return () => off();
+  }, [player]);
+
+  // Persist the queue when the window is hidden rather than closed.
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let off: () => void = () => undefined;
+    void onWindowHidden(() => {
+      try {
+        const s = store.getState();
+        localStorage.setItem('mashup.queue', JSON.stringify({ queue: s.queue, index: s.index }));
+      } catch {
+        /* quota or private mode — the session simply will not resume */
+      }
+    }).then((fn) => {
+      off = fn;
+    });
+    return () => off();
+  }, []);
 
   const goSearch = () => store.set({ route: 'search' });
   const onPlay = (t: Track, list: Track[]) => player.playTrack(t, list);

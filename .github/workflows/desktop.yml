@@ -1,0 +1,137 @@
+name: Desktop (Windows/Linux)
+
+# Phase 4. The development sandbox has no Rust and cannot reach crates.io, so the desktop client is
+# compiled here, exactly like the APK. Produces an NSIS installer + MSI on Windows and an AppImage
+# on Linux, plus the bundled app for quick inspection.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'What to build'
+        required: true
+        default: 'debug'
+        type: choice
+        options: [debug, bundle]
+  push:
+    tags:
+      - 'desktop-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: ubuntu-22.04
+            name: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: ${{ matrix.name }}-cargo-${{ hashFiles('apps/desktop/src-tauri/Cargo.toml') }}
+          restore-keys: ${{ matrix.name }}-cargo-
+
+      - name: Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libgtk-3-dev libssl-dev file
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build web bundle
+        run: npm run build
+
+      - name: Verify bundle
+        run: test -f apps/web/dist/index.html
+
+      # Rust unit tests run before any packaging: a failing assertion must stop the build here,
+      # not after ten minutes of compiling an installer.
+      - name: Rust unit tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --all-features --no-fail-fast 2>&1 | tee rust-test.log
+
+      - name: Clippy
+        working-directory: apps/desktop/src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee clippy.log
+
+      # `tauri build` drives cargo itself and knows where the bundle must go. Doing it in one step
+      # avoids compiling twice and keeps the artifact path in a single, canonical location.
+      - name: Build (debug, no bundle)
+        if: github.event.inputs.target != 'bundle'
+        working-directory: apps/desktop
+        run: npx tauri build --debug --no-bundle 2>&1 | tee tauri-build.log
+
+      - name: Build installers
+        if: github.event.inputs.target == 'bundle'
+        working-directory: apps/desktop
+        run: npx tauri build 2>&1 | tee tauri-build.log
+
+      - name: Report outcome as annotations
+        if: always()
+        shell: bash
+        run: |
+          for f in apps/desktop/src-tauri/rust-test.log apps/desktop/src-tauri/clippy.log apps/desktop/src-tauri/cargo-build.log; do
+            if [ -f "$f" ]; then
+              LINE="$(grep -m1 -E '^error(\[|:)|FAILED|panicked|warning: unused' "$f" | head -c 800)"
+              if [ -n "$LINE" ]; then echo "::warning title=$(basename $f)::$(echo "$LINE" | tr '\n' ' ')"; fi
+            fi
+          done
+          EXE="$(find apps/desktop/src-tauri/target -maxdepth 3 -name 'themashup*' -type f 2>/dev/null | head -1)"
+          if [ -n "$EXE" ]; then echo "::notice title=Desktop binary built::$(ls -lh "$EXE" | awk '{print $5, $9}')"; fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-logs
+          path: |
+            apps/desktop/src-tauri/*.log
+            apps/desktop/*.log
+            apps/desktop/src-tauri/target/debug/themashup*
+            apps/desktop/src-tauri/target/debug/*.exe
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-app
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/**/*.exe
+            apps/desktop/src-tauri/target/release/bundle/**/*.msi
+            apps/desktop/src-tauri/target/release/bundle/**/*.AppImage
+            apps/desktop/src-tauri/target/release/bundle/**/*.deb
+            apps/desktop/src-tauri/target/debug/themashup
+            apps/desktop/src-tauri/target/debug/themashup.exe
+          retention-days: 30
+          if-no-files-found: warn

@@ -17,6 +17,22 @@ import type { AppError } from '../util/result.js';
 import { err, ok, type Result, toAppError } from '../util/result.js';
 import { CircuitBreaker, TokenBucket } from '../policy/retry.js';
 
+/**
+ * A native transport, supplied by the host shell (Tauri today).
+ *
+ * Requests made outside the browser have no origin, so no CORS preflight is involved. When this is
+ * present the relay ladder is dead weight and is demoted behind it.
+ */
+export interface NativeTransport {
+  readonly name: string;
+  (req: InnerTubeRequest, signal?: AbortSignal): Promise<RawResponse>;
+}
+
+export interface TransportOptions {
+  /** Preferred when available: no CORS, no third party. */
+  native?: NativeTransport;
+}
+
 export interface Relay {
   id: string;
   /** Template where `{url}` is the fully-encoded target URL, or `{host}`/`{path}` splits. */
@@ -45,8 +61,12 @@ export const DEFAULT_RELAYS: Relay[] = [
   },
 ];
 
+/** The synthetic route name for the native transport. */
+export const NATIVE_ROUTE = 'native';
+
 export interface TransportHealth {
   direct: 'unknown' | 'ok' | 'cors' | 'blocked';
+  native: 'unknown' | 'ok' | 'down';
   relays: Record<string, 'unknown' | 'ok' | 'down'>;
   lastRoute?: string | undefined;
 }
@@ -79,7 +99,7 @@ async function fetchWithTimeout(
  * there instead of re-probing (saves ~1–2 s per navigation on a bad relay).
  */
 export class TransportChain {
-  health: TransportHealth = { direct: 'unknown', relays: {} };
+  health: TransportHealth = { direct: 'unknown', native: 'unknown', relays: {} };
   private readonly breakers = new Map<string, CircuitBreaker>();
   private readonly buckets = new Map<string, TokenBucket>();
   private preferred: string | undefined;
@@ -88,8 +108,14 @@ export class TransportChain {
     private readonly relays: Relay[] = DEFAULT_RELAYS,
     /** When true, sends cookies through relays too. Off by default: a relay operator could read them. */
     private readonly allowCredentialsViaRelay = false,
+    private readonly native?: NativeTransport,
   ) {
     for (const r of relays) this.health.relays[r.id] = 'unknown';
+  }
+
+  /** True when requests leave through a native socket rather than the browser fetch. */
+  get hasNative(): boolean {
+    return Boolean(this.native);
   }
 
   /** The FetchLike the InnerTube client consumes. */
@@ -134,7 +160,8 @@ export class TransportChain {
   private orderedRoutes(): string[] {
     const direct = 'direct';
     const relayIds = this.relays.filter((r) => r.enabled).map((r) => r.id);
-    const all = [direct, ...relayIds];
+    // native first (no CORS at all), then same-origin direct, then the relay ladder.
+    const all = [...(this.native ? [NATIVE_ROUTE] : []), direct, ...relayIds];
     if (!this.preferred) return all;
     // Preferred first, everything else as fallback (order preserved).
     return [this.preferred, ...all.filter((r) => r !== this.preferred)];
@@ -143,20 +170,36 @@ export class TransportChain {
   private async viaRoute(route: string, req: InnerTubeRequest, signal?: AbortSignal): Promise<RawResponse> {
     const breaker = this.breakerFor(route);
     try {
-      const res = route === 'direct' ? await this.direct(req, signal) : await this.viaRelay(route, req, signal);
+      const res =
+        route === NATIVE_ROUTE
+          ? await this.viaNative(req, signal)
+          : route === 'direct'
+            ? await this.direct(req, signal)
+            : await this.viaRelay(route, req, signal);
       breaker.recordSuccess();
       this.preferred = route;
       this.health.lastRoute = route;
-      if (route === 'direct') this.health.direct = 'ok';
+      if (route === NATIVE_ROUTE) this.health.native = 'ok';
+      else if (route === 'direct') this.health.direct = 'ok';
       else this.health.relays[route] = 'ok';
       return res;
     } catch (e) {
       breaker.recordFailure();
-      if (route === 'direct') this.health.direct = 'cors';
+      if (route === NATIVE_ROUTE) this.health.native = 'down';
+      else if (route === 'direct') this.health.direct = 'cors';
       else this.health.relays[route] = 'down';
       if (this.preferred === route) this.preferred = undefined;
       throw e;
     }
+  }
+
+  /** Requests through the host shell: no origin header, so no CORS negotiation. */
+  private async viaNative(req: InnerTubeRequest, signal?: AbortSignal): Promise<RawResponse> {
+    if (!this.native) {
+      // A missing capability, not a network fault: retrying will never help.
+      throw { k: 'Capability', retryable: false, missing: 'native-http', message: 'native transport not installed' } satisfies AppError;
+    }
+    return this.native(req, signal);
   }
 
   private async direct(req: InnerTubeRequest, signal?: AbortSignal): Promise<RawResponse> {
@@ -201,7 +244,17 @@ export class TransportChain {
 
   /** Probe all routes; used by the Diagnostics screen and at boot (cheap, one small request each). */
   async probe(baseRequest: InnerTubeRequest): Promise<TransportHealth> {
-    const results: TransportHealth = { direct: 'unknown', relays: {} };
+    const results: TransportHealth = { direct: 'unknown', native: 'unknown', relays: {} };
+
+    if (this.native) {
+      try {
+        await this.viaNative(baseRequest);
+        results.native = 'ok';
+      } catch {
+        results.native = 'down';
+      }
+    }
+
     try {
       await this.direct(baseRequest);
       results.direct = 'ok';

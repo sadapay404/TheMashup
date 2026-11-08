@@ -1,0 +1,57 @@
+[package]
+name = "themashup"
+version = "0.4.0"
+description = "TheMashup — desktop client"
+authors = ["TheMashup"]
+license = "MIT"
+repository = "https://github.com/sadapay404/TheMashup"
+edition = "2021"
+rust-version = "1.77"
+
+# All logic lives in the library so it is unit-testable and reusable by another entry point.
+# main.rs stays a one-liner.
+[lib]
+name = "themashup_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Native HTTP. This is the entire reason the desktop build exists as more than a browser window:
+# requests leave from Rust, so there is no origin and therefore no CORS preflight to fail.
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+  "gzip",
+  "brotli",
+  "stream",
+] }
+tokio = { version = "1", features = ["sync", "time"] }
+
+tauri-plugin-http = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"
+
+[features]
+# Media keys need an OS-level registration; enabled by default, disabling it is a support escape
+# hatch for machines where the shortcut cannot be acquired.
+default = ["media-keys"]
+media-keys = []
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = 1

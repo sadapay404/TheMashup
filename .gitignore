@@ -21,3 +21,6 @@ apps/android/android/app/src/main/assets/public/
 apps/android/android/app/src/main/assets/capacitor.config.json
 screenshots/
 playwright-report/
+
+# Rust build output for the desktop shell (generated in CI).
+apps/desktop/src-tauri/target/
