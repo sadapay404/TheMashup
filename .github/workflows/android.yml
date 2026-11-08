@@ -53,13 +53,19 @@ jobs:
       - name: Verify bundle
         run: test -f apps/web/dist/index.html
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept SDK licences and install platforms
+      # The ubuntu-latest image ships the Android SDK at $ANDROID_HOME. A third-party setup action
+      # is one more thing that can break, so we verify what is already there instead.
+      - name: Verify Android SDK
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "SDK root: $SDK"
+          ls "$SDK/platforms" || true
+          SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMGR" ]; then
+            yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+            "$SDKMGR" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+          fi
+          ls "$SDK/platforms"
 
       # The Capacitor CLI is the authoritative sync path: it validates capacitor.config.json and
       # copies web assets where the Gradle build expects them.
