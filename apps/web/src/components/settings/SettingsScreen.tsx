@@ -24,6 +24,7 @@ import {
   type HapticEvent,
 } from '@/lib/haptics';
 import { ChevronDownIcon, SparkIcon } from '@/components/ui/icons';
+import { CrashReport } from '@/components/settings/CrashReport';
 
 type CheckState = 'idle' | 'run' | 'pass' | 'fail' | 'warn';
 interface CheckRow {
@@ -452,6 +453,14 @@ export function SettingsScreen() {
           <SparkIcon width={17} height={17} />
           {running ? 'Running…' : 'Run diagnostics'}
         </motion.button>
+      </Section>
+
+      <Section
+        title="Crash report"
+        id="crash"
+        summary="If the app closed on its own, the reason is recorded here"
+      >
+        <CrashReport />
       </Section>
 
       <Section title="About" summary="Version 0.4.0 · no server, no analytics">

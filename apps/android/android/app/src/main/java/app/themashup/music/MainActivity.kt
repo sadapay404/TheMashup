@@ -8,6 +8,7 @@ import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaSessionService
+import app.themashup.music.diagnostics.LogPlugin
 import app.themashup.music.extractor.Extractor
 import app.themashup.music.playback.PlaybackService
 import com.getcapacitor.BridgeActivity
@@ -22,9 +23,14 @@ import com.getcapacitor.BridgeActivity
 class MainActivity : BridgeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Installed before anything else: the gap between process start and this method is where a
+        // broken plugin registration would throw, and a handler installed later would miss it.
+        LogPlugin.install(this)
+
         registerPlugin(app.themashup.music.playback.MashupPlayerPlugin::class.java)
         registerPlugin(app.themashup.music.download.DownloadPlugin::class.java)
         registerPlugin(app.themashup.music.auth.AccountPlugin::class.java)
+        registerPlugin(app.themashup.music.diagnostics.LogPlugin::class.java)
         super.onCreate(savedInstanceState)
 
         // Optional GPL extractor is only installed in the enhanced flavour at build time.

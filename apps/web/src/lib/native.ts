@@ -27,13 +27,15 @@ export function isNative(): boolean {
   return Boolean(cap()?.isNativePlatform?.());
 }
 
-function plugin(name: 'MashupPlayer' | 'MashupDownloads' | 'MashupAccount'): PluginRef | null {
+type PluginName = 'MashupPlayer' | 'MashupDownloads' | 'MashupAccount' | 'MashupLog';
+
+function plugin(name: PluginName): PluginRef | null {
   const c = cap();
   if (!c?.Plugins) return null;
   return (c.Plugins[name] as PluginRef | undefined) ?? null;
 }
 
-async function invoke(name: 'MashupPlayer' | 'MashupDownloads' | 'MashupAccount', method: string, args: Record<string, unknown> = {}): Promise<unknown> {
+async function invoke(name: PluginName, method: string, args: Record<string, unknown> = {}): Promise<unknown> {
   const p = plugin(name);
   if (!p) throw new Error(`${name} unavailable`);
   const fn = p[method];
@@ -252,6 +254,58 @@ export async function nativeRemoveFile(path: string, kind: 'music' | 'video' = '
   try {
     const res = (await invoke('MashupDownloads', 'remove', { path, kind })) as { removed?: boolean };
     return Boolean(res.removed);
+  } catch {
+    return false;
+  }
+}
+
+/** Build and device identity, so a report is tied to a specific APK. */
+export interface NativeInfo {
+  package: string;
+  versionName: string;
+  versionCode: number;
+  sdk: number;
+  device: string;
+  debuggable: boolean;
+  crashFile: string;
+}
+
+export async function nativeInfo(): Promise<NativeInfo | null> {
+  try {
+    return (await invoke('MashupLog', 'info')) as NativeInfo;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The last fatal crash recorded on this device, if any.
+ *
+ * Returns null when the plugin is absent (browser) so the UI can say "not available here" rather
+ * than implying no crash was recorded.
+ */
+export async function nativeCrashReport(): Promise<{ found: boolean; text: string } | null> {
+  try {
+    const res = (await invoke('MashupLog', 'crashes')) as { found?: boolean; text?: string };
+    return { found: Boolean(res.found), text: String(res.text ?? '') };
+  } catch {
+    return null;
+  }
+}
+
+export async function nativeLogcat(lines = 400): Promise<{ ok: boolean; text: string } | null> {
+  try {
+    const res = (await invoke('MashupLog', 'logcat', { lines })) as { ok?: boolean; text?: string };
+    return { ok: Boolean(res.ok), text: String(res.text ?? '') };
+  } catch {
+    return null;
+  }
+}
+
+export async function nativeClearCrash(): Promise<boolean> {
+  try {
+    await invoke('MashupLog', 'clear');
+    return true;
   } catch {
     return false;
   }
