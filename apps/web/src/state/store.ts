@@ -82,6 +82,8 @@ export interface AppState {
   history: Track[];
   downloads: DownloadJob[];
   folders: DownloadFolder[];
+  /** Playlist downloads in flight or finished, so progress survives leaving the screen. */
+  playlistBatches: import('@/lib/playlist').PlaylistBatch[];
   affinity: AffinityState;
   /** Locally "liked" tracks, newest first. Also fed into the affinity graph on every change. */
   likes: Track[];
@@ -131,6 +133,7 @@ const initialState: AppState = {
     { id: 'all-songs', name: 'All songs', kind: 'music', system: true, createdAt: 0 },
     { id: 'all-videos', name: 'Videos', kind: 'video', system: true, createdAt: 0 },
   ] as DownloadFolder[],
+  playlistBatches: [],
   affinity: emptyAffinity(),
   likes: [],
 

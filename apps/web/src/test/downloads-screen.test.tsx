@@ -39,6 +39,7 @@ beforeEach(() => {
       { id: 'all-videos', name: 'Videos', kind: 'video', system: true, createdAt: 0 },
     ],
     downloads: [],
+    playlistBatches: [],
   });
 });
 
@@ -128,6 +129,27 @@ describe('DownloadsScreen', () => {
     expect(store.getState().folders.some((x) => x.id === f.id)).toBe(false);
     expect(store.getState().downloads).toHaveLength(1);
     expect(store.getState().downloads[0]!.folderId).toBe('all-songs');
+  });
+
+  it('shows live progress for a playlist downloading into its folder', () => {
+    const f = ensureFolder('Jhol', 'music');
+    store.set({
+      playlistBatches: [
+        {
+          id: 'b1',
+          folderId: f.id,
+          name: 'Jhol',
+          kind: 'music',
+          trackIds: ['a', 'b', 'c', 'd'],
+          cursor: 1,
+          state: 'running',
+          failed: 0,
+          startedAt: 0,
+        },
+      ],
+    });
+    render(<DownloadsScreen onPlay={vi.fn()} />);
+    expect(screen.getByText('Downloading 2 of 4')).toBeTruthy();
   });
 
   it('offers rename and delete only on folders the user made', () => {

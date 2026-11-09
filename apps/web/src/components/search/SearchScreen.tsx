@@ -12,12 +12,13 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { SearchFilter, Track } from '@themashup/core';
+import type { Playlist, SearchFilter, Track } from '@themashup/core';
 import { looksLikeLyrics } from '@themashup/core';
 import { service } from '@/lib/service';
+import { downloadPlaylist, playlistTarget } from '@/lib/playlist';
 import { store } from '@/state/store';
 import { Chip, EmptyState, Skeleton, snap } from '@/components/ui/primitives';
-import { MicIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
+import { DownloadIcon, MicIcon, QueueIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
 import { TrackRow } from '@/components/library/TrackRow';
 import { useDebounced } from '@/hooks/useDebounced';
 import { describeLink, parseLink } from '@/lib/link';
@@ -43,6 +44,9 @@ export function SearchScreen({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<SearchFilter>('all');
   const [results, setResults] = useState<Track[]>([]);
+  // Playlists are a first-class result, not metadata: a playlist can be opened as a queue or
+  // downloaded whole into its own folder.
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [lyricResults, setLyricResults] = useState<Track[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +98,7 @@ export function SearchScreen({
     let cancelled = false;
     if (debounced.trim().length < 2) {
       setResults([]);
+      setPlaylists([]);
       setLyricResults(null);
       setSearched(false);
       setError(null);
@@ -122,11 +127,16 @@ export function SearchScreen({
         setResults([]);
       } else {
         const flat: Track[] = [];
+        const lists: Playlist[] = [];
         for (const section of res.result.sections) {
           if (section.kind === 'songs') flat.push(...section.items);
           if (section.kind === 'top') flat.unshift(section.track);
+          // A playlist section used to be dropped here, which is why a search for a playlist name
+          // returned songs and silently hid the playlist itself.
+          if (section.kind === 'playlists') lists.push(...section.items);
         }
         setResults(flat);
+        setPlaylists(lists);
         setRouteNote(res.route);
       }
       setBusy(false);
@@ -139,6 +149,54 @@ export function SearchScreen({
   }, [debounced, filter, lyricMode]);
 
   const shown = lyricMode ? (lyricResults ?? []) : results;
+  // The Playlists chip filters the page down to playlists; 'All' and 'Songs' keep the song list.
+  const visiblePlaylists = useMemo(
+    () => (lyricMode || filter === 'songs' ? [] : playlists),
+    [lyricMode, filter, playlists],
+  );
+  const songsHidden = filter === 'playlists' || filter === 'albums' || filter === 'artists';
+
+  /**
+   * Open a playlist, or download the whole thing into its own folder.
+   *
+   * Downloading reuses the queue path rather than playing: the user asked for the files, so nothing
+   * should start making noise because they tapped download.
+   */
+  const [busyPlaylist, setBusyPlaylist] = useState<string | null>(null);
+  const openPlaylist = async (pl: Playlist, download: boolean) => {
+    if (busyPlaylist) return;
+    setBusyPlaylist(pl.id);
+    try {
+      const tracks = await service.playlistTracks(pl.id);
+      if (!tracks.length) {
+        store.notify('That playlist came back empty or private.', 'error');
+        return;
+      }
+      if (!download) {
+        haptic('success');
+        onPlay(tracks[0]!, tracks);
+        return;
+      }
+      haptic('success');
+      await downloadPlaylist({
+        name: pl.title,
+        tracks,
+        ...(tracks.every((t) => t.kind === 'video') ? { kind: 'video' as const } : {}),
+        resolve: async (track: Track) => {
+          // Pick the URL for the tier the engine asked for; resolveStream already knows which itags
+          // are deliverable without cipher work, so a missing entry means "not downloadable", not
+          // "try again with a different one".
+          const res = await service.resolveStream(track.id);
+          if (!res.ok) return null;
+          return res.info.urls[playlistTarget(track).itag] ?? null;
+        },
+      });
+    } catch {
+      store.notify('Could not open that playlist.', 'error');
+    } finally {
+      setBusyPlaylist(null);
+    }
+  };
 
   return (
     <div className="px-4 pb-[var(--content-bottom)] pt-2">
@@ -259,9 +317,27 @@ export function SearchScreen({
               Best lyric matches
             </div>
           ) : null}
+          {!lyricMode && visiblePlaylists.length ? (
+            <div className="mb-3">
+              <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-3)]">
+                Playlists
+              </div>
+              <div className="space-y-1">
+                {visiblePlaylists.map((pl) => (
+                  <PlaylistRow
+                    key={pl.id}
+                    playlist={pl}
+                    busy={busyPlaylist === pl.id}
+                    onOpen={() => void openPlaylist(pl, false)}
+                    onDownload={() => void openPlaylist(pl, true)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
           {/* Single tap plays just this track: queueing is an explicit action on the row, never a
               side effect of pressing play. */}
-          {shown.map((t, i) => (
+          {(songsHidden ? [] : shown).map((t, i) => (
             <TrackRow
               key={`${t.id}-${i}`}
               track={t}
@@ -272,6 +348,12 @@ export function SearchScreen({
             />
           ))}
         </motion.div>
+      ) : searched && debounced.trim().length >= 2 && filter === 'playlists' && playlists.length === 0 ? (
+        <EmptyState
+          icon={<QueueIcon width={30} height={30} />}
+          title="No playlists for that search"
+          detail="The source did not return a playlist. Searching the album or artist name usually finds the songs."
+        />
       ) : searched && debounced.trim().length >= 2 ? (
         <EmptyState
           icon={<SparkIcon width={30} height={30} />}
@@ -289,6 +371,56 @@ export function SearchScreen({
           detail="Search a song, an artist, or paste a lyric you half-remember — TheMashup will match it."
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * A playlist result.
+ *
+ * Two explicit actions rather than one ambiguous tap: play it now, or take the files. Each is
+ * labelled, because "download" and "play" are different intents and a playlist is large enough that
+ * guessing wrong is expensive.
+ */
+function PlaylistRow({
+  playlist,
+  busy,
+  onOpen,
+  onDownload,
+}: {
+  playlist: Playlist;
+  busy: boolean;
+  onOpen: () => void;
+  onDownload: () => void;
+}) {
+  const art = playlist.thumbs[0]?.url ?? playlist.thumbs[playlist.thumbs.length - 1]?.url;
+  return (
+    <div className="flex items-center gap-3 rounded-[var(--radius-row)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] px-2.5 py-2">
+      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        {art ? (
+          <img src={art} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" loading="lazy" />
+        ) : (
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
+            <QueueIcon width={18} height={18} />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px]">{playlist.title}</div>
+          <div className="truncate text-[11px] text-[var(--color-text-3)]">
+            {playlist.author ? `${playlist.author} · ` : ''}
+            {playlist.trackCount ? `${playlist.trackCount} tracks` : 'Playlist'}
+          </div>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={onDownload}
+        disabled={busy}
+        aria-label={`Download playlist ${playlist.title}`}
+        className="shrink-0 rounded-full border border-[var(--hairline)] px-3 py-1.5 text-[11.5px] font-semibold disabled:opacity-50"
+      >
+        {busy ? 'Loading…' : 'Download'}
+      </button>
     </div>
   );
 }

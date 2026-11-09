@@ -34,6 +34,7 @@ import {
   SYSTEM_FOLDER,
 } from '@/lib/folders';
 import { haptic } from '@/lib/haptics';
+import { batchProgress, cancelPlaylist } from '@/lib/playlist';
 
 const SECTIONS: { id: MediaKind; label: string }[] = [
   { id: 'music', label: 'Songs' },
@@ -65,6 +66,7 @@ const STATE_LABEL: Record<DownloadJob['state'], string> = {
 export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => void }) {
   const folders = useApp((s) => s.folders);
   const downloads = useApp((s) => s.downloads);
+  const batches = useApp((s) => s.playlistBatches);
   const [kind, setKind] = useState<MediaKind>('music');
   const [openFolder, setOpenFolder] = useState<string | null>(SYSTEM_FOLDER.music);
   const [moving, setMoving] = useState<DownloadJob | null>(null);
@@ -147,8 +149,17 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px]">{f.name}</div>
                   <div className="text-[11px] text-[var(--color-text-3)]">
-                    {fileCount(f.id)} {fileCount(f.id) === 1 ? 'file' : 'files'}
-                    {f.system ? ` · always shown` : ''}
+                    {(() => {
+                      const batch = batches.find((b) => b.folderId === f.id);
+                      if (batch && batch.state === 'running') {
+                        return `Downloading ${Math.min(batch.cursor + 1, batch.trackIds.length)} of ${batch.trackIds.length}`;
+                      }
+                      if (batch && batch.state === 'cancelled') {
+                        return `Stopped at ${batch.cursor} of ${batch.trackIds.length}`;
+                      }
+                      const n = fileCount(f.id);
+                      return `${n} ${n === 1 ? 'file' : 'files'}${f.system ? ' · always shown' : ''}`;
+                    })()}
                   </div>
                 </div>
                 <ChevronDownIcon
@@ -189,6 +200,32 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
                         </p>
                       )}
                     </div>
+
+                    {(() => {
+                      const batch = batches.find((b) => b.folderId === f.id && b.state === 'running');
+                      if (!batch) return null;
+                      return (
+                        <div className="flex items-center gap-2 px-3 pb-1">
+                          <div className="h-1 flex-1 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--wash)_8%,transparent)]">
+                            <motion.div
+                              className="h-full rounded-full bg-[var(--color-accent)]"
+                              animate={{ width: `${Math.round(batchProgress(batch) * 100)}%` }}
+                              transition={glide}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              haptic('tap');
+                              cancelPlaylist(batch.id);
+                            }}
+                            className="shrink-0 text-[10.5px] text-[var(--color-text-3)]"
+                          >
+                            Stop
+                          </button>
+                        </div>
+                      );
+                    })()}
 
                     {!f.system ? (
                       <div className="flex items-center gap-1.5 border-t border-[var(--hairline)] px-3 py-2">
