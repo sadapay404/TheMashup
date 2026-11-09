@@ -133,10 +133,12 @@ class DownloadService : Service() {
                     expectedTotal = total
 
                     // Progress is reported every PROGRESS_STEP bytes rather than on a timer.
-                    // A clock-based throttle inside nested lambdas was reported as a dead assignment
-                    // by the compiler, and byte-based cadence is both unambiguous and smoother: a
-                    // 5 MB file emits ~20 updates instead of a burst of time-triggered ones.
-                    var reported = 0L
+                    //
+                    // A captured `var` here is flagged as a dead assignment: Kotlin's data-flow
+                    // analysis does not track a local that is mutated inside nested lambdas, so it
+                    // concludes the write is never read. A single-element array is the idiomatic fix
+                    // and keeps the intent obvious.
+                    val reported = longArrayOf(0L)
                     response.body?.byteStream()?.use { input ->
                         RandomAccessFile(part, "rw").use { raf ->
                             raf.seek(downloaded)
@@ -147,8 +149,8 @@ class DownloadService : Service() {
                                 if (read <= 0) break
                                 raf.write(buffer, 0, read)
                                 downloaded += read
-                                if (downloaded - reported >= PROGRESS_STEP) {
-                                    reported = downloaded
+                                if (downloaded - reported[0] >= PROGRESS_STEP) {
+                                    reported[0] = downloaded
                                     DownloadEvents.progress(id, downloaded, total)
                                 }
                             }
