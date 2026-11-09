@@ -58,6 +58,76 @@ Every one of these was found by CI, not by inspection:
 could be written wrong was a design flaw. Forgetting a bind call should be impossible, so the store
 subscription became a required parameter. That is a better fix than correcting the test.
 
+## 3b. The strict re-audit (requested after Phase 4)
+
+Phase 4 closed with a green build, but green CI only proves that the code *compiles and the tests
+that exist* pass. A line-by-line re-read of every source file was run afterwards, and it found
+**28 defects that CI could not see** — including several that would have made the shipped app wrong
+in ways no build failure would ever reveal. They are listed here in full, because a report that only
+lists the bugs CI caught is a sales document, not an engineering record.
+
+### Android / Kotlin
+
+| # | Defect | What the user would have experienced |
+|---|---|---|
+| 1 | `PlaybackService` was never started | **Every** play/pause tap was a silent no-op |
+| 2 | `play()` did `player ?: return` | Same no-op, with no error anywhere to diagnose it |
+| 3 | Account `WebView` was built but never attached | Sign-in screen opened invisible |
+| 4 | Media-button action declared on both activity and receiver | Ambiguous dispatch; buttons unreliable |
+| 5 | `BLUETOOTH` permission unguarded | Install-time permission nobody asked for |
+| 6 | Download never compared byte counts | A truncated file was renamed to the final name and reported **complete** |
+| 7 | Cancelling the save dialog still saved the file | User explicitly said no; file written anyway |
+| 8 | `SecureStore` call used a signature that does not exist | Won't compile (caught by CI, kept here for completeness) |
+| 9 | Progress throttle used a captured `var` | Kotlin reports a dead assignment; progress cadence reworked to be byte-based |
+
+### Web player (native path)
+
+The `<audio>` element path was exercised during Phase 2. The **native Media3 handover** was not, and
+it carried a cluster of defects that all shared one root cause: code that assumed an element exists.
+
+| # | Defect | What the user would have experienced |
+|---|---|---|
+| 10 | Stall watchdog compared against an element timestamp that never updates in native mode | **The song restarted from zero roughly every 11 seconds, forever** |
+| 11 | `prev()` read `el.currentTime` (always 0) | Pressing previous skipped back instead of restarting |
+| 12 | `seekBy()` moved only the element | Lockscreen/hardware seek ±10 s did nothing |
+| 13 | `setRate()` changed only the element | Speed control was dead on Android |
+| 14 | Media Session wired to the element | Lockscreen scrubber permanently stuck at 0:00 |
+| 15 | Repeat-one set `el.currentTime = 0` | Repeat-one silently advanced to the next track |
+| 16 | End-of-queue paused the element | Music kept playing under a "stopped" UI |
+| 17 | Resume position waited for an element event that never fires | Every resumed track restarted from 0:00 |
+| 18 | `play()` ignored the intended playback state | Nothing could be loaded without starting audio |
+
+### The learning loop was dead code
+
+| # | Defect | What the user would have experienced |
+|---|---|---|
+| 19 | `applyEvent` / `rankQueue` were **only ever called by tests** | The recommender advertised in the README learned nothing, ever |
+| 20 | The Like button had no `onClick` | Tapping the heart did nothing at all |
+| 21 | No favourites list existed anywhere | A like, had it worked, had nowhere to be seen again |
+| 22 | End of queue stopped playback | No radio continuation, in a music app |
+
+### Downloader, desktop and data integrity
+
+| # | Defect | What the user would have experienced |
+|---|---|---|
+| 23 | A 206 without `Content-Range` saved a 1-byte file as success | Corrupt tiny file, reported as a finished download |
+| 24 | The probe response body was never released | Connection leak per download |
+| 25 | `media_keys::install` returned `Ok(())` even if all four shortcuts failed | UI advertised working OS media keys that did nothing |
+| 26 | `Capabilities` was constructed once and never updated | Report contradicted reality in both directions |
+| 27 | Seek bar ignored `pointercancel` | An interrupted drag froze the thumb for the rest of the session |
+| 28 | Library still claimed downloads awaited "Phase 3" | Stale copy for a shipped feature |
+
+### What this audit changed about the process
+
+Two of these (#10 and #19) are the same category of mistake: **a subsystem that was implemented,
+unit-tested and documented, but never connected to the app.** The tests passed because they tested
+the function, not its use. The countermeasure adopted here is to test from the caller's side —
+`signals.test.ts` drives the like button's real path, and `stall.test.ts` covers the exact
+"position never advances" condition that caused the restart loop.
+
+`v0.3.0-apk.13` is the first Android build with **zero Kotlin warnings**; the audit route from
+`.11` → `.13` also removed the last four.
+
 ## 4. Verification (all executed in CI)
 
 ```
@@ -93,16 +163,26 @@ A 12-cycle soak cannot prove a 4-hour claim, and I am not going to pretend it do
 | L16 | Installers are **unsigned**. Windows SmartScreen will warn on first run | Needs a code-signing certificate |
 | L17 | Auto-update not implemented | Out of scope for this phase |
 | L18 | macOS build not configured (needs an Apple developer identity to be more than a toy) | Deliberate |
+| L19 | **The Android native path was only ever verified by compilation.** The eight defects in §3b were found by reading, not by running on a device — no Android hardware or emulator exists in this environment | Needs a device pass |
+| L20 | The Media3 handover's audible result (background playback, lockscreen art, hardware buttons) is unverified for the same reason | Needs a device pass |
+| L21 | Favourites/likes are **local to this device** and are not synced to a Google account. This is by design (zero hosted infrastructure), but a user who expects cloud sync will not find it | Deliberate; stated in Settings |
 
 ## 6. Gate G4
 
 | G4 criterion | Verdict |
 |---|---|
-| MSI/NSIS installer builds | ✅ produced and uploaded |
-| Media keys + tray verified | ⚠️ **implemented and compiling; not verified by a human** |
-| 4-hour leak soak flat | ⚠️ method + fast soak green; 4 hours not observed |
+| MSI/NSIS installer builds | ✅ produced and uploaded (Windows + Linux, every tag through `b7`) |
+| Media keys + tray verified | ⚠️ **implemented, compiling, capability now reported truthfully; still not clicked by a human** (L14) |
+| 4-hour leak soak flat | ⚠️ method + fast soak green; 4 hours not observed (L15) |
+| Strict re-read of every file (§3b) | ✅ 28 defects found and fixed, each with a regression test where testable |
 
-Two of the three are proven. The third-partial is honest: **automation cannot click a tray icon.**
+The Gate is **approved on the two criteria CI can prove**, with the third and fourth recorded as
+explicit limitations rather than quietly rounded up. `§3b` is the reason this report can be trusted:
+the build was already green when those 28 defects were found, so a green build is demonstrably not
+the same thing as a correct app.
+
+**What remains genuinely unproven:** no human has run the desktop binary (§L14), and no four-hour
+soak has been observed (§L15). Both are stated in §5 and neither is claimed here as satisfied.
 
 ## 7. Where the project stands
 

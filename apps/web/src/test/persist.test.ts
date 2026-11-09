@@ -195,8 +195,9 @@ describe('likes persistence', () => {
     const stop = startAutosave(store.getState, store.subscribe);
     store.set({ likes: [track] });
     stop();
-    expect(loadPersisted()?.likes).toHaveLength(1);
-    expect(loadPersisted()?.likes[0].id).toBe(track.id);
+    const likes = loadPersisted()?.likes ?? [];
+    expect(likes).toHaveLength(1);
+    expect(likes[0]?.id).toBe(track.id);
   });
 
   it('loads a blob written before likes existed as an empty list, never undefined', () => {

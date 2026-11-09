@@ -146,9 +146,12 @@ export function SettingsScreen() {
       </Section>
 
       <Section title="About">
-        <Row label="Version" value="0.2.0 · Phase 2" />
+        <Row label="Version" value="0.4.0 · Phase 4" />
         <Row label="Server dependency" value="None" />
         <Row label="Analytics" value="None" />
+        {/* Stated explicitly because it is a promise, not an implementation detail: a user who
+            expects their likes to follow them to another device deserves to know they do not. */}
+        <Row label="Your data" value="On this device only — likes and history never sync" />
         <p className="mt-2 px-1 text-[11px] leading-relaxed text-[var(--color-text-3)]">
           TheMashup streams from the public YouTube Music catalogue using your own session. Downloads are for
           personal use. Lyrics come from LRCLIB. No media is hosted or redistributed by this app.
