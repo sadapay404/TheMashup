@@ -5,7 +5,7 @@ Search, stream, karaoke-synced lyrics, fuzzy lyric search and downloads all run 
 
 - **Web** — React 19 + Vite, runs from any static host (or `file://`)
 - **Android** — Capacitor shell + Media3 background playback, built by CI
-- **Desktop** — planned Phase 4 (Tauri)
+- **Desktop** — Tauri 2 shell: native HTTP (no CORS, no relays), tray, media keys
 
 ## Quick start
 
@@ -22,11 +22,13 @@ npm run build        # 147 KB gzip
 
 **APK:** GitHub → Actions → *Android APK* → Run workflow → download the `themashup-apk` artifact.
 
+**Desktop:** push a `desktop-v*` tag (or run the *Desktop* workflow) → download `windows-app` / `linux-app`.
+
 ## How it stays serverless
 
 | Problem | Solution |
 |---|---|
-| Browsers can't call `music.youtube.com` (CORS) | Public Piped/Invidious APIs, which are CORS-enabled by design — no relay, no proxy |
+| Browsers can't call `music.youtube.com` (CORS) | **Native builds:** requests leave from Rust — no origin, no CORS, no relays. **Browser:** public Piped/Invidious APIs |
 | Stream URLs are token-gated | A profile ladder ordered by *freedom from tokens* (`VISIONOS` → `TVHTML5` → …) |
 | Lyrics search needs full text | On-device BM25 index over lyrics already cached, plus upstream fallback |
 | Recommendations need a model | Upstream radio re-ranked locally with an affinity graph and ε-greedy exploration |

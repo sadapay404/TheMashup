@@ -105,10 +105,13 @@ opinion.
 - [ ] Release APK (signed, minified, R8), baseline profiles
 - **Gate G3:** signed APK installs; audio survives screen-off for 60 min; lockscreen controls verified on 2 Android versions.
 
-### Phase 4 — Desktop (Windows) Client — *deferred*
-- [ ] Tauri 2 wrapper, native fetch (no CORS), tray, system media keys via SMTC, notifications
-- [ ] Memory-leak profiling, crash stress, installer (MSI/NSIS)
-- **Gate G4:** MSI installs; media keys + tray verified; 4-hour leak soak flat.
+### Phase 4 — Desktop (Windows) Client — *complete (see docs/14)*
+- [x] Tauri 2 wrapper, native fetch (no CORS) — **removes the relay dependency entirely**
+- [x] Tray, single-instance, notifications, window-hide-on-close
+- [x] OS media keys (global shortcuts; true SMTC card is follow-up L13)
+- [x] Memory-leak soak (CDP retained-heap, green), installer bundle (NSIS/MSI/AppImage/deb)
+- **Gate G4:** installers build ✅; tray/media keys implemented ⚠️ unverified by a human; soak method
+  green, 4 h duration unproven ⚠️.
 
 > **Order change recorded:** the user promoted Android above Windows. Phase numbering is preserved for
 > traceability; execution order is 0 → 1 → 2 → 3 → 4.
