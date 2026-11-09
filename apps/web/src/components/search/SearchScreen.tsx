@@ -15,10 +15,13 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { SearchFilter, Track } from '@themashup/core';
 import { looksLikeLyrics } from '@themashup/core';
 import { service } from '@/lib/service';
+import { store } from '@/state/store';
 import { Chip, EmptyState, Skeleton, snap } from '@/components/ui/primitives';
 import { MicIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
 import { TrackRow } from '@/components/library/TrackRow';
 import { useDebounced } from '@/hooks/useDebounced';
+import { describeLink, parseLink } from '@/lib/link';
+import { haptic } from '@/lib/haptics';
 
 const FILTERS: Array<{ id: SearchFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -48,6 +51,43 @@ export function SearchScreen({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const debounced = useDebounced(query, 320);
+  // A pasted link is not a search. Detecting it in the field means the user does not have to find a
+  // separate "open link" screen: paste, confirm, play.
+  const pasted = useMemo(() => parseLink(query), [query]);
+  const [linkBusy, setLinkBusy] = useState(false);
+
+  const openLink = async () => {
+    if (!pasted || pasted.kind === 'unsupported') return;
+    setLinkBusy(true);
+    try {
+      // A playlist link that also carries a video id opens that video first; a bare playlist opens
+      // the whole list. Narrowing happens here so the branches stay obvious.
+      const videoId = pasted.videoId;
+      const playlistId = pasted.kind === 'playlist' ? pasted.playlistId : undefined;
+      if (!videoId) {
+        const list = await service.playlistTracks(playlistId!);
+        if (list.length) {
+          setResults(list);
+          setSearched(true);
+          haptic('success');
+          return;
+        }
+        store.notify('That playlist came back empty or private.', 'error');
+        return;
+      }
+      const track = await service.trackFromId(videoId);
+      if (!track) {
+        store.notify('That video could not be read. It may be private, age-restricted or removed.', 'error');
+        return;
+      }
+      haptic('success');
+      onPlay(track, [track]);
+    } catch {
+      store.notify('Could not open that link.', 'error');
+    } finally {
+      setLinkBusy(false);
+    }
+  };
   const lyricMode = useMemo(() => looksLikeLyrics(debounced), [debounced]);
 
   useEffect(() => {
@@ -133,6 +173,35 @@ export function SearchScreen({
             </button>
           ) : null}
         </div>
+
+        {/* Link paste. Appears only when the field actually contains a link, so it never adds noise
+            to normal searching. */}
+        <AnimatePresence>
+          {pasted && query.trim().length > 10 ? (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="mt-2 flex items-center gap-2 rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] px-3 py-2">
+                <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--color-text-2)]">
+                  {pasted.kind === 'unsupported' ? pasted.reason : `Open ${describeLink(pasted)}`}
+                </span>
+                {pasted.kind === 'unsupported' ? null : (
+                  <button
+                    type="button"
+                    onClick={() => void openLink()}
+                    disabled={linkBusy}
+                    className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-1.5 text-[11.5px] font-semibold text-[var(--on-accent)] disabled:opacity-60"
+                  >
+                    {linkBusy ? 'Opening…' : pasted.kind === 'playlist' ? 'Open playlist' : 'Play it'}
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
           {!lyricMode

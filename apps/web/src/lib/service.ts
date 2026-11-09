@@ -13,6 +13,7 @@ import {
   InnerTube,
   LyricIndex,
   PublicApiProvider,
+  parseVideoDetails,
   STREAM_LADDER,
   TransportChain,
   err,
@@ -215,6 +216,26 @@ export class MusicService {
     }
   }
 
+  /**
+   * Every track in a playlist, in order.
+   *
+   * Reused by both "paste a playlist link" and "download this whole playlist", so the two never
+   * disagree about what the playlist contains.
+   */
+  async playlistTracks(playlistId: string): Promise<Track[]> {
+    try {
+      const res = await this.innertube.browse(playlistId);
+      const tracks = parseRadioQueue(res.json);
+      if (tracks.length) {
+        this.lastRoute = 'InnerTube · playlist';
+        return tracks;
+      }
+    } catch {
+      /* fall through */
+    }
+    return [];
+  }
+
   /** Radio for a track: InnerTube `next` when reachable, otherwise related-by-artist from search. */
   async radio(track: Track): Promise<Track[]> {
     try {
@@ -280,6 +301,47 @@ export class MusicService {
         message: `No playable source (tried ${tried.join(', ')} and the public API ladder).`,
       },
     };
+  }
+
+  /**
+   * Turn a pasted video id into a real Track.
+   *
+   * Title, artist, duration and artwork come from the player response, so this costs one request
+   * rather than a search round-trip. Returns null when the id is unplayable — the caller reports that
+   * honestly instead of queueing a blank row.
+   */
+  async trackFromId(videoId: string): Promise<Track | null> {
+    // Try the richest profiles first; the same ladder the stream resolver uses.
+    for (const profile of STREAM_LADDER as readonly ProfileName[]) {
+      try {
+        const res = await this.innertube.player(profile, videoId);
+        const track = parseVideoDetails(res.json, videoId);
+        if (track) {
+          this.lastRoute = `InnerTube · ${profile}`;
+          return track;
+        }
+      } catch {
+        continue;
+      }
+    }
+    // Browser fallback: the public ladder can still describe the video.
+    try {
+      const viaProvider = await this.provider.stream(videoId);
+      if (viaProvider) {
+        this.lastRoute = `public API · ${this.provider.lastUsed ?? 'unknown'}`;
+        return {
+          id: videoId,
+          title: 'Track from link',
+          artist: '',
+          durationSec: 0,
+          thumbs: [`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`].map((url) => ({ url, width: 480, height: 360 })),
+          source: 'link',
+        };
+      }
+    } catch {
+      /* nothing else to try */
+    }
+    return null;
   }
 
   playableUrl(info: StreamInfo): { itag: number; url: string } | undefined {

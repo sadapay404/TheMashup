@@ -326,6 +326,44 @@ const AUDIO_ITAGS: Readonly<Record<number, { codec: string; kbps: number; premiu
  * Formats whose URL is ciphered are reported (`deliver: 'cipher'`) rather than dropped, so the UI
  * can honestly say "needs signature" instead of silently hiding a quality tier.
  */
+/**
+ * Read a track from a player response's `videoDetails`.
+ *
+ * Used for the "paste a link" path: the id is already known, so this is the cheapest way to get the
+ * real title, artist, duration and artwork without a second search round-trip.
+ */
+export function parseVideoDetails(json: unknown, videoId: string): Track | null {
+  const root = obj(json);
+  const details = obj(root['videoDetails']);
+  const title = String(details['title'] ?? '').trim();
+  if (!title) return null;
+
+  const lengthSec = Number(details['lengthSeconds'] ?? 0);
+  const author = String(details['author'] ?? '').trim();
+  const thumbs = arr(obj(details)['thumbnail'] ? obj(obj(details)['thumbnail'])['thumbnails'] : []);
+  const parsed: Thumb[] = thumbs
+    .map((t) => {
+      const o = obj(t);
+      const url = String(o['url'] ?? '');
+      return { url, width: Number(o['width'] ?? 0), height: Number(o['height'] ?? 0) };
+    })
+    .filter((t) => t.url);
+
+  return {
+    id: videoId,
+    title,
+    artist: author,
+    ...(String(details['channelId'] ?? '') ? { artistId: String(details['channelId']) } : {}),
+    durationSec: Number.isFinite(lengthSec) ? lengthSec : 0,
+    thumbs: parsed.length ? parsed : [`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`].map((url) => ({
+      url,
+      width: 480,
+      height: 360,
+    })),
+    source: 'link',
+  };
+}
+
 export function parsePlayer(json: unknown, profile: string, videoId: string): StreamInfo {
   const root = obj(json);
   const streaming = obj(root['streamingData']);
