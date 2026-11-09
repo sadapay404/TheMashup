@@ -180,7 +180,14 @@ internal object PlaybackBridge {
     fun emitError(code: String) = NativeEvents.post("error", mapOf("code" to code))
     fun emitPlaying(playing: Boolean) = NativeEvents.post("playing", mapOf("playing" to playing))
 
-    fun play(url: String, title: String, artist: String, artUrl: String?, durationMs: Long) {
+    fun play(
+        url: String,
+        title: String,
+        artist: String,
+        artUrl: String?,
+        durationMs: Long,
+        shouldPlay: Boolean = true,
+    ) {
         // CRITICAL: `player ?: return` used to fail silently when the service was not bound yet,
         // which made the first play of every session a no-op with no error anywhere. Report it so
         // the JS layer can fall back to the WebView element instead of showing a dead player.
@@ -211,7 +218,9 @@ internal object PlaybackBridge {
 
         p.setMediaItem(item)
         p.prepare()
-        p.play()
+        // Honouring the flag matters: loading a track to reproduce a paused session must not start
+        // audio on its own, and the JS layer relies on this being respected.
+        p.playWhenReady = shouldPlay
     }
 
     fun pause() { player?.pause() }

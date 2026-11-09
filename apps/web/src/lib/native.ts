@@ -47,6 +47,8 @@ export interface NativePlayPayload {
   artist: string;
   artUrl?: string;
   durationMs: number;
+  /** Load and start playing (default on the native side). Pass false to preload without audio. */
+  shouldPlay?: boolean;
 }
 
 /** True when a native Media3 session exists and can take over playback. */
@@ -91,6 +93,14 @@ export async function nativeSeek(positionMs: number): Promise<void> {
 export async function nativeSetVolume(volume: number): Promise<void> {
   try {
     await invoke('MashupPlayer', 'setVolume', { volume });
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function nativeSetRate(rate: number): Promise<void> {
+  try {
+    await invoke('MashupPlayer', 'setRate', { rate });
   } catch {
     /* ignore */
   }

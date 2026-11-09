@@ -23,10 +23,12 @@ import {
   nativePlay,
   nativeResume,
   nativeSeek,
+  nativeSetRate,
   nativeSetVolume,
   nativeState,
   onNativeEvent,
 } from '@/lib/native';
+import { StallDetector } from '@/lib/stall';
 import { store, useApp } from '@/state/store';
 import type { Track } from '@themashup/core';
 
@@ -41,6 +43,12 @@ const STALL_MS = 8000;
  * until the next launch).
  */
 let nativeDisabled = false;
+
+/**
+ * Watches the polled Media3 position. Module-level on purpose: it must survive re-renders, and the
+ * poll interval outlives any single effect run.
+ */
+const nativeStall = new StallDetector(STALL_MS);
 
 export function usePlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -126,17 +134,24 @@ export function usePlayer() {
 
       // Native shell: Media3 owns playback so audio survives backgrounding + screen-off and
       // appears on the lockscreen. Falls back to the element if the plugin is absent.
+      // A new track is only ever loaded in order to play it, so the native handover must start
+      // playback itself. Passing the flag keeps the contract explicit rather than relying on the
+      // service's default, and it is what makes recovery-after-error audible again.
       const handedToNative = !nativeDisabled && (await nativePlay({
         url: playable.url,
         title: t.title,
         artist: t.artist,
         ...(art ? { artUrl: art } : {}),
         durationMs: Math.round(t.durationSec * 1000),
+        shouldPlay: true,
       }));
       if (handedToNative) {
         el.removeAttribute('src');
-        store.set({ loading: false, durationSec: t.durationSec });
+        // Report the real track duration immediately; Media3 only learns it after buffering, and a
+        // zero duration makes the seek bar jump from 0 to the true length a second later.
+        store.set({ loading: false, durationSec: t.durationSec, playing: true });
         lastTimeUpdate.current = Date.now();
+        void nativeSetRate(store.getState().rate);
         store.set({ lyricsLoading: true });
         void service.lyricsFor(t).then((lyrics) => {
           if (gen !== generation.current) return;
@@ -231,7 +246,15 @@ export function usePlayer() {
       const s = store.getState();
       if (!s.queue.length) return;
       if (s.repeat === 'one' && auto) {
+        // Restart through whichever transport owns playback; `el.currentTime = 0` is a no-op in
+        // native mode (no src), which made repeat-one silently advance to the next track instead.
         const el = audioRef.current;
+        if (el && !el.src && hasNativePlayback()) {
+          void nativeSeek(0);
+          store.set({ positionSec: 0 });
+          void setPlaying(true);
+          return;
+        }
         if (el) el.currentTime = 0;
         void setPlaying(true);
         return;
@@ -244,8 +267,13 @@ export function usePlayer() {
       if (nextIndex >= s.queue.length) {
         if (s.repeat === 'all') nextIndex = 0;
         else if (auto) {
+          // End of queue: stop the transport that is actually playing, not just a paused element.
           store.set({ playing: false, positionSec: 0 });
           const el = audioRef.current;
+          if (el && !el.src && hasNativePlayback()) {
+            void nativePause();
+            return;
+          }
           if (el) el.pause();
           return;
         } else return;
@@ -262,13 +290,22 @@ export function usePlayer() {
   const prev = useCallback(() => {
     const s = store.getState();
     const el = audioRef.current;
-    if (el && el.currentTime > 3) {
-      el.currentTime = 0;
+    // Native mode has no element position: el.currentTime is always 0, so pressing previous jumped
+    // backwards instead of restarting the song the way every player does.
+    const nativeMode = Boolean(el && !el.src && hasNativePlayback());
+    const position = nativeMode ? s.positionSec : (el?.currentTime ?? 0);
+    const restart = () => {
+      if (nativeMode) void nativeSeek(0);
+      else if (el) el.currentTime = 0;
+      store.set({ positionSec: 0 });
+    };
+    if (position > 3) {
+      restart();
       return;
     }
     const prevIndex = s.index - 1;
     if (prevIndex < 0) {
-      if (el) el.currentTime = 0;
+      restart();
       return;
     }
     const t = s.queue[prevIndex];
@@ -293,6 +330,11 @@ export function usePlayer() {
   const seekBy = useCallback(
     (delta: number) => {
       const el = audioRef.current;
+      if (el && !el.src && hasNativePlayback()) {
+        const s = store.getState();
+        seek(Math.max(0, s.positionSec + delta));
+        return;
+      }
       if (el) seek(el.currentTime + delta);
     },
     [seek],
@@ -301,6 +343,9 @@ export function usePlayer() {
   const setRate = useCallback((r: number) => {
     const el = audioRef.current;
     if (el) el.playbackRate = r;
+    // In native mode the element has no src, so the rate must be pushed to Media3 or the control
+    // would silently do nothing on Android.
+    if (hasNativePlayback()) void nativeSetRate(r);
     store.set({ rate: r });
   }, []);
 
@@ -398,10 +443,28 @@ export function usePlayer() {
   }, [volume, muted]);
 
   // Stall watchdog: "playing" but no progress for 8 s → re-resolve once.
+  //
+  // `lastTimeUpdate` is only written by the element's `timeupdate` listener, which never fires in
+  // native mode (the element has no src). Without the native branch below the watchdog concluded the
+  // stream had stalled roughly every 11 s on Android and reloaded the track from zero — playback
+  // restarted mid-song forever. Native progress is therefore measured from the polled position.
   useEffect(() => {
     const id = window.setInterval(() => {
       const s = store.getState();
       if (!s.playing || s.loading) return;
+
+      if (hasNativePlayback()) {
+        if (nativeStall.check(s.positionSec)) {
+          nativeStall.reset(s.positionSec);
+          const t = s.queue[s.index];
+          if (t) {
+            store.notify('Playback stalled — reloading…', 'info');
+            void load(t);
+          }
+        }
+        return;
+      }
+
       if (Date.now() - lastTimeUpdate.current > STALL_MS) {
         lastTimeUpdate.current = Date.now();
         const t = s.queue[s.index];
@@ -448,15 +511,34 @@ export function usePlayer() {
     } catch {
       /* MediaMetadata can throw on exotic URLs; non-fatal */
     }
+    // Media3, not the element, is the transport on Android. Wiring absolute positions here keeps
+    // the lockscreen scrubber tracking the real stream instead of a permanently-zero element.
+    const nativeMode = Boolean(audioRef.current && !audioRef.current.src && hasNativePlayback());
+    const setPosition = (d: MediaSessionActionDetails) => {
+      if (typeof d.seekTime !== 'number') return;
+      if (nativeMode) {
+        void nativeSeek(Math.round(d.seekTime * 1000));
+        store.set({ positionSec: d.seekTime });
+      } else {
+        seek(d.seekTime);
+      }
+    };
+    try {
+      navigator.mediaSession.setPositionState?.({
+        duration: Math.max(0, track.durationSec || store.getState().durationSec || 0),
+        position: Math.min(store.getState().positionSec, Math.max(0, track.durationSec || store.getState().durationSec || 0)),
+        playbackRate: store.getState().rate || 1,
+      });
+    } catch {
+      /* some browsers reject transient positions; cosmetic only */
+    }
+    navigator.mediaSession.setActionHandler('seekto', setPosition);
     navigator.mediaSession.setActionHandler('play', () => void setPlaying(true));
     navigator.mediaSession.setActionHandler('pause', () => void setPlaying(false));
     navigator.mediaSession.setActionHandler('nexttrack', () => next(false));
     navigator.mediaSession.setActionHandler('previoustrack', prev);
     navigator.mediaSession.setActionHandler('seekbackward', () => seekBy(-10));
     navigator.mediaSession.setActionHandler('seekforward', () => seekBy(10));
-    navigator.mediaSession.setActionHandler('seekto', (d) => {
-      if (typeof d.seekTime === 'number') seek(d.seekTime);
-    });
   }, [track, setPlaying, next, prev, seekBy, seek]);
 
   useEffect(() => {
@@ -467,14 +549,26 @@ export function usePlayer() {
   useEffect(() => {
     if (!track) return;
     const saved = readProgress(track.id);
-    if (saved > 5 && audioRef.current) {
-      const el = audioRef.current;
-      const apply = () => {
-        el.currentTime = saved;
-        el.removeEventListener('loadedmetadata', apply);
-      };
-      el.addEventListener('loadedmetadata', apply);
+    if (saved <= 5) return;
+    const el = audioRef.current;
+
+    // Native mode never fires loadedmetadata on the (src-less) element, so the saved position was
+    // silently discarded and every resumed song restarted from zero. Seek the service directly.
+    if (el && !el.src && hasNativePlayback()) {
+      const id = window.setTimeout(() => {
+        void nativeSeek(Math.round(saved * 1000));
+        store.set({ positionSec: saved });
+      }, 350);
+      return () => window.clearTimeout(id);
     }
+
+    if (!el) return;
+    const apply = () => {
+      el.currentTime = saved;
+      el.removeEventListener('loadedmetadata', apply);
+    };
+    el.addEventListener('loadedmetadata', apply);
+    return () => el.removeEventListener('loadedmetadata', apply);
   }, [track]);
 
   return {

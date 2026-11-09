@@ -76,6 +76,8 @@ class MashupPlayerPlugin : Plugin() {
             artist = call.getString("artist") ?: "",
             artUrl = call.getString("artUrl"),
             durationMs = call.getLong("durationMs") ?: 0L,
+            // Defaults to true: a play() call has always meant "start playing".
+            shouldPlay = call.getBoolean("shouldPlay") ?: true,
         )
         call.resolve()
     }
