@@ -13,6 +13,31 @@ export type ThemeId = 'obsidian' | 'vinyl' | 'paper' | 'cyberpunk' | 'forest';
 export type RepeatMode = 'off' | 'all' | 'one';
 export type Route = 'home' | 'search' | 'library' | 'settings';
 
+/**
+ * What a downloaded item is.
+ *
+ * A song and a video are different things and the user asked for them in separate sections, so this
+ * is a property of the file, not a label on the list that happens to contain it. `music` and `video`
+ * are the two sections; a playlist is a *folder*, not a third kind.
+ */
+export type MediaKind = 'music' | 'video';
+
+/**
+ * A folder on disk as the app understands it.
+ *
+ * Folders exist in the data model on both platforms even though only the Android build can create
+ * real directories: the browser keeps them as grouping metadata, so the interface a user learns is
+ * identical, and moving a file between folders means the same thing in both places.
+ */
+export interface DownloadFolder {
+  id: string;
+  name: string;
+  kind: MediaKind;
+  /** System folders (All songs / Videos) cannot be renamed or deleted. */
+  system?: boolean;
+  createdAt: number;
+}
+
 export interface DownloadJob {
   id: string;
   track: Track;
@@ -23,6 +48,11 @@ export interface DownloadJob {
   totalBytes?: number;
   error?: string;
   createdAt: number;
+  kind?: MediaKind;
+  /** Folder this file belongs to, or null for "not filed yet". */
+  folderId?: string | null;
+  /** Absolute path on disk, known only when the native service wrote the file. */
+  path?: string;
 }
 
 export interface AppState {
@@ -51,6 +81,7 @@ export interface AppState {
   searchQuery: string;
   history: Track[];
   downloads: DownloadJob[];
+  folders: DownloadFolder[];
   affinity: AffinityState;
   /** Locally "liked" tracks, newest first. Also fed into the affinity graph on every change. */
   likes: Track[];
@@ -92,6 +123,14 @@ const initialState: AppState = {
   searchQuery: '',
   history: [],
   downloads: [],
+  /**
+   * Seeded with the two fixed buckets the user asked for. They are system folders: no rename, no
+   * delete, and every download lands in one of them unless it is filed somewhere else.
+   */
+  folders: [
+    { id: 'all-songs', name: 'All songs', kind: 'music', system: true, createdAt: 0 },
+    { id: 'all-videos', name: 'Videos', kind: 'video', system: true, createdAt: 0 },
+  ] as DownloadFolder[],
   affinity: emptyAffinity(),
   likes: [],
 
