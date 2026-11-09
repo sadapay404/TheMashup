@@ -184,3 +184,20 @@ jobs:
           path: out/*.apk
           retention-days: 30
           if-no-files-found: warn
+
+      # Artifact downloads require a GitHub login and expire in 30 days. A tag build is a release, so
+      # publish the APK there too: the asset URL works from a phone browser with no account, which is
+      # the only way to sideload without a cable.
+      - name: Publish APK to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          # Idempotent: a re-run of the same tag must not fail on "release already exists".
+          gh release view "$TAG" > /dev/null 2>&1 || \
+            gh release create "$TAG" --title "TheMashup $TAG" \
+              --notes "Android build from ${GITHUB_SHA:0:7}. Sideload with the instructions in docs/16-INSTALL-ON-ANDROID.md."
+          gh release upload "$TAG" out/*.apk --clobber
+          echo "::notice title=APK::https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
