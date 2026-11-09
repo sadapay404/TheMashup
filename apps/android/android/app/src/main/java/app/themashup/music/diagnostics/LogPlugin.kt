@@ -123,6 +123,79 @@ class LogPlugin : Plugin() {
         private const val CRASH_FILE = "last-crash.txt"
 
         /**
+         * Session breadcrumbs.
+         *
+         * An exception handler cannot see a native kill: low-memory killer, a native abort in the
+         * WebView renderer, or the OS stopping the process. Those leave no Java trace and no Android
+         * "has stopped" dialog - the app simply vanishes, which is indistinguishable from a crash
+         * when reported by a user. The only way to know it happened is to leave a marker behind and
+         * notice on the next launch that it was never cleaned up.
+         *
+         * Two files, both tiny: the current session's stage, and the previous session's fate.
+         */
+        private const val SESSION_FILE = "session.txt"
+        private const val SESSION_END = "ended"
+
+        private fun sessionFile(app: Context) = File(app.filesDir, SESSION_FILE)
+
+        /**
+         * Record that a session is starting, and whether the previous one ended cleanly.
+         * Called first thing in MainActivity.onCreate.
+         */
+        fun beginSession(context: Context) {
+            val app = context.applicationContext
+            try {
+                val previous = sessionFile(app).takeIf { it.isFile }?.readText()
+                if (previous != null && !previous.startsWith(SESSION_END)) {
+                    // No exception was recorded for this exit, so the process was killed rather than
+                    // crashed in Java. Say so plainly; guessing a cause here would be dishonest.
+                    val report = File(app.filesDir, CRASH_FILE)
+                    if (!report.isFile) {
+                        report.writeText(
+                            buildString {
+                                appendLine("=== TheMashup stopped unexpectedly ===")
+                                appendLine("time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS Z", Locale.US).format(Date())}")
+                                appendLine("device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · API ${android.os.Build.VERSION.SDK_INT}")
+                                appendLine("package: ${app.packageName}")
+                                appendLine()
+                                appendLine("No Java exception was recorded, so the process was killed rather than")
+                                appendLine("crashing: low-memory killer, a native fault in the WebView, or the OS")
+                                appendLine("stopping it. The previous session reached these stages:")
+                                appendLine()
+                                append(previous)
+                                appendLine()
+                                appendLine("--- last logcat (this process, previous session not included) ---")
+                                appendLine(captureLogcatFor(app, 250))
+                            },
+                        )
+                    }
+                }
+                sessionFile(app).writeText("stage: activity-created\nstarted: ${System.currentTimeMillis()}\n")
+            } catch (t: Throwable) {
+                Log.w(TAG, "session marker failed", t)
+            }
+        }
+
+        /** Note how far the session got, so a later abrupt exit can be located. */
+        fun markStage(context: Context, stage: String) {
+            try {
+                val f = sessionFile(context.applicationContext)
+                f.appendText("stage: $stage\n")
+            } catch (t: Throwable) {
+                Log.w(TAG, "stage marker failed for $stage", t)
+            }
+        }
+
+        /** Called when the user leaves normally, so the next launch does not report a false crash. */
+        fun endSession(context: Context) {
+            try {
+                sessionFile(context.applicationContext).writeText("$SESSION_END cleanly\n")
+            } catch (t: Throwable) {
+                Log.w(TAG, "session end failed", t)
+            }
+        }
+
+        /**
          * Install the fatal-exception handler. Called from MainActivity *before* `super.onCreate`,
          * because the window between process start and Activity creation is exactly where a bad
          * plugin registration would blow up, and a handler installed after that gap misses it.

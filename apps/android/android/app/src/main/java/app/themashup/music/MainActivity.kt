@@ -26,18 +26,26 @@ class MainActivity : BridgeActivity() {
         // Installed before anything else: the gap between process start and this method is where a
         // broken plugin registration would throw, and a handler installed later would miss it.
         LogPlugin.install(this)
+        // Marks the start of a session and, if the previous one never ended cleanly, records that
+        // fact - a native kill leaves no Java exception, and without this it would be invisible.
+        LogPlugin.beginSession(this)
 
         registerPlugin(app.themashup.music.playback.MashupPlayerPlugin::class.java)
         registerPlugin(app.themashup.music.download.DownloadPlugin::class.java)
         registerPlugin(app.themashup.music.auth.AccountPlugin::class.java)
         registerPlugin(app.themashup.music.diagnostics.LogPlugin::class.java)
+        LogPlugin.markStage(this, "plugins-registered")
         super.onCreate(savedInstanceState)
+        // If a session stops after this line but before the next one, the bridge itself is the
+        // problem; if it gets past it, the failure is in the web layer or a service.
+        LogPlugin.markStage(this, "bridge-created")
 
         // Optional GPL extractor is only installed in the enhanced flavour at build time.
         Extractor.delegate = BuildConfigStreamExtractorDelegate.create()
 
         requestNotificationPermissionOnce()
         preparePlaybackSession()
+        LogPlugin.markStage(this, "boot-complete")
     }
 
     /**
@@ -82,6 +90,10 @@ class MainActivity : BridgeActivity() {
     }
 
     override fun onDestroy() {
+        // `isFinishing` separates a real exit from a configuration change or an activity that the
+        // system reclaimed while the app stayed alive. Marking every onDestroy as clean would hide
+        // the kills we are trying to detect.
+        if (isFinishing) LogPlugin.endSession(this)
         try {
             unbindService(PlaybackService.connection)
         } catch (_: IllegalArgumentException) {

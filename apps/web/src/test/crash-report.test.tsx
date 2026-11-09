@@ -50,7 +50,7 @@ describe('CrashReport', () => {
   });
 
   it('shows the recorded crash and offers to copy it', async () => {
-    const writeText = vi.fn(async () => undefined);
+    const writeText = vi.fn(async (_text: string) => undefined);
     Object.assign(navigator, { clipboard: { writeText } });
 
     installCapacitor({
@@ -68,7 +68,7 @@ describe('CrashReport', () => {
 
     screen.getByText('Copy crash report').click();
     await waitFor(() => expect(writeText).toHaveBeenCalled());
-    const sent = writeText.mock.calls[0]![0] as unknown as string;
+    const sent = writeText.mock.calls[0]![0];
     // The report has to carry the build identity, or it cannot be tied to an APK.
     expect(sent).toContain('build: 0.3.0 (22)');
     expect(sent).toContain('IllegalStateException: boom');
