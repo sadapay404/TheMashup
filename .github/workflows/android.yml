@@ -22,8 +22,10 @@ on:
     tags:
       - 'v*'
 
+# `write` is required to attach the APK to a GitHub Release. The workflow only writes on tag
+# builds (guarded by `if:`); push builds still only read.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -195,6 +197,9 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
+          # Report the actual failure as an annotation: the log is not always downloadable, and
+          # "exit code 1" with no cause is the least useful thing CI can say.
+          trap 'echo "::error title=release publish failed::gh CLI exited $? for tag $TAG" >&2' ERR
           # Idempotent: a re-run of the same tag must not fail on "release already exists".
           gh release view "$TAG" > /dev/null 2>&1 || \
             gh release create "$TAG" --title "TheMashup $TAG" \
