@@ -120,6 +120,7 @@ class DownloadService : Service() {
                     .apply { if (downloaded > 0) header("Range", "bytes=$downloaded-") }
                     .build()
 
+                var expectedTotal = -1L
                 http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw IllegalStateException("HTTP ${response.code}")
@@ -129,12 +130,15 @@ class DownloadService : Service() {
                     val total = (response.body?.contentLength() ?: -1L).let {
                         if (it > 0) it + downloaded else -1L
                     }
+                    expectedTotal = total
 
+                    // Declared outside the `use` blocks: the same clock value must persist across
+                    // iterations, and keeping it here makes that obvious to a reader and to Kotlin.
+                    var lastReport = 0L
                     response.body?.byteStream()?.use { input ->
                         RandomAccessFile(part, "rw").use { raf ->
                             raf.seek(downloaded)
                             val buffer = ByteArray(64 * 1024)
-                            var lastReport = 0L
                             while (true) {
                                 if (cancelled.get()) return@launch
                                 val read = input.read(buffer)
@@ -152,8 +156,15 @@ class DownloadService : Service() {
                     }
                 }
 
-                if (totalBytesMismatch(dest, part, downloaded)) {
-                    throw IllegalStateException("size mismatch after download")
+                // A server that closes the connection early leaves a short .part file. Publishing it
+                // under the final name would hand the user a truncated song that looks complete.
+                if (expectedTotal > 0 && downloaded < expectedTotal) {
+                    throw IllegalStateException(
+                        "incomplete: $downloaded of $expectedTotal bytes (will resume)",
+                    )
+                }
+                if (downloaded <= 0L || !part.exists()) {
+                    throw IllegalStateException("no data received")
                 }
 
                 // Atomic publish: never leave a half-written file with the final name.
@@ -177,9 +188,6 @@ class DownloadService : Service() {
         }
         jobs[id] = job
     }
-
-    private fun totalBytesMismatch(dest: File, part: File, downloaded: Long): Boolean =
-        downloaded <= 0L || (!part.exists())
 
     override fun onDestroy() {
         scope.cancel()

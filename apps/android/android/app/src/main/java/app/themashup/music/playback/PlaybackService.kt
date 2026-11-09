@@ -180,16 +180,27 @@ internal object PlaybackBridge {
     fun emitPlaying(playing: Boolean) = NativeEvents.post("playing", mapOf("playing" to playing))
 
     fun play(url: String, title: String, artist: String, artUrl: String?, durationMs: Long) {
-        val p = player ?: return
+        // CRITICAL: `player ?: return` used to fail silently when the service was not bound yet,
+        // which made the first play of every session a no-op with no error anywhere. Report it so
+        // the JS layer can fall back to the WebView element instead of showing a dead player.
+        val p = player
+        if (p == null) {
+            emitError("player_not_ready")
+            return
+        }
+
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(artist)
             .setArtworkUri(artUrl?.let { Uri.parse(it) })
             .build()
 
+        // Passing the expected duration lets the lockscreen/notification show a real scrubber before
+        // the stream has been probed; Media3 replaces it with the true value once known.
         val item = MediaItem.Builder()
             .setUri(url)
             .setMediaMetadata(metadata)
+            .apply { if (durationMs > 0) setDurationUs(durationMs * 1000L) }
             .build()
 
         p.setMediaItem(item)

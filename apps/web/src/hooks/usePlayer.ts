@@ -32,6 +32,16 @@ import type { Track } from '@themashup/core';
 
 const STALL_MS = 8000;
 
+/**
+ * Set when the native player reports it is not ready.
+ *
+ * The Android service can be bound slightly after the first play; when that happens the plugin
+ * returns `player_not_ready`. Retrying native forever would loop, so the session permanently
+ * downgrades to the WebView <audio> element: audio still plays (just without background support
+ * until the next launch).
+ */
+let nativeDisabled = false;
+
 export function usePlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -116,13 +126,13 @@ export function usePlayer() {
 
       // Native shell: Media3 owns playback so audio survives backgrounding + screen-off and
       // appears on the lockscreen. Falls back to the element if the plugin is absent.
-      const handedToNative = await nativePlay({
+      const handedToNative = !nativeDisabled && (await nativePlay({
         url: playable.url,
         title: t.title,
         artist: t.artist,
         ...(art ? { artUrl: art } : {}),
         durationMs: Math.round(t.durationSec * 1000),
-      });
+      }));
       if (handedToNative) {
         el.removeAttribute('src');
         store.set({ loading: false, durationSec: t.durationSec });
@@ -351,13 +361,23 @@ export function usePlayer() {
     };
     const id = window.setInterval(() => void tick(), 1000);
     const offEnded = onNativeEvent('ended', () => next(true));
-    const offError = onNativeEvent('error', () => {
+    const offError = onNativeEvent('error', (data) => {
+      const code = (data as { code?: string } | null)?.code ?? '';
       const st = store.getState();
       const t = st.queue[st.index];
-      if (t) {
-        store.notify('Native player error — re-resolving…', 'error');
+      if (!t) return;
+
+      if (code === 'player_not_ready') {
+        // Permanent downgrade for this session: the service did not bind in time. Using the element
+        // keeps audio working instead of retrying a race we already lost.
+        nativeDisabled = true;
+        store.notify('Background player unavailable — using in-app playback.', 'info');
         void load(t);
+        return;
       }
+
+      store.notify('Native player error — re-resolving…', 'error');
+      void load(t);
     });
     return () => {
       alive = false;
