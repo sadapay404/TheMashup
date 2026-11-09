@@ -6,10 +6,11 @@
  * live behaviour — and it is honest about what each check proves.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { buildRequest, PROFILES, STREAM_LADDER } from '@themashup/core';
 import { service } from '@/lib/service';
+import { isNative, nativeAccountStatus, nativeCookie, nativeSignIn } from '@/lib/native';
 import { store, useApp } from '@/state/store';
 import { snap } from '@/components/ui/primitives';
 import { SparkIcon } from '@/components/ui/icons';
@@ -34,7 +35,59 @@ export function SettingsScreen() {
   const [running, setRunning] = useState(false);
   const transportRoute = useApp((s) => s.transportRoute);
   const amoled = useApp((s) => s.amoled);
-  const cookie = service.hasAccount();
+  // Account state is re-read after sign-in and on mount, because the native WebView completes
+  // out-of-band: there is no promise to await that means "the user finished signing in".
+  const [signedIn, setSignedIn] = useState(service.hasAccount());
+  const [signingIn, setSigningIn] = useState(false);
+  const [accountMsg, setAccountMsg] = useState<string | null>(null);
+
+  const refreshAccount = async () => {
+    if (isNative()) {
+      const status = await nativeAccountStatus();
+      if (status?.signedIn) {
+        const c = await nativeCookie();
+        if (c) service.setCookie(c);
+      }
+      setSignedIn(Boolean(status?.signedIn) || service.hasAccount());
+      return;
+    }
+    setSignedIn(service.hasAccount());
+  };
+
+  useEffect(() => {
+    // Mount-only: `refreshAccount` is recreated each render but only touches state, and re-running
+    // this on every render would poll the native plugin on every keystroke elsewhere on the page.
+    void refreshAccount();
+  }, []);
+
+  const doSignIn = async () => {
+    setAccountMsg(null);
+    if (!isNative()) {
+      // Stated plainly instead of showing a button that cannot work: a Google session cookie is
+      // HttpOnly, so no browser script can read it, and this build has no hosted callback.
+      setAccountMsg(
+        'Sign-in needs the Android build. A browser cannot read Google’s HttpOnly session cookie, and this app has no server to receive an OAuth callback — that is a consequence of zero hosted infrastructure, not a bug.',
+      );
+      return;
+    }
+    setSigningIn(true);
+    await nativeSignIn();
+    // The WebView may still be open; poll briefly so the row updates the moment it closes.
+    for (let i = 0; i < 120; i++) {
+      const status = await nativeAccountStatus();
+      if (status?.signedIn) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    await refreshAccount();
+    setSigningIn(false);
+    setAccountMsg(service.hasAccount() ? 'Signed in.' : 'Not signed in yet.');
+  };
+
+  const doSignOut = () => {
+    service.setCookie(null);
+    setSignedIn(false);
+    setAccountMsg('Signed out. Playback still works anonymously.');
+  };
 
   const update = (id: string, state: CheckState, detail?: string) =>
     setChecks((prev) => prev.map((c) => (c.id === id ? { ...c, state, ...(detail ? { detail } : {}) } : c)));
@@ -100,7 +153,20 @@ export function SettingsScreen() {
 
       <Section title="Playback">
         <Row label="Active route" value={transportRoute} />
-        <Row label="Account" value={cookie ? 'Signed in (cookie)' : 'Anonymous'} />
+        <Row label="Account" value={signedIn ? 'Signed in' : 'Anonymous'} />
+        <div className="mt-2 px-1">
+          <button
+            type="button"
+            onClick={() => (signedIn ? doSignOut() : void doSignIn())}
+            disabled={signingIn}
+            className="w-full rounded-2xl bg-white/8 py-2.5 text-[12.5px] font-semibold disabled:opacity-60"
+          >
+            {signingIn ? 'Waiting for Google…' : signedIn ? 'Sign out' : 'Sign in with Google'}
+          </button>
+          {accountMsg ? (
+            <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-3)]">{accountMsg}</p>
+          ) : null}
+        </div>
         <Row label="Stream ladder" value={STREAM_LADDER.join(' → ')} />
       </Section>
 
