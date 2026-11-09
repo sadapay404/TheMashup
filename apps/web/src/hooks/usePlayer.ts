@@ -388,8 +388,13 @@ export function usePlayer() {
   }, [load, next]);
 
   // Volume mirroring for the native path.
+  //
+  // Debounced: dragging the slider fires a change per pixel, and each one is a JSON round-trip into
+  // Kotlin. At 60 fps that queues faster than the bridge drains and the value visibly lags.
   useEffect(() => {
-    if (hasNativePlayback()) void nativeSetVolume(muted ? 0 : volume);
+    if (!hasNativePlayback()) return;
+    const id = window.setTimeout(() => void nativeSetVolume(muted ? 0 : volume), 80);
+    return () => window.clearTimeout(id);
   }, [volume, muted]);
 
   // Stall watchdog: "playing" but no progress for 8 s → re-resolve once.

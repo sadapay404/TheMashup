@@ -189,18 +189,19 @@ internal object PlaybackBridge {
             return
         }
 
+        // Duration belongs on MediaMetadata, not MediaItem: MediaItem.Builder has no duration setter.
+        // Providing it lets the notification show a real scrubber before the stream is probed;
+        // Media3 substitutes the true value once known.
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(artist)
             .setArtworkUri(artUrl?.let { Uri.parse(it) })
+            .apply { if (durationMs > 0) setDurationMs(durationMs) }
             .build()
 
-        // Passing the expected duration lets the lockscreen/notification show a real scrubber before
-        // the stream has been probed; Media3 replaces it with the true value once known.
         val item = MediaItem.Builder()
             .setUri(url)
             .setMediaMetadata(metadata)
-            .apply { if (durationMs > 0) setDurationUs(durationMs * 1000L) }
             .build()
 
         p.setMediaItem(item)
