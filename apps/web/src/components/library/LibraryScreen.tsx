@@ -1,7 +1,7 @@
 /**
  * Library: history, downloads, and a storage dashboard.
- * Downloads are honest placeholders until the native pipeline lands in Phase 3 — jobs are queued and
- * their real state is shown, rather than pretending a file was written.
+ * Downloads show their real pipeline state (queued, resolving, downloading, muxing, done, failed or
+ * partial) rather than pretending a file was written when it was not.
  */
 
 import { motion } from 'framer-motion';
@@ -9,15 +9,16 @@ import { useState } from 'react';
 import type { Track } from '@themashup/core';
 import { useApp } from '@/state/store';
 import { EmptyState, formatTime, glide, snap } from '@/components/ui/primitives';
-import { DownloadIcon, LibraryIcon, TrashIcon } from '@/components/ui/icons';
+import { DownloadIcon, HeartIcon, LibraryIcon, TrashIcon } from '@/components/ui/icons';
 import { TrackRow } from '@/components/library/TrackRow';
 
-type Tab = 'history' | 'downloads';
+type Tab = 'history' | 'likes' | 'downloads';
 
 export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => void }) {
   const [tab, setTab] = useState<Tab>('history');
   const history = useApp((s) => s.history);
   const downloads = useApp((s) => s.downloads);
+  const likes = useApp((s) => s.likes);
 
   const totalMinutes = Math.round(history.reduce((n, t) => n + t.durationSec, 0) / 60);
 
@@ -32,6 +33,7 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
         {(
           [
             ['history', 'History'],
+            ['likes', 'Likes'],
             ['downloads', 'Downloads'],
           ] as const
         ).map(([id, label]) => (
@@ -50,7 +52,17 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
       </div>
 
       <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={glide} className="mt-4">
-        {tab === 'history' ? (
+        {tab === 'likes' ? (
+          likes.length ? (
+            likes.map((t, i) => <TrackRow key={`${t.id}-l${i}`} track={t} index={i} onPlay={() => onPlay(t, likes)} />)
+          ) : (
+            <EmptyState
+              icon={<HeartIcon width={30} height={30} />}
+              title="Nothing liked yet"
+              detail="Tap the heart on any track. Likes are stored on this device and feed the on-device recommender."
+            />
+          )
+        ) : tab === 'history' ? (
           history.length ? (
             history.map((t, i) => <TrackRow key={`${t.id}-h${i}`} track={t} index={i} onPlay={() => onPlay(t, history)} />)
           ) : (
@@ -77,7 +89,7 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
                   <div className="truncate text-[13px]">{j.track.title}</div>
                   <div className="truncate text-[11px] text-[var(--color-text-3)]">
                     {j.target} · {j.state}
-                    {j.state === 'queued' ? ' · waiting for the native download service (Phase 3)' : ''}
+                    {j.state === 'queued' ? ' · queued for the download service' : ''}
                   </div>
                 </div>
                 <span className="shrink-0 text-[10px] uppercase tracking-wider text-[var(--color-text-3)]">

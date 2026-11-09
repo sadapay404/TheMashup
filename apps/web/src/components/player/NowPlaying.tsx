@@ -326,7 +326,7 @@ export function NowPlaying({
               store.notify(now ? 'Added to your likes' : 'Removed from your likes', now ? 'success' : 'info');
             }}
           >
-            <HeartIcon width={18} height={18} />
+            <HeartIcon filled={liked} width={18} height={18} />
           </IconButton>
         </div>
       </div>
@@ -398,6 +398,13 @@ function SeekBar({
             const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
             onSeek(ratio * durationSec);
           }
+          setPreview(null);
+        }}
+        onPointerCancel={() => {
+          // A cancelled pointer (system gesture, notification shade, app switch) never fires
+          // pointerup, which left the thumb frozen at the preview position for the rest of the
+          // session. Abandon the drag without seeking.
+          dragging.current = false;
           setPreview(null);
         }}
         onKeyDown={(e) => {

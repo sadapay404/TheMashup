@@ -190,6 +190,32 @@ describe('startAutosave', () => {
   });
 });
 
+describe('likes persistence', () => {
+  it('round-trips the likes list', () => {
+    const stop = startAutosave(store.getState, store.subscribe);
+    store.set({ likes: [track] });
+    stop();
+    expect(loadPersisted()?.likes).toHaveLength(1);
+    expect(loadPersisted()?.likes[0].id).toBe(track.id);
+  });
+
+  it('loads a blob written before likes existed as an empty list, never undefined', () => {
+    // The exact shape v1 wrote before favourites shipped.
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ v: 1, savedAt: Date.now(), route: 'home', queue: [], index: -1, positionSec: 0 }),
+    );
+    const saved = loadPersisted();
+    expect(saved).not.toBeNull();
+    expect(saved?.likes).toEqual([]);
+  });
+
+  it('drops malformed like entries instead of throwing', () => {
+    localStorage.setItem(KEY, JSON.stringify({ v: 1, savedAt: Date.now(), likes: [track, null, 42, { id: 'x' }] }));
+    expect(loadPersisted()?.likes).toHaveLength(1);
+  });
+});
+
 describe('clearPersisted', () => {
   it('removes the saved blob', () => {
     const stop = startAutosave(store.getState, store.subscribe);
