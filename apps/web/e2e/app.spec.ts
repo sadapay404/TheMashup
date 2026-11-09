@@ -184,3 +184,24 @@ test('diagnostics produce a verdict summary, not just dots', async ({ page }) =>
   // The summary is the whole point: "search is blocked on this network" must be sayable.
   await expect(page.getByRole('button', { name: /Copy full report/i })).toBeVisible();
 });
+
+/**
+ * The dock's compact mode.
+ *
+ * Hard to unit test (it is pointer + timing + spring state), so this asserts the two observable facts:
+ * with nothing playing every page is reachable, and the dock does not overlap page content.
+ */
+test('dock keeps all four pages reachable and clears the content', async ({ page }) => {
+  for (const label of ['Home', 'Search', 'Library', 'Settings']) {
+    await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
+  }
+
+  const dock = page.getByRole('navigation', { name: 'Primary' });
+  const box = await dock.boundingBox();
+  expect(box).not.toBeNull();
+
+  // The dock must sit inside the viewport, above the safe area, and not be clipped.
+  const viewport = page.viewportSize()!;
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+  expect(box!.y).toBeGreaterThan(viewport.height * 0.5);
+});

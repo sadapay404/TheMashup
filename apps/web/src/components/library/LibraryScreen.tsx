@@ -23,7 +23,7 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
   const totalMinutes = Math.round(history.reduce((n, t) => n + t.durationSec, 0) / 60);
 
   return (
-    <div className="px-4 pb-40 pt-3">
+    <div className="px-4 pb-[var(--content-bottom)] pt-3">
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Library</h1>
       <p className="mt-1 text-[12px] text-[var(--color-text-3)]">
         {history.length} tracks · {totalMinutes} min · stored on this device only

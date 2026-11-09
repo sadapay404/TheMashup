@@ -245,7 +245,7 @@ export function SettingsScreen() {
   };
 
   return (
-    <div className="px-4 pb-40 pt-3">
+    <div className="px-4 pb-[var(--content-bottom)] pt-3">
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Settings</h1>
 
       <Section title="Playback" summary={`Volume ${Math.round(volume * 100)}% · speed ${rate}×`}>

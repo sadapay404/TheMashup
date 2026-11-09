@@ -20,7 +20,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
   const recentQueue = queue.slice(0, 6);
 
   return (
-    <div className="px-4 pb-40 pt-3">
+    <div className="px-4 pb-[var(--content-bottom)] pt-3">
       <motion.header initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={glide}>
         <div className="flex items-center justify-between">
           <div>

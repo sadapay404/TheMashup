@@ -17,7 +17,7 @@ import { signalQueueAdd } from '@/lib/signals';
 import { setHapticsEnabled, setHapticSettings, haptic } from '@/lib/haptics';
 import { themeMeta } from '@/lib/theme';
 import { Boundary } from '@/components/shell/Boundary';
-import { NavPill } from '@/components/shell/NavPill';
+import { SmartDock } from '@/components/shell/SmartDock';
 import { MiniPlayer } from '@/components/player/MiniPlayer';
 import { NowPlaying } from '@/components/player/NowPlaying';
 import { DownloadSheet } from '@/components/player/DownloadSheet';
@@ -231,7 +231,7 @@ export default function App() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 24, opacity: 0 }}
             transition={glide}
-            className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+78px)] z-40 mx-auto max-w-2xl px-3"
+            className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+10px)] z-[45] mx-auto max-w-2xl px-3"
           >
             <MiniPlayer
               track={track}
@@ -245,7 +245,7 @@ export default function App() {
         ) : null}
       </AnimatePresence>
 
-      <NavPill />
+      <SmartDock />
 
       {/* Full player */}
       <AnimatePresence>

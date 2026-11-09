@@ -42,11 +42,17 @@
   --glass: color-mix(in oklab, var(--wash) 4.5%, transparent);
   --glass-strong: color-mix(in oklab, var(--wash) 7.5%, transparent);
   --hairline: color-mix(in oklab, var(--wash) 9%, transparent);
+  /* The dock floats above the song card, so it cannot be as transparent as other glass surfaces or
+     the card would show through it. Mixed against the theme ground, not against white. */
+  --dock-bg: color-mix(in oklab, var(--color-raised) 88%, transparent);
   --blur: 28px;
 
   --safe-b: env(safe-area-inset-bottom, 0px);
   --nav-h: 64px;
   --mini-h: 64px;
+  /* Room for the floating dock (64px + 10px offset) plus the song card beneath it (~72px) and a
+     little breathing space. Screens use this instead of each guessing a magic pb-40. */
+  --content-bottom: calc(env(safe-area-inset-bottom) + 184px);
 
   /* Motion: the five springs from the design system, expressed as CSS for non-Framer elements. */
   --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);

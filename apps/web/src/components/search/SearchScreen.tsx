@@ -101,7 +101,7 @@ export function SearchScreen({
   const shown = lyricMode ? (lyricResults ?? []) : results;
 
   return (
-    <div className="px-4 pb-40 pt-2">
+    <div className="px-4 pb-[var(--content-bottom)] pt-2">
       {/* Search field */}
       <div className="sticky top-0 z-10 -mx-4 px-4 pb-3 pt-1 backdrop-blur-xl">
         <div className="relative">

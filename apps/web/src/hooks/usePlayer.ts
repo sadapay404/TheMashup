@@ -28,6 +28,7 @@ import {
   nativeState,
   onNativeEvent,
 } from '@/lib/native';
+import { haptic } from '@/lib/haptics';
 import { rankRadio, signalComplete, signalPlay, signalSkip } from '@/lib/signals';
 import { StallDetector } from '@/lib/stall';
 import { store, useApp } from '@/state/store';
@@ -185,6 +186,7 @@ export function usePlayer() {
 
       // Native Media3 path: no element src, the service owns transport.
       if (!el.src && hasNativePlayback()) {
+        haptic('player');
         if (next) await nativeResume();
         else await nativePause();
         store.set({ playing: next });
@@ -207,6 +209,7 @@ export function usePlayer() {
       if (next) {
         try {
           await el.play();
+          haptic('player');
           store.set({ playing: true });
         } catch {
           // Autoplay blocked or source invalid: reflect the truth instead of throwing.
