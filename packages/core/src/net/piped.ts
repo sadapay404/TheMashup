@@ -35,11 +35,12 @@ export const DEFAULT_INSTANCES: PublicApiInstance[] = [
   { id: 'piped.kavin.rocks', kind: 'piped', base: 'https://pipedapi.kavin.rocks', musicSearch: true },
   { id: 'piped.adminforge', kind: 'piped', base: 'https://pipedapi.adminforge.de', musicSearch: true },
   { id: 'piped.leptons', kind: 'piped', base: 'https://pipedapi.leptons.xyz', musicSearch: true },
-  { id: 'piped.drgns', kind: 'piped', base: 'https://pipedapi.drgns.space', musicSearch: true },
   { id: 'piped.ducks', kind: 'piped', base: 'https://pipedapi.ducks.party', musicSearch: true },
   { id: 'piped.private.coffee', kind: 'piped', base: 'https://api.piped.private.coffee', musicSearch: true },
   { id: 'piped.reallyaweso', kind: 'piped', base: 'https://pipedapi.reallyaweso.me', musicSearch: true },
-  { id: 'piped.darkness', kind: 'piped', base: 'https://pipedapi.darkness.services', musicSearch: true },
+  // Two candidates were dropped after checking DNS rather than copying a list blindly
+  // (pipedapi.drgns.space, pipedapi.darkness.services): a host that does not resolve costs every
+  // user a full 9s timeout before the ladder moves on.
   // Invidious has no music-only filter, so these are the broad fallback.
   { id: 'inv.nadeko.net', kind: 'invidious', base: 'https://inv.nadeko.net', musicSearch: false },
   { id: 'invidious.nerdvpn', kind: 'invidious', base: 'https://invidious.nerdvpn.de', musicSearch: false },

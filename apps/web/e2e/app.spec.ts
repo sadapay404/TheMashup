@@ -18,9 +18,11 @@ import { expect, test, type Page } from '@playwright/test';
  * Anything else — a React crash, an unhandled rejection, a null dereference — must still fail.
  */
 const THIRD_PARTY = [
+  // Any Piped/Invidious host. Written as broad patterns on purpose: the instance ladder is data,
+  // and CI must not fail just because a host was added or a community instance disappeared.
   /pipedapi\./i,
-  /pipedapi\.adminforge\.de/i,
-  /inv\.nadeko\.net/i,
+  /api\.piped\./i,
+  /\binv(idious)?\./i,
   /invidious\./i,
   /lrclib\.net/i,
   /music\.youtube\.com/i,
@@ -31,7 +33,12 @@ const THIRD_PARTY = [
 function isExpectedNoise(message: string): boolean {
   if (THIRD_PARTY.some((re) => re.test(message))) return true;
   // Chrome's generic companion line for a blocked resource; the CORS line above carries the detail.
-  if (/^Failed to load resource/i.test(message) && /net::ERR_FAILED|net::ERR_BLOCKED/i.test(message)) return true;
+  // A host that does not resolve is a *network* fact, not an app bug. The instance ladder exists
+  // precisely so a dead/blocked instance is skipped; the user sees an honest "no route" message.
+  // Without this, CI failed purely because a community instance's DNS had lapsed.
+  if (/^Failed to load resource/i.test(message) && /net::ERR_(FAILED|BLOCKED|NAME_NOT_RESOLVED|CONNECTION|TIMED_OUT|INTERNET_DISCONNECTED|ADDRESS_UNREACHABLE)/i.test(message)) {
+    return true;
+  }
   // The preview origin is http, so a stray upgrade attempt can appear; harmless.
   if (/ERR_SSL|ERR_CERT/i.test(message)) return true;
   return false;
