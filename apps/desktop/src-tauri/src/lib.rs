@@ -90,11 +90,17 @@ pub fn run() {
             };
 
             #[cfg(all(feature = "media-keys", desktop))]
+            // `install` reports how many shortcuts actually registered. Treating "no error" as
+            // success was wrong: every registration can fail independently (another app owning the
+            // key is normal), so the UI would have offered media-key toggles that did nothing.
             let keys_ok = match media_keys::install(&handle) {
-                Ok(()) => true,
-                Err(e) => {
-                    eprintln!("[themashup] media keys unavailable: {e}");
+                0 => {
+                    eprintln!("[themashup] media keys unavailable: no shortcut could be registered");
                     false
+                }
+                n => {
+                    eprintln!("[themashup] media keys registered: {n}/4");
+                    true
                 }
             };
             #[cfg(not(all(feature = "media-keys", desktop)))]
@@ -138,7 +144,12 @@ mod media_keys {
 
     pub const EVENT_MEDIA_KEY: &str = "desktop://media-key";
 
-    pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    /// Register the four media keys and return how many succeeded.
+    ///
+    /// A registration failure is not an error for the app: it usually means another application
+    /// already owns that key, and the remaining keys still work. The count is returned so the
+    /// caller can report the capability honestly.
+    pub fn install<R: Runtime>(app: &AppHandle<R>) -> usize {
         let shortcuts = [
             (Code::MediaPlayPause, "playpause"),
             (Code::MediaTrackNext, "next"),
@@ -146,18 +157,25 @@ mod media_keys {
             (Code::MediaStop, "stop"),
         ];
 
+        let mut registered = 0usize;
         for (code, action) in shortcuts {
             let shortcut = Shortcut::new(None, code);
             let handle = app.clone();
             // Registration can legitimately fail (another app already owns the key). Failure of one
             // key must not abort the others, so each is handled independently.
-            let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _sc, event| {
-                if event.state() == ShortcutState::Pressed {
-                    let _ = handle.emit(EVENT_MEDIA_KEY, action);
-                }
-            });
+            if app
+                .global_shortcut()
+                .on_shortcut(shortcut, move |_app, _sc, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        let _ = handle.emit(EVENT_MEDIA_KEY, action);
+                    }
+                })
+                .is_ok()
+            {
+                registered += 1;
+            }
         }
-        Ok(())
+        registered
     }
 }
 
