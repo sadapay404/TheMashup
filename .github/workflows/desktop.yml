@@ -112,8 +112,10 @@ jobs:
 
       # `tauri build` drives cargo itself and knows where the bundle must go. Doing it in one step
       # avoids compiling twice and keeps the artifact path in a single, canonical location.
+      # On a tag there are no inputs, so `target` is empty. A release tag must produce installers,
+      # not a debug binary — otherwise the tag silently publishes the wrong thing.
       - name: Build (debug, no bundle)
-        if: github.event.inputs.target != 'bundle'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.target != 'bundle'
         working-directory: apps/desktop
         shell: bash
         run: |
@@ -131,9 +133,22 @@ jobs:
           exit $STATUS
 
       - name: Build installers
-        if: github.event.inputs.target == 'bundle'
+        if: github.event_name == 'push' || github.event.inputs.target == 'bundle'
         working-directory: apps/desktop
-        run: npx tauri build 2>&1 | tee tauri-build.log
+        shell: bash
+        run: |
+          set +e
+          npx tauri build 2>&1 | tee tauri-build.log
+          STATUS=${PIPESTATUS[0]}
+          if [ $STATUS -ne 0 ]; then
+            grep -E '^error(\[|:)|error TS|panicked at|Failed to|Caused by' tauri-build.log | head -10 | while IFS= read -r line; do
+              echo "::error title=tauri build::$(echo "$line" | head -c 700)"
+            done
+            tail -40 tauri-build.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=tauri build tail::$(echo "$line" | head -c 700)"
+            done | tail -20
+          fi
+          exit $STATUS
 
       - name: Report outcome as annotations
         if: always()
