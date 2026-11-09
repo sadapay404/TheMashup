@@ -10,6 +10,7 @@ import { store, useApp, currentTrack } from '@/state/store';
 import { usePlayer } from '@/hooks/usePlayer';
 import { service } from '@/lib/service';
 import { isDesktop, onDesktopAction, onWindowHidden } from '@/lib/desktop';
+import { loadPersisted, startAutosave } from '@/lib/persist';
 import { applyPalette, extractPalette } from '@/lib/palette';
 import { Boundary } from '@/components/shell/Boundary';
 import { NavPill } from '@/components/shell/NavPill';
@@ -21,6 +22,31 @@ import { SearchScreen } from '@/components/search/SearchScreen';
 import { LibraryScreen } from '@/components/library/LibraryScreen';
 import { SettingsScreen } from '@/components/settings/SettingsScreen';
 import { glide } from '@/components/ui/primitives';
+
+/** Restore a previous session exactly once per page load. */
+let restored = false;
+function restoreOnce(): void {
+  if (restored) return;
+  restored = true;
+  const saved = loadPersisted();
+  if (!saved) return;
+  store.set({
+    route: saved.route,
+    queue: saved.queue,
+    index: saved.index,
+    // Never resume playing automatically: browsers block it, and users find it startling.
+    playing: false,
+    positionSec: saved.positionSec,
+    volume: saved.volume,
+    muted: saved.muted,
+    repeat: saved.repeat,
+    shuffle: saved.shuffle,
+    rate: saved.rate,
+    history: saved.history,
+    affinity: saved.affinity,
+  });
+}
+restoreOnce();
 
 export default function App() {
   const route = useApp((s) => s.route);
@@ -119,6 +145,9 @@ export default function App() {
     });
     return () => off();
   }, []);
+
+  // Autosave: throttled, flushed on hide/unload so a kill loses at most a few seconds.
+  useEffect(() => startAutosave(store.getState, store.subscribe), []);
 
   const goSearch = () => store.set({ route: 'search' });
   const onPlay = (t: Track, list: Track[]) => player.playTrack(t, list);
