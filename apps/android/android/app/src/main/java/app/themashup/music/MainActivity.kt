@@ -7,7 +7,9 @@ import android.os.Build
 import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.media3.session.MediaSessionService
 import app.themashup.music.extractor.Extractor
+import app.themashup.music.playback.PlaybackService
 import com.getcapacitor.BridgeActivity
 
 /**
@@ -29,6 +31,31 @@ class MainActivity : BridgeActivity() {
         Extractor.delegate = BuildConfigStreamExtractorDelegate.create()
 
         requestNotificationPermissionOnce()
+        preparePlaybackSession()
+    }
+
+    /**
+     * Start the media session service.
+     *
+     * CRITICAL: without this, `PlaybackBridge.player` is null and every play/pause call from the web
+     * layer is a silent no-op. Starting it creates the MediaSession that Media3's MediaButtonReceiver
+     * needs (otherwise a media key press throws IllegalStateException), so this is also what makes
+     * lockscreen and headset controls work.
+     *
+     * `bindService` rather than `startService`: the service is a bound MediaSessionService, and
+     * binding is what guarantees `onCreate` (and therefore our ExoPlayer) runs before the first play.
+     */
+    private fun preparePlaybackSession() {
+        try {
+            val intent = Intent(this, PlaybackService::class.java)
+            // MediaSessionService requires this action when starting it from an activity.
+            intent.action = MediaSessionService.SERVICE_INTERFACE
+            bindService(intent, PlaybackService.connection, BIND_AUTO_CREATE)
+        } catch (t: Throwable) {
+            // A device that refuses the bind must not crash the app; playback falls back to the
+            // WebView <audio> element, which the JS layer handles when the plugin reports no state.
+            android.util.Log.w("MashupMain", "playback service unavailable", t)
+        }
     }
 
     private fun requestNotificationPermissionOnce() {
@@ -41,20 +68,20 @@ class MainActivity : BridgeActivity() {
     }
 
     override fun onNewIntent(intent: Intent) {
+        // BridgeActivity forwards to the bridge (which the WebView event system needs); it is a
+        // protected method, so the override must stay `protected` too.
         super.onNewIntent(intent)
-        // Media button presses arrive here when the activity is already alive.
-        if (intent.action == Intent.ACTION_MEDIA_BUTTON) {
-            handleMediaButton(intent)
-        }
+        // Media3's MediaButtonReceiver already delivers media keys to the session. Re-broadcasting
+        // here (as an earlier version did) would loop the intent back into the receiver forever.
     }
 
-    private fun handleMediaButton(intent: Intent) {
-        // Let Media3's MediaButtonReceiver take it; we just re-broadcast if we swallowed it.
+    override fun onDestroy() {
         try {
-            sendBroadcast(intent)
-        } catch (_: Throwable) {
-            // Never crash on a malformed media-button intent from a third-party headset app.
+            unbindService(PlaybackService.connection)
+        } catch (_: IllegalArgumentException) {
+            // Never bound (the bind failed) — nothing to release.
         }
+        super.onDestroy()
     }
 
     private companion object {
@@ -74,9 +101,9 @@ object BuildConfigStreamExtractorDelegate {
         return try {
             val cls = Class.forName("app.themashup.music.extractor.generated.NativeExtractorImpl")
             cls.getDeclaredConstructor().newInstance() as? app.themashup.music.extractor.StreamExtractor
-        } catch (_: ClassNotFoundException) {
-            null
         } catch (_: Throwable) {
+            // Covers ClassNotFoundException, LinkageError, a missing constructor, and a GPL class
+            // that fails to initialise. One clause deliberately, because Kotlin forbids two.
             null
         }
     }

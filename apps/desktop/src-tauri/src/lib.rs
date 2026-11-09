@@ -28,10 +28,16 @@ async fn native_fetch(request: http::HttpRequest) -> http::HttpOutcome {
 /// The renderer uses this to decide between native HTTP and the relay ladder, so it must be
 /// truthful: a capability that failed to initialise is reported as `false`, never optimistically.
 #[tauri::command]
-fn desktop_capabilities(media_keys: tauri::State<'_, Capabilities>) -> Capabilities {
-    media_keys.inner().clone()
+fn desktop_capabilities(state: tauri::State<'_, std::sync::Mutex<Capabilities>>) -> Capabilities {
+    // A poisoned lock means another thread panicked while writing; reporting the last known values is
+    // far better than panicking inside a command the UI calls at startup.
+    state.lock().map(|c| c.clone()).unwrap_or_default()
 }
 
+/// Live, mutated after the OS calls are attempted.
+///
+/// An earlier version reported the values it *hoped* to acquire (tray: false, media_keys: false) and
+/// then never updated them, so the UI would have been told the tray does not exist even when it does.
 #[derive(Clone, serde::Serialize, Default)]
 pub struct Capabilities {
     pub native_http: bool,
@@ -62,12 +68,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init());
 
     builder
-        .manage(Capabilities {
+        // Native HTTP is a compile-time guarantee: the reqwest bridge is always present.
+        // The OS integrations are filled in below, after each is actually attempted.
+        .manage(std::sync::Mutex::new(Capabilities {
             native_http: true,
             tray: false,
             media_keys: false,
             single_instance: true,
-        })
+        }))
         .invoke_handler(tauri::generate_handler![native_fetch, desktop_capabilities])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -92,18 +100,21 @@ pub fn run() {
             #[cfg(not(all(feature = "media-keys", desktop)))]
             let keys_ok = false;
 
-            if let Some(state) = app.try_state::<Capabilities>() {
-                // State is write-once at setup time by design; clone into a replacement.
-                let _ = state;
+            // Record what actually worked, so the renderer's feature decisions are truthful.
+            if let Some(state) = app.try_state::<std::sync::Mutex<Capabilities>>() {
+                if let Ok(mut caps) = state.lock() {
+                    caps.tray = tray_ok;
+                    caps.media_keys = keys_ok;
+                }
             }
-            let _ = (tray_ok, keys_ok);
 
             Ok(())
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // Hide instead of quit: closing a music player should not stop the music. The tray
-                // menu is the explicit exit.
+                // menu is the explicit exit, and it calls `app.exit(0)`, which terminates without
+                // closing the window — so this handler cannot trap the exit.
                 api.prevent_close();
                 let _ = window.hide();
                 let _ = tauri::Emitter::emit(window.app_handle(), EVENT_WINDOW_HIDDEN, ());

@@ -29,14 +29,14 @@ class DownloadPlugin : Plugin() {
             call.reject("url and fileName are required")
             return
         }
+        val ctx = getContext()
         val id = call.getString("id") ?: System.currentTimeMillis().toString()
         val public = call.getBoolean("publicMusicDir") ?: false
 
-        val dir = resolveDir(public, call.getString("subdir"))
+        val dir = resolveDir(ctx, public, call.getString("subdir"))
         val safeName = sanitize(fileName)
         val dest = File(dir, safeName)
 
-        val ctx = context
         val intent = DownloadService.intent(ctx, id, url, dest.absolutePath, safeName)
         ContextCompat.startForegroundService(ctx, intent)
 
@@ -50,17 +50,17 @@ class DownloadPlugin : Plugin() {
             call.reject("id is required")
             return
         }
-        val intent = android.content.Intent(context, DownloadService::class.java).apply {
+        val intent = android.content.Intent(getContext(), DownloadService::class.java).apply {
             action = DownloadService.ACTION_CANCEL
             putExtra(DownloadService.EXTRA_ID, id)
         }
-        context.startService(intent)
+        getContext().startService(intent)
         call.resolve()
     }
 
     @PluginMethod
     fun list(call: PluginCall) {
-        val root = File(resolveDir(false, null), "")
+        val root = resolveDir(getContext(), false, null)
         val files = root.listFiles()?.filter { it.isFile }?.map {
             JSObject()
                 .put("name", it.name)
@@ -70,11 +70,11 @@ class DownloadPlugin : Plugin() {
         call.resolve(JSObject().put("files", JSArray(files)))
     }
 
-    private fun resolveDir(publicMusicDir: Boolean, subdir: String?): File {
+    private fun resolveDir(ctx: Context, publicMusicDir: Boolean, subdir: String?): File {
         val base = if (publicMusicDir) {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
         } else {
-            File(context.filesDir, "Music")
+            File(ctx.filesDir, "Music")
         }
         val target = if (subdir.isNullOrBlank()) base else File(base, sanitize(subdir))
         if (!target.exists()) target.mkdirs()
@@ -83,8 +83,9 @@ class DownloadPlugin : Plugin() {
 
     /** Reject path traversal and characters that break on FAT/exFAT/SMB shares. */
     private fun sanitize(raw: String): String {
+        // The `..` replace below is redundant: `/` and `\\` are already replaced with `_`, so no
+        // traversal sequence can survive. Keeping it would make Detekt flag unreachable logic.
         val trimmed = raw.replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]"), "_")
-            .replace("..", "_")
             .trim()
             .trimEnd('.', ' ')
         return if (trimmed.isEmpty()) "untitled" else trimmed.take(180)

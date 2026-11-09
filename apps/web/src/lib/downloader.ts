@@ -69,11 +69,30 @@ async function downloadWithRanges(
   if (head.status === 403) throw new Error('BLOCKED: the CDN refuses this origin (CORS)');
   if (!head.ok && head.status !== 206) throw new Error(`HTTP ${head.status}`);
 
+  // Release the probe's connection before issuing the chunk requests; an undrained body holds a
+  // socket open and some CDNs cap concurrent connections per origin.
+  try {
+    await head.body?.cancel();
+  } catch {
+    /* already consumed or unsupported */
+  }
+
   const contentRange = head.headers.get('content-range'); // "bytes 0-0/12345678"
   const total = contentRange ? Number(contentRange.split('/')[1] ?? 0) : Number(head.headers.get('content-length') ?? 0);
 
-  // If the server ignored Range, the body we already opened is the whole file.
   if (!contentRange) {
+    if (head.status === 206) {
+      // BUG GUARD: a 206 without Content-Range means the server honoured our 1-byte Range but did
+      // not tell us the full size. The body here is a single byte; treating it as the whole file
+      // would save a 1-byte "song" and report success. Re-request without a Range instead.
+      const full = await fetch(url, { signal });
+      if (full.status === 403) throw new Error('BLOCKED: the CDN refuses this origin (CORS)');
+      if (!full.ok) throw new Error(`HTTP ${full.status}`);
+      const blob = await readAsBlob(full);
+      onProgress(blob.size, blob.size);
+      return blob;
+    }
+    // A 200 means Range was ignored entirely and this body is the whole file.
     const blob = await readAsBlob(head);
     onProgress(blob.size, blob.size);
     return blob;
@@ -101,6 +120,14 @@ async function downloadWithRanges(
   return new Blob(parts);
 }
 
+/** Thrown when the user dismisses the save dialog, so the caller can mark the job cancelled. */
+class SaveCancelled extends Error {
+  constructor() {
+    super('cancelled');
+    this.name = 'SaveCancelled';
+  }
+}
+
 async function saveBlob(blob: Blob, fileName: string): Promise<void> {
   const w = window as unknown as {
     showSaveFilePicker?: (o: unknown) => Promise<{ createWritable: () => Promise<{ write: (b: Blob) => Promise<void>; close: () => Promise<void> }> }>;
@@ -115,8 +142,12 @@ async function saveBlob(blob: Blob, fileName: string): Promise<void> {
       await writable.write(blob);
       await writable.close();
       return;
-    } catch {
-      // user cancelled the picker, or the API is unavailable → fall through to the anchor path
+    } catch (e) {
+      // Distinguish "the user said no" from "the API is unusable". Falling through on a cancel
+      // would save the file the user just declined.
+      if (e instanceof DOMException && e.name === 'AbortError') throw new SaveCancelled();
+      if (e instanceof DOMException && e.name === 'NotAllowedError') throw new SaveCancelled();
+      // Any other failure: fall back to the anchor download rather than losing the file.
     }
   }
   const url = URL.createObjectURL(blob);
@@ -186,6 +217,12 @@ export async function startDownload(track: Track, url: string, target: Target): 
     update(id, { state: 'done', progress: 1, totalBytes: blob.size });
     store.notify(`Saved ${track.title}`, 'success');
   } catch (e) {
+    if (e instanceof SaveCancelled) {
+      // Not an error: the user chose not to save. Keep the progress so a retry can resume.
+      update(id, { state: 'partial', error: 'Saved to disk was cancelled — the download can be retried.' });
+      store.notify('Save cancelled', 'info');
+      return id;
+    }
     const message = e instanceof Error ? e.message : 'download failed';
     const blocked = message.includes('BLOCKED');
     update(id, {

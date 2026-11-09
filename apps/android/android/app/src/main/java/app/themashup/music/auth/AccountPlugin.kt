@@ -1,6 +1,6 @@
 package app.themashup.music.auth
 
-import android.annotation.SuppressLint
+import android.app.Dialog
 import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -31,15 +31,21 @@ class AccountPlugin : Plugin() {
 
     private var webView: WebView? = null
 
-    private val store by lazy { SecureStore(context) }
+    // Capacitor's Plugin exposes Java accessors (`getContext()`), not Kotlin properties, so
+    // `context` would not resolve. Read them lazily, after the bridge is attached.
+    private val store by lazy { SecureStore(getContext()) }
 
     @PluginMethod
     fun signIn(call: PluginCall) {
-        val activity = activity ?: run {
+        val activity = getActivity() ?: run {
             call.reject("no activity")
             return
         }
+
         activity.runOnUiThread {
+            // A WebView that is not attached to a window never paints, so the user would see
+            // nothing and the flow would be dead. It goes in a dialog that we can dismiss when the
+            // cookie is captured or the user backs out.
             val wv = WebView(activity)
             wv.settings.javaScriptEnabled = true
             wv.settings.domStorageEnabled = true
@@ -49,30 +55,54 @@ class AccountPlugin : Plugin() {
 
             wv.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, url: String?) {
-                    // Capture visitorData from the page config once we land on the music origin.
-                    if (url?.startsWith("https://music.youtube.com") == true) {
-                        view.evaluateJavascript("window.yt && yt.config_ && yt.config_.VISITOR_DATA") { v ->
-                            val visitor = v?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
-                            if (visitor != null) store.putVisitorData(visitor)
+                    // Google bounces through youtube.com before the music origin. Watching only the
+                    // music origin meant this never fired — the cookie exists before that hop.
+                    val finished = url ?: return
+                    val onGoogleVideo = finished.startsWith("https://www.youtube.com") ||
+                        finished.startsWith("https://music.youtube.com") ||
+                        finished.startsWith("https://accounts.google.com")
+                    if (onGoogleVideo) {
+                        if (finished.startsWith("https://music.youtube.com")) {
+                            view.evaluateJavascript("window.yt && yt.config_ && yt.config_.VISITOR_DATA") { v ->
+                                val visitor = v?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                                if (visitor != null) store.putVisitorData(visitor)
+                            }
                         }
                         val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com")
-                        if (cookie != null && cookie.contains("SAPISID")) {
+                        // Only finish on a YouTube page: the Google login form can transiently expose
+                        // an unrelated SAPISID cookie, and tearing the WebView down there aborts the
+                        // sign-in the user is still typing into.
+                        if (cookie != null && cookie.contains("SAPISID") && !finished.startsWith("https://accounts.google.com")) {
                             store.putCookie(cookie)
+                            CookieManager.getInstance().flush()
                             NativeEvents.post("accountSignedIn", mapOf("hasCookie" to true))
-                            view.destroy()
+                            AccountHost.dismiss()
                             webView = null
                         }
                     }
                 }
             }
 
+            val dialog = Dialog(activity, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
+            dialog.setContentView(wv)
+            dialog.setOnDismissListener {
+                if (webView === wv) {
+                    webView = null
+                    AccountHost.clear()
+                }
+                wv.destroy()
+            }
+            dialog.show()
+
             wv.loadUrl(SIGN_IN_URL)
             webView = wv
-            // The activity shows this via a full-screen dialog; the plugin exposes it through the event.
-            NativeEvents.post("accountWebViewReady", null)
             AccountHost.attach(wv)
+            AccountHost.dialog = dialog
+            NativeEvents.post("accountWebViewReady", null)
+
+            // Resolve only now: the WebView exists and is loading, which is what `started` claims.
+            call.resolve(JSObject().put("started", true))
         }
-        call.resolve(JSObject().put("started", true))
     }
 
     @PluginMethod
@@ -87,6 +117,8 @@ class AccountPlugin : Plugin() {
 
     @PluginMethod
     fun signOut(call: PluginCall) {
+        // Dialog.dismiss() is not thread-safe; plugin methods may be invoked off the main thread.
+        getActivity()?.runOnUiThread { AccountHost.dismiss() }
         store.clear()
         CookieManager.getInstance().removeAllCookies(null)
         CookieManager.getInstance().flush()
@@ -99,9 +131,6 @@ class AccountPlugin : Plugin() {
     fun cookie(call: PluginCall) {
         call.resolve(JSObject().put("cookie", store.cookie() ?: ""))
     }
-
-    @SuppressLint("SetJavaScriptEnabled")
-    private fun defaultUserAgent(): String = CookieManager.getInstance().getCookie("https://music.youtube.com") ?: ""
 
     companion object {
         /**
@@ -119,17 +148,32 @@ class AccountPlugin : Plugin() {
     }
 }
 
-/** Bridges the WebView into an AndroidView/Compose or a plain FrameLayout host. */
+/**
+ * Owns the sign-in surface so the plugin does not have to track both a WebView and a Dialog.
+ * All calls are main-thread; the plugin only ever touches this from `runOnUiThread`.
+ */
 object AccountHost {
     private var view: WebView? = null
+    internal var dialog: Dialog? = null
+
     fun attach(v: WebView) {
         view = v
     }
+
     fun current(): WebView? = view
-    fun clear() {
-        view?.destroy()
+
+    /** Close the sign-in UI. Safe to call when nothing is showing. */
+    fun dismiss() {
+        try {
+            dialog?.dismiss()
+        } catch (_: Throwable) {
+            // Already dismissed or the activity is finishing.
+        }
+        dialog = null
         view = null
     }
+
+    fun clear() = dismiss()
 }
 
 /** Uri helper kept for lint-safety (avoid string-concat URLs in new code). */

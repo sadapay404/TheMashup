@@ -96,7 +96,13 @@ class DownloadService : Service() {
             .setOngoing(true)
             .setProgress(0, 0, true)
             .build()
-        startForeground(NOTIF_ID, notification)
+        // Android 14 enforces the declared type at startForeground time; without it the service is
+        // killed with ForegroundServiceTypeNotAllowed and every download silently dies.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(NOTIF_ID, notification)
+        }
     }
 
     private fun enqueue(id: String, url: String, dest: File, displayName: String) {

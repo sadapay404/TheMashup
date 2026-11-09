@@ -1,9 +1,12 @@
 package app.themashup.music.playback
 
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Intent
+import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Bundle
+import android.os.IBinder
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -90,6 +93,12 @@ class PlaybackService : MediaSessionService() {
         PlaybackBridge.attach(player)
     }
 
+    override fun onBind(intent: Intent?): IBinder? {
+        // MediaSessionService.onBind is what hands the session to controllers (lockscreen, Bluetooth,
+        // and our own activity binding for lifecycle). Returning null here disables all of them.
+        return super.onBind(intent)
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     /**
@@ -112,6 +121,23 @@ class PlaybackService : MediaSessionService() {
         }
         mediaSession = null
         super.onDestroy()
+    }
+
+    companion object {
+        /**
+         * Connection used by [app.themashup.music.MainActivity] to bring the session up before the
+         * first play. Kept trivial on purpose: the bridge is a global object, so all we need is the
+         * lifecycle guarantee that `onCreate` has run.
+         */
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                // No callback needed: PlaybackBridge was attached in onCreate.
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {
+                PlaybackBridge.detach()
+            }
+        }
     }
 
     private inner class SessionCallback : MediaSession.Callback {

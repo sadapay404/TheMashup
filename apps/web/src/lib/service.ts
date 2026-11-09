@@ -10,7 +10,6 @@
  */
 
 import {
-  NATIVE_ROUTE as _NATIVE_ROUTE,
   InnerTube,
   LyricIndex,
   PublicApiProvider,
@@ -65,8 +64,14 @@ function makeVisitorData(): string {
 
 /** Capacitor/Tauri expose a native bridge; detect it so we can prefer InnerTube there. */
 function isNativeShell(): boolean {
-  const w = window as unknown as { Capacitor?: { isNativePlatform?: () => boolean }; __TAURI__?: unknown };
-  return Boolean(w.Capacitor?.isNativePlatform?.() || w.__TAURI__);
+  const w = window as unknown as {
+    Capacitor?: { isNativePlatform?: () => boolean };
+    __TAURI__?: unknown;
+    __TAURI_INTERNALS__?: unknown;
+  };
+  // Three signals because they arrive at different times: Capacitor's flag, Tauri's convenience
+  // global (only when `withGlobalTauri` is on) and Tauri's always-present internals object.
+  return Boolean(w.Capacitor?.isNativePlatform?.() || w.__TAURI__ || w.__TAURI_INTERNALS__);
 }
 
 /**

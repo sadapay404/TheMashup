@@ -17,8 +17,12 @@
     <!-- Optional nicety on Android 12+; improves notification timing, degrades gracefully. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
 
-    <!-- Media browsing hooks (Bluetooth/Auto style surfaces). -->
+    <!--
+      Bluetooth media surfaces. CONNECT is runtime-granted on Android 12+; on older releases the
+      legacy BLUETOOTH permission is the one that exists, so both are declared with an SDK guard.
+    -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
 
     <!-- Scoped storage: no legacy broad file permissions. -->
     <application
@@ -46,10 +50,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Resume playback when headphones/BT connect (E16). -->
-            <intent-filter>
-                <action android:name="android.intent.action.MEDIA_BUTTON" />
-            </intent-filter>
+            <!--
+              Media buttons are deliberately NOT declared here: MediaButtonReceiver owns them and
+              forwards to the MediaSession. Declaring both makes dispatch ambiguous and Media3 warns
+              about it. These two remain because they are lifecycle signals, not transport commands.
+            -->
             <intent-filter>
                 <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
             </intent-filter>

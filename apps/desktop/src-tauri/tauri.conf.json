@@ -33,11 +33,17 @@
       "id": "main-tray",
       "iconPath": "icons/32x32.png",
       "iconAsTemplate": true
-    }
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "deb", "appimage"],
+    "targets": [
+      "nsis",
+      "msi",
+      "deb",
+      "appimage"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -48,6 +54,6 @@
     "copyright": "MIT",
     "category": "Music",
     "shortDescription": "Serverless music streaming and downloading",
-    "longDescription": "Search, stream, sing along and download — entirely on your device, with no backend."
+    "longDescription": "Search, stream, sing along and download \u2014 entirely on your device, with no backend."
   }
 }
