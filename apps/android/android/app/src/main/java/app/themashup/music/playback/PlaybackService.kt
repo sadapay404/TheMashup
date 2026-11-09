@@ -41,9 +41,31 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
+    /**
+     * Whether the session came up. A failure here is not fatal to the app: the JS layer falls back to
+     * the WebView audio element when the plugin reports no player.
+     */
+    private var ready = false
+
     override fun onCreate() {
         super.onCreate()
 
+        // The class contract says every entry point is defensive, but onCreate was the exception -
+        // and onCreate is the one place a throw is unrecoverable: the exception is raised on the main
+        // thread inside a *bound service*, so the caller's try/catch around bindService cannot see it
+        // and the whole app process dies instead. Degrading to no native player is the correct
+        // outcome; taking the app down with the music service is not.
+        try {
+            startSession()
+            ready = true
+        } catch (t: Throwable) {
+            Log.e(TAG, "playback session unavailable; web audio will be used", t)
+            mediaSession = null
+            PlaybackBridge.detach()
+        }
+    }
+
+    private fun startSession() {
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
@@ -125,6 +147,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        private const val TAG = "MashupPlayback"
+
         /**
          * Connection used by [app.themashup.music.MainActivity] to bring the session up before the
          * first play. Kept trivial on purpose: the bridge is a global object, so all we need is the

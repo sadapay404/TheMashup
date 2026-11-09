@@ -77,7 +77,6 @@ class LogPlugin : Plugin() {
         call.resolve(JSObject().put("cleared", true))
     }
 
-    /** Marks a point in the log so a report can be tied to a specific build and moment. */
     /**
      * A note from the web layer into the same boot log.
      *
@@ -109,9 +108,12 @@ class LogPlugin : Plugin() {
         }
         val dir = File(ctx.getExternalFilesDir(null), "crash-report")
         val target = File(dir, "last-crash.txt")
+        // runCatching returns Unit here, so the success of the write is what has to be checked -
+        // defaulting a Unit to a Boolean is exactly the type error the compiler caught.
         val ok = runCatching {
             dir.mkdirs()
             target.writeText(source.readText())
+            target.isFile
         }.getOrDefault(false)
         call.resolve(
             JSObject()
@@ -243,16 +245,6 @@ class LogPlugin : Plugin() {
             }
         }
 
-        /** Note how far the session got, so a later abrupt exit can be located. */
-        fun markStage(context: Context, stage: String) {
-            try {
-                val f = sessionFile(context.applicationContext)
-                f.appendText("stage: $stage\n")
-            } catch (t: Throwable) {
-                Log.w(TAG, "stage marker failed for $stage", t)
-            }
-        }
-
         /** Called when the user leaves normally, so the next launch does not report a false crash. */
         fun endSession(context: Context) {
             try {
@@ -302,7 +294,16 @@ class LogPlugin : Plugin() {
 
             // One file, overwritten. The most recent crash is the one being reported; keeping a
             // history would grow unbounded on a device that crashes in a loop.
-            File(app.filesDir, CRASH_FILE).writeText(report.take(200_000))
+            val bounded = report.take(200_000)
+            File(app.filesDir, CRASH_FILE).writeText(bounded)
+
+            // And a copy where a file manager can reach it. Internal storage needs root or adb, which
+            // is precisely what someone whose app will not start does not have. Written after the
+            // internal copy so a failure here cannot cost us the record entirely.
+            runCatching {
+                val dir = File(app.getExternalFilesDir(null), "diagnostics").apply { mkdirs() }
+                File(dir, "last-crash.txt").writeText(bounded)
+            }
         }
 
         /**
