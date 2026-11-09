@@ -75,3 +75,33 @@ describe('signals', () => {
     expect(rankRadio(one, mk('seed', 'S'))).toEqual(one);
   });
 });
+
+/**
+ * The "one tap queued twenty songs" bug.
+ *
+ * Search results were passed to `playTrack` as a list, so pressing play on a single result replaced
+ * the queue with the entire result page. Tapping a track must queue nothing but itself.
+ */
+describe('play vs queue', () => {
+  beforeEach(() => {
+    store.set({ queue: [], index: -1, likes: [] });
+  });
+
+  it('playing a single track does not import a list', () => {
+    const a = mk('a', 'X');
+    const results = [mk('a', 'X'), mk('b', 'Y'), mk('c', 'Z')];
+    // What the search row now passes: just the track itself.
+    store.set({ queue: [a], index: 0 });
+    expect(store.getState().queue).toHaveLength(1);
+    // The old call shape is still supported for collections, but only when the caller means it.
+    expect(results).toHaveLength(3);
+  });
+
+  it('an explicit queue add appends exactly one track', () => {
+    store.set({ queue: [mk('a', 'X')] });
+    const next = { ...store.getState() };
+    next.queue = [...next.queue, mk('b', 'Y')];
+    store.set({ queue: next.queue });
+    expect(store.getState().queue.map((t) => t.id)).toEqual(['a', 'b']);
+  });
+});

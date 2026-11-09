@@ -28,7 +28,15 @@ const FILTERS: Array<{ id: SearchFilter; label: string }> = [
   { id: 'playlists', label: 'Playlists' },
 ];
 
-export function SearchScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => void }) {
+export function SearchScreen({
+  onPlay,
+  onQueue,
+  onDownload,
+}: {
+  onPlay: (t: Track, list: Track[]) => void;
+  onQueue?: (t: Track) => void;
+  onDownload?: (t: Track) => void;
+}) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<SearchFilter>('all');
   const [results, setResults] = useState<Track[]>([]);
@@ -182,8 +190,17 @@ export function SearchScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => 
               Best lyric matches
             </div>
           ) : null}
+          {/* Single tap plays just this track: queueing is an explicit action on the row, never a
+              side effect of pressing play. */}
           {shown.map((t, i) => (
-            <TrackRow key={`${t.id}-${i}`} track={t} onPlay={() => onPlay(t, shown)} index={i} />
+            <TrackRow
+              key={`${t.id}-${i}`}
+              track={t}
+              onPlay={() => onPlay(t, [t])}
+              index={i}
+              {...(onQueue ? { onQueue } : {})}
+              {...(onDownload ? { onDownload } : {})}
+            />
           ))}
         </motion.div>
       ) : searched && debounced.trim().length >= 2 ? (

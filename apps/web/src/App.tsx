@@ -13,6 +13,7 @@ import { isDesktop, onDesktopAction, onWindowHidden } from '@/lib/desktop';
 import { loadPersisted, startAutosave } from '@/lib/persist';
 import { applyPalette, extractPalette } from '@/lib/palette';
 import { applyTheme } from '@/lib/theme';
+import { signalQueueAdd } from '@/lib/signals';
 import { Boundary } from '@/components/shell/Boundary';
 import { NavPill } from '@/components/shell/NavPill';
 import { MiniPlayer } from '@/components/player/MiniPlayer';
@@ -160,6 +161,24 @@ export default function App() {
   const goSearch = () => store.set({ route: 'search' });
   const onPlay = (t: Track, list: Track[]) => player.playTrack(t, list);
 
+  /**
+   * Explicit queue append. Separate from `onPlay` on purpose: tapping play on a search result used
+   * to replace the whole queue with the result page, which is why one song queued twenty.
+   */
+  const onQueue = (t: Track) => {
+    const s = store.getState();
+    if (s.queue.some((q) => q.id === t.id)) {
+      store.notify('Already in the queue', 'info');
+      return;
+    }
+    store.set({ queue: [...s.queue, t] });
+    signalQueueAdd(t);
+    store.notify(`Added ${t.title} to the queue`, 'success');
+  };
+
+  /** Open the download sheet for any track, from any surface. */
+  const onDownload = (t: Track) => setDownload(t);
+
   const progress = durationSec > 0 ? positionSec / durationSec : 0;
 
   return (
@@ -182,7 +201,7 @@ export default function App() {
             ) : null}
             {route === 'search' ? (
               <Boundary scope="Search">
-                <SearchScreen onPlay={onPlay} />
+                <SearchScreen onPlay={onPlay} onQueue={onQueue} onDownload={onDownload} />
               </Boundary>
             ) : null}
             {route === 'library' ? (

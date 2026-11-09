@@ -3,19 +3,22 @@
 import { motion } from 'framer-motion';
 import type { Track } from '@themashup/core';
 import { snap } from '@/components/ui/primitives';
-import { DownloadIcon, PlayIcon } from '@/components/ui/icons';
+import { DownloadIcon, PlayIcon, QueueIcon } from '@/components/ui/icons';
 import { formatTime } from '@/components/ui/primitives';
 
 export function TrackRow({
   track,
   onPlay,
   onDownload,
+  onQueue,
   index,
   active = false,
 }: {
   track: Track;
   onPlay: () => void;
   onDownload?: (t: Track) => void;
+  /** Explicit "play after this". Absent when the surface *is* the queue. */
+  onQueue?: (t: Track) => void;
   index?: number;
   active?: boolean;
 }) {
@@ -64,12 +67,25 @@ export function TrackRow({
         </span>
       ) : null}
 
+      {/* Row actions. Kept always visible rather than hover-only: this is a touch-first app, and
+          a control that only appears on hover does not exist on a phone. */}
+      {onQueue ? (
+        <button
+          type="button"
+          onClick={() => onQueue(track)}
+          aria-label={`Add ${track.title} to the queue`}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
+        >
+          <QueueIcon width={17} height={17} />
+        </button>
+      ) : null}
+
       {onDownload ? (
         <button
           type="button"
           onClick={() => onDownload(track)}
           aria-label={`Download ${track.title}`}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] opacity-0 transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)] group-hover:opacity-100 focus-visible:opacity-100"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
         >
           <DownloadIcon width={17} height={17} />
         </button>

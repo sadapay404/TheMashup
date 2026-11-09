@@ -223,10 +223,18 @@ export function usePlayer() {
     [ensureAudio],
   );
 
+  /**
+   * Play a track.
+   *
+   * `list` is only passed when the user has explicitly chosen to play a *collection* (an album, a
+   * playlist, their likes, or a queue row). Tapping a single search result must never replace the
+   * queue with every result on screen — that used to happen, so one tap on "Jhol" queued the entire
+   * result page, which is never what anyone wants.
+   */
   const playTrack = useCallback(
     (t: Track, list?: Track[]) => {
       const current = store.getState();
-      if (list && list.length) {
+      if (list && list.length > 1) {
         const at = list.findIndex((x) => x.id === t.id);
         store.set({ queue: list, index: at >= 0 ? at : 0 });
       } else {
