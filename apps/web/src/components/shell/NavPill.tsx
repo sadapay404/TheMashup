@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useApp, store, type Route } from '@/state/store';
 import { HomeIcon, LibraryIcon, SearchIcon, SettingsIcon } from '@/components/ui/icons';
 import { snap } from '@/components/ui/primitives';
+import { haptic } from '@/lib/haptics';
 
 const ITEMS: Array<{ id: Route; label: string; Icon: typeof HomeIcon }> = [
   { id: 'home', label: 'Home', Icon: HomeIcon },
@@ -26,7 +27,10 @@ export function NavPill() {
           <button
             key={id}
             type="button"
-            onClick={() => store.set({ route: id })}
+            onClick={() => {
+              if (route !== id) haptic('navigation');
+              store.set({ route: id });
+            }}
             aria-label={label}
             aria-current={active ? 'page' : undefined}
             className="relative flex h-12 w-[68px] flex-col items-center justify-center gap-0.5 rounded-full"

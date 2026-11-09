@@ -6,6 +6,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import type { AffinityState, Lyrics, StreamInfo, Track } from '@themashup/core';
 import { emptyAffinity } from '@themashup/core';
+import { DEFAULT_HAPTIC_SETTINGS, haptic, type HapticEvent } from '@/lib/haptics';
 
 export type ThemeId = 'obsidian' | 'vinyl' | 'paper' | 'cyberpunk' | 'forest';
 
@@ -57,6 +58,10 @@ export interface AppState {
   amoled: boolean;
   /** Visual theme id. See `THEMES` in lib/theme.ts. */
   theme: ThemeId;
+  /** Master switch for vibration. */
+  haptics: boolean;
+  /** Per-event switches, so a user can kill the annoying ones without losing feedback entirely. */
+  hapticEvents: Record<HapticEvent, boolean>;
   transportRoute: string;
   toast: { id: number; text: string; kind: 'info' | 'error' | 'success' } | null;
 }
@@ -92,6 +97,8 @@ const initialState: AppState = {
 
   amoled: false,
   theme: 'obsidian',
+  haptics: true,
+  hapticEvents: { ...DEFAULT_HAPTIC_SETTINGS },
   transportRoute: 'detecting',
   toast: null,
 };
@@ -115,8 +122,14 @@ class Store {
     for (const l of this.listeners) l();
   };
 
-  /** Toast helper: auto-dismisses, and never stacks (last one wins). */
+  /**
+   * Toast helper: auto-dismisses, and never stacks (last one wins).
+   *
+   * Haptics fire here because every user-visible outcome in the app goes through a toast, so this is
+   * the one place that guarantees feedback is consistent — no component can forget to buzz.
+   */
   notify = (text: string, kind: 'info' | 'error' | 'success' = 'info'): void => {
+    haptic(kind === 'error' ? 'error' : kind === 'success' ? 'success' : 'tap');
     const id = Date.now();
     this.set({ toast: { id, text, kind } });
     setTimeout(() => {

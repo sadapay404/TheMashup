@@ -18,6 +18,7 @@
 
 import { emptyAffinity, type AffinityState, type Track } from '@themashup/core';
 import type { AppState, RepeatMode, Route, ThemeId } from '@/state/store';
+import { DEFAULT_HAPTIC_SETTINGS } from '@/lib/haptics';
 
 const KEY = 'mashup.state.v1';
 const MAX_QUEUE = 200;
@@ -40,6 +41,8 @@ export interface PersistedState {
   rate: number;
   amoled: boolean;
   theme: ThemeId;
+  haptics: boolean;
+  hapticEvents: Record<string, boolean>;
   history: Track[];
   affinity: AffinityState;
   /** Optional: files written before favourites existed simply omit it and load with none. */
@@ -68,6 +71,20 @@ function theme(value: unknown): ThemeId {
   return typeof value === 'string' && (THEMES as readonly string[]).includes(value)
     ? (value as ThemeId)
     : 'obsidian';
+}
+
+/**
+ * Per-event haptic switches. Unknown keys are dropped and missing ones fall back to the default, so a
+ * settings blob written by an older build (or a future one with more events) stays valid.
+ */
+function hapticEvents(value: unknown): Record<string, boolean> {
+  const out: Record<string, boolean> = { ...DEFAULT_HAPTIC_SETTINGS };
+  if (isRecord(value)) {
+    for (const [k, v] of Object.entries(value)) {
+      if (k in out && typeof v === 'boolean') out[k] = v;
+    }
+  }
+  return out;
 }
 
 function bool(value: unknown, fallback: boolean): boolean {
@@ -132,6 +149,8 @@ export function loadPersisted(): PersistedState | null {
     rate: num(parsed['rate'], 1, 0.5, 2),
     amoled: bool(parsed['amoled'], false),
     theme: theme(parsed['theme']),
+    haptics: bool(parsed['haptics'], true),
+    hapticEvents: hapticEvents(parsed['hapticEvents']),
     history: tracks(parsed['history'], MAX_HISTORY),
     likes: tracks(parsed['likes'], MAX_LIKES),
     affinity: isRecord(parsed['affinity']) ? (parsed['affinity'] as unknown as AffinityState) : emptyAffinitySafe(),
@@ -164,6 +183,8 @@ function toPersisted(s: AppState): PersistedState {
     rate: s.rate,
     amoled: s.amoled,
     theme: s.theme,
+    haptics: s.haptics,
+    hapticEvents: s.hapticEvents,
     history: s.history.slice(0, MAX_HISTORY),
     likes: s.likes.slice(0, MAX_LIKES),
     affinity: s.affinity,

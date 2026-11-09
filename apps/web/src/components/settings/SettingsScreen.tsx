@@ -7,14 +7,23 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { buildRequest, PROFILES, STREAM_LADDER } from '@themashup/core';
 import { service } from '@/lib/service';
 import { isNative, nativeAccountStatus, nativeCookie, nativeSignIn } from '@/lib/native';
 import { store, useApp } from '@/state/store';
 import { snap } from '@/components/ui/primitives';
-import { applyTheme, THEMES } from '@/lib/theme';
-import { SparkIcon } from '@/components/ui/icons';
+import { applyTheme, THEMES, themeMeta } from '@/lib/theme';
+import {
+  HAPTIC_EVENTS,
+  haptic,
+  hapticsSupported,
+  previewHaptic,
+  setHapticsEnabled,
+  setHapticSettings,
+  type HapticEvent,
+} from '@/lib/haptics';
+import { ChevronDownIcon, SparkIcon } from '@/components/ui/icons';
 
 type CheckState = 'idle' | 'run' | 'pass' | 'fail' | 'warn';
 interface CheckRow {
@@ -52,6 +61,10 @@ export function SettingsScreen() {
   const transportRoute = useApp((s) => s.transportRoute);
   const amoled = useApp((s) => s.amoled);
   const theme = useApp((s) => s.theme);
+  const haptics = useApp((s) => s.haptics);
+  const hapticEvents = useApp((s) => s.hapticEvents);
+  const volume = useApp((s) => s.volume);
+  const rate = useApp((s) => s.rate);
   // Account state is re-read after sign-in and on mount, because the native WebView completes
   // out-of-band: there is no promise to await that means "the user finished signing in".
   const [signedIn, setSignedIn] = useState(service.hasAccount());
@@ -235,7 +248,7 @@ export function SettingsScreen() {
     <div className="px-4 pb-40 pt-3">
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Settings</h1>
 
-      <Section title="Playback">
+      <Section title="Playback" summary={`Volume ${Math.round(volume * 100)}% · speed ${rate}×`}>
         <Row label="Active route" value={transportRoute} />
         <Row label="Account" value={signedIn ? 'Signed in' : 'Anonymous'} />
         <div className="mt-2 px-1">
@@ -254,7 +267,7 @@ export function SettingsScreen() {
         <Row label="Stream ladder" value={STREAM_LADDER.join(' → ')} />
       </Section>
 
-      <Section title="Appearance">
+      <Section title="Appearance" summary={themeMeta(theme).name}>
         <p className="mb-2 px-1 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
           Each theme sets its own ground, text and accent. Colour inside a track still comes from its
           artwork, so the app keeps the original idea while the surface changes.
@@ -308,7 +321,93 @@ export function SettingsScreen() {
         <Row label="Accent" value="Derived from artwork" />
       </Section>
 
-      <Section title="Diagnostics" id="diagnostics">
+      <Section
+        title="Haptics"
+        summary={
+          haptics
+            ? `${Object.values(hapticEvents).filter(Boolean).length} of ${HAPTIC_EVENTS.length} events`
+            : 'Off'
+        }
+      >
+        {!hapticsSupported() ? (
+          <p className="mb-2 rounded-xl bg-[color-mix(in_oklab,var(--color-warn)_14%,transparent)] px-2.5 py-2 text-[11px] leading-relaxed text-[var(--color-warn)]">
+            This browser has no vibration motor API, so nothing here will be felt. The Android build
+            uses the same events through the WebView and does vibrate.
+          </p>
+        ) : null}
+
+        <Toggle
+          label="Vibration"
+          value={haptics}
+          onChange={(v) => {
+            store.set({ haptics: v });
+            setHapticsEnabled(v);
+            if (v) previewHaptic('tap');
+          }}
+        />
+
+        {haptics ? (
+          <>
+            <div className="mt-1 flex items-center justify-between border-b border-[var(--hairline)] px-1 py-2">
+              <span className="text-[11px] text-[var(--color-text-3)]">Turn every event off or on</span>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const all = Object.fromEntries(HAPTIC_EVENTS.map((e) => [e.id, true])) as Record<HapticEvent, boolean>;
+                    store.set({ hapticEvents: all });
+                    setHapticSettings(all);
+                  }}
+                  className="rounded-full bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] px-2.5 py-1 text-[10.5px] font-semibold"
+                >
+                  All on
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const none = Object.fromEntries(HAPTIC_EVENTS.map((e) => [e.id, false])) as Record<HapticEvent, boolean>;
+                    store.set({ hapticEvents: none });
+                    setHapticSettings(none);
+                  }}
+                  className="rounded-full bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] px-2.5 py-1 text-[10.5px] font-semibold"
+                >
+                  All off
+                </button>
+              </div>
+            </div>
+
+            {HAPTIC_EVENTS.map((e) => (
+              <div key={e.id} className="flex items-center gap-2 border-b border-[var(--hairline)] px-1 py-2 last:border-0">
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12px]">{e.label}</span>
+                  <span className="block truncate text-[10.5px] text-[var(--color-text-3)]">{e.detail}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => previewHaptic(e.id)}
+                  aria-label={`Preview ${e.label}`}
+                  className="shrink-0 rounded-full bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] px-2 py-1 text-[10px] font-semibold text-[var(--color-text-2)]"
+                >
+                  Test
+                </button>
+                <Toggle
+                  label={e.label}
+                  compact
+                  value={hapticEvents[e.id] ?? false}
+                  onChange={(v) => {
+                    const next = { ...hapticEvents, [e.id]: v };
+                    store.set({ hapticEvents: next });
+                    setHapticSettings(next);
+                    if (v) previewHaptic(e.id);
+                  }}
+                />
+              </div>
+            ))}
+          </>
+        ) : null}
+      </Section>
+
+      <Section title="Diagnostics" id="diagnostics" defaultOpen summary="Tap to test this device against the live services">
         <p className="mb-2 px-1 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
           These checks run live against the real services. Nothing is sent anywhere except the requests
           themselves.
@@ -355,7 +454,7 @@ export function SettingsScreen() {
         </motion.button>
       </Section>
 
-      <Section title="About">
+      <Section title="About" summary="Version 0.4.0 · no server, no analytics">
         <Row label="Version" value="0.4.0 · Phase 4" />
         <Row label="Server dependency" value="None" />
         <Row label="Analytics" value="None" />
@@ -391,13 +490,67 @@ function StatusDot({ state }: { state: CheckState }) {
   );
 }
 
-function Section({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
+/**
+ * A collapsible settings section.
+ *
+ * Settings became long enough that everything was equally loud: six screens of rows with no
+ * hierarchy, so nothing was findable. Each group is now a disclosure with a one-line summary of its
+ * current state, which is what makes the collapsed view useful rather than just shorter.
+ */
+function Section({
+  title,
+  children,
+  id,
+  summary,
+  defaultOpen = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  id?: string;
+  /** Shown while collapsed, so the closed state still tells you something. */
+  summary?: string;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <section id={id} className="mt-6">
-      <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-3)]">
-        {title}
-      </h2>
-      {children}
+    <section id={id} className="mt-3 overflow-hidden rounded-2xl border border-[var(--hairline)]">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((v) => !v);
+          haptic('tap');
+        }}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 bg-[color-mix(in_oklab,var(--wash)_4%,transparent)] px-3.5 py-3 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-semibold">{title}</span>
+          {!open && summary ? (
+            <span className="mt-0.5 block truncate text-[11px] text-[var(--color-text-3)]">{summary}</span>
+          ) : null}
+        </span>
+        <motion.span
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={snap}
+          className="shrink-0 text-[var(--color-text-3)]"
+          aria-hidden
+        >
+          <ChevronDownIcon width={16} height={16} />
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="px-3.5 pb-3 pt-1">{children}</div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </section>
   );
 }
@@ -411,10 +564,21 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  label,
+  value,
+  onChange,
+  compact = false,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  /** Dense variant used inside the per-event haptics list. */
+  compact?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between gap-4 px-1 py-2.5">
-      <span className="min-w-0 flex-1 text-[12.5px]">{label}</span>
+    <div className={`flex items-center justify-between gap-4 ${compact ? 'py-0' : 'px-1 py-2.5'}`}>
+      <span className={`min-w-0 flex-1 text-[12.5px] ${compact ? 'sr-only' : ''}`}>{label}</span>
       <button
         type="button"
         role="switch"

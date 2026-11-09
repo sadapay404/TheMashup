@@ -14,6 +14,8 @@ import { loadPersisted, startAutosave } from '@/lib/persist';
 import { applyPalette, extractPalette } from '@/lib/palette';
 import { applyTheme } from '@/lib/theme';
 import { signalQueueAdd } from '@/lib/signals';
+import { setHapticsEnabled, setHapticSettings, haptic } from '@/lib/haptics';
+import { themeMeta } from '@/lib/theme';
 import { Boundary } from '@/components/shell/Boundary';
 import { NavPill } from '@/components/shell/NavPill';
 import { MiniPlayer } from '@/components/player/MiniPlayer';
@@ -54,6 +56,9 @@ function restoreOnce(): void {
   // Apply immediately after restore so the first paint is already correct. Previously `amoled` was
   // persisted nowhere and applied nowhere on load, so the toggle silently reset on every reload.
   applyTheme(saved.theme, saved.amoled);
+  // Haptics live in module state so any handler can fire them without a context lookup.
+  setHapticsEnabled(saved.haptics);
+  setHapticSettings(saved.hapticEvents as never);
 }
 restoreOnce();
 
