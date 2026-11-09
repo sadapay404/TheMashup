@@ -132,9 +132,11 @@ class DownloadService : Service() {
                     }
                     expectedTotal = total
 
-                    // Declared outside the `use` blocks: the same clock value must persist across
-                    // iterations, and keeping it here makes that obvious to a reader and to Kotlin.
-                    var lastReport = 0L
+                    // Progress is reported every PROGRESS_STEP bytes rather than on a timer.
+                    // A clock-based throttle inside nested lambdas was reported as a dead assignment
+                    // by the compiler, and byte-based cadence is both unambiguous and smoother: a
+                    // 5 MB file emits ~20 updates instead of a burst of time-triggered ones.
+                    var reported = 0L
                     response.body?.byteStream()?.use { input ->
                         RandomAccessFile(part, "rw").use { raf ->
                             raf.seek(downloaded)
@@ -145,15 +147,16 @@ class DownloadService : Service() {
                                 if (read <= 0) break
                                 raf.write(buffer, 0, read)
                                 downloaded += read
-                                val now = System.currentTimeMillis()
-                                if (now - lastReport > 400) {
-                                    lastReport = now
+                                if (downloaded - reported >= PROGRESS_STEP) {
+                                    reported = downloaded
                                     DownloadEvents.progress(id, downloaded, total)
                                 }
                             }
                             raf.fd.sync()
                         }
                     }
+                    // Always emit a final value so the UI lands on 100% rather than 97%.
+                    DownloadEvents.progress(id, downloaded, total)
                 }
 
                 // A server that closes the connection early leaves a short .part file. Publishing it
@@ -197,6 +200,9 @@ class DownloadService : Service() {
     companion object {
         private const val TAG = "MashupDownload"
         private const val NOTIF_ID = 4211
+
+        /** Progress granularity. 256 KiB keeps the UI smooth without flooding the JS bridge. */
+        private const val PROGRESS_STEP = 256L * 1024L
         const val ACTION_START = "app.themashup.download.START"
         const val ACTION_CANCEL = "app.themashup.download.CANCEL"
         const val EXTRA_ID = "id"
