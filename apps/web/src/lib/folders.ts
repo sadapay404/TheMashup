@@ -70,11 +70,19 @@ export function foldersOf(kind: MediaKind): DownloadFolder[] {
   });
 }
 
-/** Files in a folder, newest first. */
+/**
+ * Stored files in a folder, newest first.
+ *
+ * Only `done` jobs count. A download that is still moving, or that failed, lives in the section's
+ * in-progress list instead — otherwise the same row appears in two places at once and the folder
+ * claims to hold a file that is not on disk.
+ */
 export function filesIn(folderId: string): ReturnType<typeof store.getState>['downloads'] {
   return store
     .getState()
-    .downloads.filter((j) => (j.folderId ?? SYSTEM_FOLDER[j.kind ?? 'music']) === folderId)
+    .downloads.filter(
+      (j) => j.state === 'done' && (j.folderId ?? SYSTEM_FOLDER[j.kind ?? 'music']) === folderId,
+    )
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -114,8 +122,11 @@ export function moveToFolder(ids: string[], folderId: string): { moved: number; 
 export function renameFolder(id: string, name: string): boolean {
   const folder = folderById(id);
   if (!folder || folder.system) return false;
+  // Blank is rejected, not defaulted: silently creating "Untitled" hides the mistake behind a name
+  // the user never typed.
+  if (!name.trim()) return false;
   const safe = safeFolderName(name);
-  if (!safe || safe === folder.name) return false;
+  if (safe === folder.name) return false;
   const clash = store
     .getState()
     .folders.some((f) => f.kind === folder.kind && f.id !== id && f.name.toLowerCase() === safe.toLowerCase());

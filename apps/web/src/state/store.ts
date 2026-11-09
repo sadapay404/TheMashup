@@ -11,7 +11,7 @@ import { DEFAULT_HAPTIC_SETTINGS, haptic, type HapticEvent } from '@/lib/haptics
 export type ThemeId = 'obsidian' | 'vinyl' | 'paper' | 'cyberpunk' | 'forest';
 
 export type RepeatMode = 'off' | 'all' | 'one';
-export type Route = 'home' | 'search' | 'library' | 'settings';
+export type Route = 'home' | 'search' | 'library' | 'downloads' | 'settings';
 
 /**
  * What a downloaded item is.

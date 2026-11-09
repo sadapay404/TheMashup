@@ -137,3 +137,41 @@ export const TrashIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M4.5 7h15M9 7V5.2A1.2 1.2 0 0 1 10.2 4h3.6A1.2 1.2 0 0 1 15 5.2V7M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4L17.5 7" />
   </svg>
 );
+
+export const FolderIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3.5 7.6A1.6 1.6 0 0 1 5.1 6h3.5l1.7 2h6.6a1.6 1.6 0 0 1 1.6 1.6v7.2a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6Z" />
+  </svg>
+);
+
+export const FolderOpenIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3.5 7.6A1.6 1.6 0 0 1 5.1 6h3.5l1.7 2h6.6a1.6 1.6 0 0 1 1.6 1.6v1.1" />
+    <path d="M3.5 17.1V9.4m0 7.7 2.2-6a1.2 1.2 0 0 1 1.1-.8h13.1a1 1 0 0 1 1 1.3l-1.6 5.6a1.2 1.2 0 0 1-1.2.9H4.6a1.1 1.1 0 0 1-1.1-1Z" />
+  </svg>
+);
+
+export const VideoIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="6.5" width="13" height="11" rx="2.2" />
+    <path d="m16 12 5-3.2v6.4L16 12Z" />
+  </svg>
+);
+
+export const MoveIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3.5v17M3.5 12h17M12 3.5 9.6 6M12 3.5 14.4 6M12 20.5 9.6 18M12 20.5l2.4-2.5M3.5 12 6 9.6M3.5 12 6 14.4M20.5 12 18 9.6M20.5 12 18 14.4" />
+  </svg>
+);
+
+export const CheckIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="m5 12.5 4.5 4.5L19 7" />
+  </svg>
+);
+
+export const UnfiledIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 7.5h16M4 12h10M4 16.5h7" />
+  </svg>
+);

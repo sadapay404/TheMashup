@@ -24,6 +24,7 @@ import { DownloadSheet } from '@/components/player/DownloadSheet';
 import { HomeScreen } from '@/components/home/HomeScreen';
 import { SearchScreen } from '@/components/search/SearchScreen';
 import { LibraryScreen } from '@/components/library/LibraryScreen';
+import { DownloadsScreen } from '@/components/downloads/DownloadsScreen';
 import { SettingsScreen } from '@/components/settings/SettingsScreen';
 import { glide } from '@/components/ui/primitives';
 
@@ -212,6 +213,11 @@ export default function App() {
             {route === 'library' ? (
               <Boundary scope="Library">
                 <LibraryScreen onPlay={onPlay} />
+              </Boundary>
+            ) : null}
+            {route === 'downloads' ? (
+              <Boundary scope="Downloads">
+                <DownloadsScreen onPlay={onPlay} />
               </Boundary>
             ) : null}
             {route === 'settings' ? (

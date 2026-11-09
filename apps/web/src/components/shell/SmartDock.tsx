@@ -21,13 +21,15 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { store, useApp, type Route } from '@/state/store';
-import { HomeIcon, LibraryIcon, SearchIcon, SettingsIcon } from '@/components/ui/icons';
+import { DownloadIcon, HomeIcon, LibraryIcon, SearchIcon, SettingsIcon } from '@/components/ui/icons';
 import { haptic } from '@/lib/haptics';
 
 const ITEMS: Array<{ id: Route; label: string; Icon: typeof HomeIcon }> = [
   { id: 'home', label: 'Home', Icon: HomeIcon },
   { id: 'search', label: 'Search', Icon: SearchIcon },
   { id: 'library', label: 'Library', Icon: LibraryIcon },
+  // Downloads sits before Settings because it is content, not configuration.
+  { id: 'downloads', label: 'Downloads', Icon: DownloadIcon },
   { id: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
 

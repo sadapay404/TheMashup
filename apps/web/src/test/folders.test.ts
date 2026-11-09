@@ -20,7 +20,7 @@ const track = (id: string): Track => ({
   artist: 'Someone',
   album: 'Somewhere',
   durationSec: 200,
-  thumbnail: '',
+  thumbs: [],
 });
 
 const job = (id: string, kind: 'music' | 'video' = 'music', folderId: string | null = null): DownloadJob => ({
@@ -141,6 +141,19 @@ describe('filesIn', () => {
   });
 });
 
+describe('filesIn — states', () => {
+  it('does not list a file that is still downloading in a folder', () => {
+    const f = ensureFolder('Jhol', 'music');
+    store.set({ downloads: [{ ...job('a', 'music', f.id), state: 'downloading' }] });
+    expect(filesIn(f.id)).toHaveLength(0);
+  });
+
+  it('does not list a failed download as if it were stored', () => {
+    store.set({ downloads: [{ ...job('a'), state: 'failed' }] });
+    expect(filesIn(SYSTEM_FOLDER.music)).toHaveLength(0);
+  });
+});
+
 describe('fileCount', () => {
   it('counts only completed files, so a failed download is not shown as a stored song', () => {
     const f = ensureFolder('Jhol', 'music');
@@ -161,6 +174,12 @@ describe('renameFolder', () => {
   it('refuses to touch the system folders', () => {
     expect(renameFolder('all-songs', 'Everything')).toBe(false);
     expect(folderById('all-songs')?.name).toBe('All songs');
+  });
+
+  it('rejects a blank name instead of inventing "Untitled"', () => {
+    const f = ensureFolder('Jhol', 'music');
+    expect(renameFolder(f.id, '   ')).toBe(false);
+    expect(folderById(f.id)?.name).toBe('Jhol');
   });
 
   it('refuses a name already used in the same section', () => {
