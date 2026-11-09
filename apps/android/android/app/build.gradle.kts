@@ -37,7 +37,12 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            isShrinkResources = true
+            // Resource shrinking was on with no keep rules. Capacitor resolves its own web assets and
+            // plugin resources by name at runtime, which is precisely what the shrinker cannot see.
+            // The APK crashed on launch; a minified build that cannot start is not a smaller build,
+            // it is a broken one. Turned off deliberately rather than papered over with keep rules
+            // that would have to enumerate assets that do not exist yet.
+            isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             val signed = System.getenv("MASHUP_KEYSTORE_PATH") != null
             signingConfig = if (signed) signingConfigs.getByName("release") else signingConfigs.getByName("debug")

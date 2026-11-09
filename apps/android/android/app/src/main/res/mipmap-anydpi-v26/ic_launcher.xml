@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon.
+
+  Background is the app's own ground colour (--color-void), so the launcher mask and the splash
+  screen agree and there is no colour jump between tapping the icon and the first frame.
+  The foreground is the real artwork, supplied per-density as PNG because it is a soft-glowing
+  raster mark; the previous vector here was a placeholder that had nothing to do with the logo.
+  Monochrome uses the same layer: the system tints it, and the mark is legible as a silhouette.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/mashup_void" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
