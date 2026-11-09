@@ -20,10 +20,10 @@ Expect roughly **3 MB**. The release build is R8-minified; a debug build of the 
 
 ### If the app closes immediately on launch
 
-Install the debug build of the same commit instead — it is the same code without R8:
+Install the debug build instead — same code, no R8:
 
 ```
-https://github.com/sadapay404/TheMashup/releases/download/v0.3.0-apk.23-debug/app-standard-debug.apk
+https://github.com/sadapay404/TheMashup/releases/tag/v0.3.0-apk.23-debug
 ```
 
 It installs as a **separate app** (`TheMashup` with a second icon), so it can sit next to the release
@@ -60,7 +60,19 @@ Play-store identity. That is expected — see §5.
 | Background playback, lockscreen controls, hardware media keys | ❌ | ✅ |
 | Vibration | rarely | ✅ |
 | Direct InnerTube (no CORS limit) | ❌ | ✅ |
-| Native downloads writing real folders | ❌ | builds directory structure |
+| Native downloads writing real folders | ❌ | ✅ |
+| Moving a downloaded file between folders | list only | moves the file on disk |
+
+### How downloads are laid out on the phone
+
+```
+Android/data/app.themashup.music/files/Music/         songs
+Android/data/app.themashup.music/files/Music/<folder> one folder per playlist
+Android/data/app.themashup.music/files/Music/Videos/  videos, separate from songs
+```
+
+The Downloads screen reads this tree from disk, so a file you delete with a file manager stops being
+listed. Moving a file between folders moves the actual file, not just the row.
 
 ## 5. About the signature
 
