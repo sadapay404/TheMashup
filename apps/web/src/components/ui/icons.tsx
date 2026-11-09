@@ -175,3 +175,17 @@ export const UnfiledIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M4 7.5h16M4 12h10M4 16.5h7" />
   </svg>
 );
+
+export const PlusIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 5.5v13M5.5 12h13" />
+  </svg>
+);
+
+export const DotsIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="5.5" r="1.2" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="18.5" r="1.2" fill="currentColor" stroke="none" />
+  </svg>
+);

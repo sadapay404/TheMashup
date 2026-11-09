@@ -1,10 +1,12 @@
 /** A track row. Deliberately boring internally — all the delight is in the press/hover physics. */
 
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useState } from 'react';
 import type { Track } from '@themashup/core';
 import { snap } from '@/components/ui/primitives';
-import { DownloadIcon, PlayIcon, QueueIcon } from '@/components/ui/icons';
+import { DotsIcon, DownloadIcon, PlayIcon, QueueIcon } from '@/components/ui/icons';
 import { formatTime } from '@/components/ui/primitives';
+import { AddToSheet } from '@/components/library/AddToSheet';
 
 export function TrackRow({
   track,
@@ -23,6 +25,10 @@ export function TrackRow({
   active?: boolean;
 }) {
   const art = track.thumbs[0]?.url ?? track.thumbs[track.thumbs.length - 1]?.url;
+  // One "add to" affordance instead of a queue button that cannot also fill a playlist. Always
+  // present: building a playlist has to be possible from any list of songs, not only the ones that
+  // happen to have been given a queue handler.
+  const [addOpen, setAddOpen] = useState(false);
 
   return (
     <motion.div
@@ -69,16 +75,14 @@ export function TrackRow({
 
       {/* Row actions. Kept always visible rather than hover-only: this is a touch-first app, and
           a control that only appears on hover does not exist on a phone. */}
-      {onQueue ? (
-        <button
-          type="button"
-          onClick={() => onQueue(track)}
-          aria-label={`Add ${track.title} to the queue`}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
-        >
-          <QueueIcon width={17} height={17} />
-        </button>
-      ) : null}
+      <button
+        type="button"
+        onClick={() => setAddOpen(true)}
+        aria-label={`Add ${track.title} to a queue or playlist`}
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
+      >
+        <DotsIcon width={17} height={17} />
+      </button>
 
       {onDownload ? (
         <button
@@ -90,6 +94,16 @@ export function TrackRow({
           <DownloadIcon width={17} height={17} />
         </button>
       ) : null}
+
+      <AnimatePresence>
+        {addOpen ? (
+          <AddToSheet
+            track={track}
+            {...(onQueue ? { onQueue } : {})}
+            onClose={() => setAddOpen(false)}
+          />
+        ) : null}
+      </AnimatePresence>
     </motion.div>
   );
 }

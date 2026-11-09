@@ -55,6 +55,23 @@ export interface DownloadJob {
   path?: string;
 }
 
+/**
+ * A playlist the user builds by hand.
+ *
+ * Explicitly not auto-populated: the user said queue and playlists must be manual, so playing a song
+ * never changes a playlist. Order is insertion order and duplicates are refused, because a playlist
+ * that silently contains the same song twice is a bug the user cannot see.
+ */
+export interface UserPlaylist {
+  id: string;
+  name: string;
+  trackIds: string[];
+  /** Kept so a track can be re-read without another network call. */
+  tracks: Record<string, Track>;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface AppState {
   route: Route;
   playerOpen: boolean;
@@ -84,6 +101,8 @@ export interface AppState {
   folders: DownloadFolder[];
   /** Playlist downloads in flight or finished, so progress survives leaving the screen. */
   playlistBatches: import('@/lib/playlist').PlaylistBatch[];
+  /** Playlists the user built, newest last. */
+  playlists: UserPlaylist[];
   affinity: AffinityState;
   /** Locally "liked" tracks, newest first. Also fed into the affinity graph on every change. */
   likes: Track[];
@@ -134,6 +153,7 @@ const initialState: AppState = {
     { id: 'all-videos', name: 'Videos', kind: 'video', system: true, createdAt: 0 },
   ] as DownloadFolder[],
   playlistBatches: [],
+  playlists: [],
   affinity: emptyAffinity(),
   likes: [],
 
