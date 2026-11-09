@@ -15,10 +15,12 @@ import { HeartIcon, LibraryIcon, QueueIcon, TrashIcon } from '@/components/ui/ic
 import { playlistTracks } from '@/lib/playlists';
 import { haptic } from '@/lib/haptics';
 import { TrackRow } from '@/components/library/TrackRow';
+import { useContentBottom } from '@/hooks/useContentBottom';
 
 type Tab = 'history' | 'likes' | 'playlists';
 
 export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => void }) {
+  const paddingBottom = useContentBottom();
   const [tab, setTab] = useState<Tab>('history');
   const history = useApp((s) => s.history);
   const likes = useApp((s) => s.likes);
@@ -27,7 +29,7 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
   const totalMinutes = Math.round(history.reduce((n, t) => n + t.durationSec, 0) / 60);
 
   return (
-    <div className="px-4 pb-[var(--content-bottom)] pt-3">
+    <div className="px-4 pt-3" style={{ paddingBottom }}>
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Library</h1>
       <p className="mt-1 text-[12px] text-[var(--color-text-3)]">
         {history.length} tracks · {totalMinutes} min · stored on this device only

@@ -50,9 +50,8 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   --nav-h: 64px;
   --mini-h: 64px;
-  /* Room for the floating dock (64px + 10px offset) plus the song card beneath it (~72px) and a
-     little breathing space. Screens use this instead of each guessing a magic pb-40. */
-  --content-bottom: calc(env(safe-area-inset-bottom) + 184px);
+  /* Bottom padding for screens comes from lib/layout via useContentBottom(), not from a
+     custom property here: one source of truth, and it can react to whether a card is showing. */
 
   /* Motion: the five springs from the design system, expressed as CSS for non-Framer elements. */
   --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);

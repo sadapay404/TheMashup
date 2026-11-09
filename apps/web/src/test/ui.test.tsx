@@ -8,7 +8,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App';
 import { Boundary } from '../components/shell/Boundary';
 import { store } from '../state/store';
-import { MiniPlayer } from '../components/player/MiniPlayer';
+import { SongCard } from '../components/player/SongCard';
 import { NavPill } from '../components/shell/NavPill';
 
 const track = {
@@ -69,15 +69,16 @@ describe('App shell', () => {
     await waitFor(() => expect(screen.getByText(/history is empty/i)).toBeTruthy());
   });
 
-  it('opens the player sheet when a track is queued and the mini-player is tapped', async () => {
+  it('opens the player sheet when a track is queued and the song card is tapped', async () => {
     resetState();
     store.set({ queue: [track], index: 0 });
     render(<App />);
 
-    // Mini player is visible because a track exists.
-    const openBtns = await screen.findAllByRole('button', { name: /Open full player/i });
+    // The card is visible because a track exists, and both its artwork and its title open the
+    // player — so the label names the track rather than the action.
+    const openBtns = await screen.findAllByRole('button', { name: /Open player for/i });
     const openBtn = openBtns[0];
-    if (!openBtn) throw new Error('mini player open button missing');
+    if (!openBtn) throw new Error('song card open button missing');
     fireEvent.click(openBtn);
 
     await waitFor(() => expect(screen.getByRole('dialog', { name: /Now playing/i })).toBeTruthy());
@@ -85,10 +86,10 @@ describe('App shell', () => {
 });
 
 describe('Component contracts', () => {
-  it('mini player exposes an accessible pause control when playing', () => {
+  it('song card exposes an accessible pause control when playing', () => {
     const onToggle = vi.fn();
     render(
-      <MiniPlayer
+      <SongCard
         track={track}
         playing
         progress={0.4}

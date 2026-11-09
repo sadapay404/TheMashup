@@ -25,6 +25,7 @@ import {
 } from '@/lib/haptics';
 import { ChevronDownIcon, SparkIcon } from '@/components/ui/icons';
 import { CrashReport } from '@/components/settings/CrashReport';
+import { useContentBottom } from '@/hooks/useContentBottom';
 
 type CheckState = 'idle' | 'run' | 'pass' | 'fail' | 'warn';
 interface CheckRow {
@@ -35,6 +36,7 @@ interface CheckRow {
 }
 
 export function SettingsScreen() {
+  const paddingBottom = useContentBottom();
   const [checks, setChecks] = useState<CheckRow[]>([
     { id: 'direct', label: 'Direct InnerTube request', detail: 'Can this browser POST to music.youtube.com?', state: 'idle' },
     { id: 'search', label: 'Search via active route', detail: 'WEB_REMIX search for a known query', state: 'idle' },
@@ -246,7 +248,7 @@ export function SettingsScreen() {
   };
 
   return (
-    <div className="px-4 pb-[var(--content-bottom)] pt-3">
+    <div className="px-4 pt-3" style={{ paddingBottom }}>
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Settings</h1>
 
       <Section title="Playback" summary={`Volume ${Math.round(volume * 100)}% · speed ${rate}×`}>

@@ -36,6 +36,7 @@ import {
 } from '@/lib/folders';
 import { haptic } from '@/lib/haptics';
 import { batchProgress, cancelPlaylist } from '@/lib/playlist';
+import { useContentBottom } from '@/hooks/useContentBottom';
 
 const SECTIONS: { id: MediaKind; label: string }[] = [
   { id: 'music', label: 'Songs' },
@@ -65,6 +66,7 @@ const STATE_LABEL: Record<DownloadJob['state'], string> = {
 };
 
 export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => void }) {
+  const paddingBottom = useContentBottom();
   const folders = useApp((s) => s.folders);
   const downloads = useApp((s) => s.downloads);
   const batches = useApp((s) => s.playlistBatches);
@@ -88,7 +90,7 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
   };
 
   return (
-    <div className="px-4 pb-[var(--content-bottom)] pt-3">
+    <div className="px-4 pt-3" style={{ paddingBottom }}>
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Downloads</h1>
       <p className="mt-1 text-[12px] text-[var(--color-text-3)]">
         {downloads.filter((d) => d.state === 'done').length} stored ·{' '}

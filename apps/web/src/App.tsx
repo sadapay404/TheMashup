@@ -18,7 +18,7 @@ import { setHapticsEnabled, setHapticSettings, haptic } from '@/lib/haptics';
 import { themeMeta } from '@/lib/theme';
 import { Boundary } from '@/components/shell/Boundary';
 import { SmartDock } from '@/components/shell/SmartDock';
-import { MiniPlayer } from '@/components/player/MiniPlayer';
+import { SongCard } from '@/components/player/SongCard';
 import { NowPlaying } from '@/components/player/NowPlaying';
 import { DownloadSheet } from '@/components/player/DownloadSheet';
 import { HomeScreen } from '@/components/home/HomeScreen';
@@ -231,23 +231,17 @@ export default function App() {
 
       {/* Mini player sits above the nav pill; extra bottom padding keeps content clear. */}
       <AnimatePresence>
-        {track && !playerOpen ? (
-          <motion.div
-            initial={{ y: 24, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 24, opacity: 0 }}
-            transition={glide}
-            className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+10px)] z-[45] mx-auto max-w-2xl px-3"
-          >
-            <MiniPlayer
-              track={track}
-              playing={playing}
-              progress={progress}
-              onToggle={() => void player.setPlaying(!playing)}
-              onNext={() => player.next(false)}
-              onOpen={() => store.set({ playerOpen: true })}
-            />
-          </motion.div>
+                    {track && !playerOpen ? (
+          // The card positions and animates itself. Wrapping it in another motion.div meant two
+          // systems animating the same box, which is why it used to drift and settle wrong.
+          <SongCard
+            track={track}
+            playing={playing}
+            progress={progress}
+            onToggle={() => void player.setPlaying(!playing)}
+            onNext={() => player.next(false)}
+            onOpen={() => store.set({ playerOpen: true })}
+          />
         ) : null}
       </AnimatePresence>
 

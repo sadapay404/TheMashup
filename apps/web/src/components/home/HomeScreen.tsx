@@ -10,8 +10,10 @@ import { EmptyState, glide, snap } from '@/components/ui/primitives';
 import { MicIcon, PlayIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
 import { TrackRow } from '@/components/library/TrackRow';
 import { formatTime } from '@/components/ui/primitives';
+import { useContentBottom } from '@/hooks/useContentBottom';
 
 export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Track[]) => void; onGoSearch: () => void }) {
+  const paddingBottom = useContentBottom();
   const history = useApp((s) => s.history);
   const queue = useApp((s) => s.queue);
   const transportRoute = useApp((s) => s.transportRoute);
@@ -20,7 +22,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
   const recentQueue = queue.slice(0, 6);
 
   return (
-    <div className="px-4 pb-[var(--content-bottom)] pt-3">
+    <div className="px-4 pt-3" style={{ paddingBottom }}>
       <motion.header initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={glide}>
         <div className="flex items-center justify-between">
           <div>

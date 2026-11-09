@@ -23,6 +23,7 @@ import { TrackRow } from '@/components/library/TrackRow';
 import { useDebounced } from '@/hooks/useDebounced';
 import { describeLink, parseLink } from '@/lib/link';
 import { haptic } from '@/lib/haptics';
+import { useContentBottom } from '@/hooks/useContentBottom';
 
 const FILTERS: Array<{ id: SearchFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -41,6 +42,7 @@ export function SearchScreen({
   onQueue?: (t: Track) => void;
   onDownload?: (t: Track) => void;
 }) {
+  const paddingBottom = useContentBottom();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<SearchFilter>('all');
   const [results, setResults] = useState<Track[]>([]);
@@ -199,7 +201,7 @@ export function SearchScreen({
   };
 
   return (
-    <div className="px-4 pb-[var(--content-bottom)] pt-2">
+    <div className="px-4 pt-2" style={{ paddingBottom }}>
       {/* Search field */}
       <div className="sticky top-0 z-10 -mx-4 px-4 pb-3 pt-1 backdrop-blur-xl">
         <div className="relative">
