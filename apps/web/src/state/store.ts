@@ -49,6 +49,8 @@ export interface AppState {
   history: Track[];
   downloads: DownloadJob[];
   affinity: AffinityState;
+  /** Locally "liked" tracks, newest first. Also fed into the affinity graph on every change. */
+  likes: Track[];
 
   amoled: boolean;
   transportRoute: string;
@@ -82,6 +84,7 @@ const initialState: AppState = {
   history: [],
   downloads: [],
   affinity: emptyAffinity(),
+  likes: [],
 
   amoled: false,
   transportRoute: 'detecting',

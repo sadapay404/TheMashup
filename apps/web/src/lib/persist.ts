@@ -22,6 +22,7 @@ import type { AppState, RepeatMode, Route } from '@/state/store';
 const KEY = 'mashup.state.v1';
 const MAX_QUEUE = 200;
 const MAX_HISTORY = 120;
+const MAX_LIKES = 500;
 /** Throttle: persisting on every 250 ms position tick would be a write per tick. */
 const WRITE_INTERVAL_MS = 4000;
 
@@ -39,6 +40,12 @@ export interface PersistedState {
   rate: number;
   history: Track[];
   affinity: AffinityState;
+  /** Optional: files written before favourites existed simply omit it and load with none. */
+  /**
+   * Always populated on load (files written before favourites existed simply have no entry and are
+   * read as an empty list) — non-optional so restoring state can never write `undefined`.
+   */
+  likes: Track[];
 }
 
 const ROUTES: readonly Route[] = ['home', 'search', 'library', 'settings'];
@@ -114,6 +121,7 @@ export function loadPersisted(): PersistedState | null {
     shuffle: bool(parsed['shuffle'], false),
     rate: num(parsed['rate'], 1, 0.5, 2),
     history: tracks(parsed['history'], MAX_HISTORY),
+    likes: tracks(parsed['likes'], MAX_LIKES),
     affinity: isRecord(parsed['affinity']) ? (parsed['affinity'] as unknown as AffinityState) : emptyAffinitySafe(),
   };
 }
@@ -143,6 +151,7 @@ function toPersisted(s: AppState): PersistedState {
     shuffle: s.shuffle,
     rate: s.rate,
     history: s.history.slice(0, MAX_HISTORY),
+    likes: s.likes.slice(0, MAX_LIKES),
     affinity: s.affinity,
   };
 }

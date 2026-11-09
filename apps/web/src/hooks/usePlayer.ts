@@ -28,6 +28,7 @@ import {
   nativeState,
   onNativeEvent,
 } from '@/lib/native';
+import { rankRadio, signalComplete, signalPlay, signalSkip } from '@/lib/signals';
 import { StallDetector } from '@/lib/stall';
 import { store, useApp } from '@/state/store';
 import type { Track } from '@themashup/core';
@@ -123,6 +124,8 @@ export function usePlayer() {
 
       const playable = service.playableUrl(resolved.info);
       store.set({ stream: resolved.info });
+      // Count the attempt only once a source resolved: a failed resolve is not a listening choice.
+      signalPlay(t);
       if (!playable) {
         store.set({
           loading: false,
@@ -241,10 +244,54 @@ export function usePlayer() {
     [load, setPlaying],
   );
 
+  /**
+   * Keep the music going when the queue runs out.
+   *
+   * Fetches radio for the most recent track, ranks it locally against the affinity graph, then
+   * appends only tracks that are not already queued. If radio yields nothing (offline, or every
+   * upstream endpoint exhausted) playback stops cleanly rather than looping on a dead stream.
+   */
+  const extendWithRadio = useCallback(async () => {
+    const s = store.getState();
+    const seed = s.queue[s.index] ?? s.queue[s.queue.length - 1] ?? null;
+    if (!seed) {
+      store.set({ playing: false, positionSec: 0 });
+      return;
+    }
+
+    store.set({ loading: true });
+    let extra: Track[] = [];
+    try {
+      extra = rankRadio(await service.radio(seed), seed);
+    } catch {
+      extra = [];
+    }
+
+    const seen = new Set(store.getState().queue.map((t) => t.id));
+    const fresh = extra.filter((t) => !seen.has(t.id)).slice(0, 25);
+    if (!fresh.length) {
+      store.set({ loading: false, playing: false, positionSec: 0 });
+      store.notify('End of queue — nothing new to add.', 'info');
+      return;
+    }
+
+    const startAt = store.getState().queue.length;
+    store.set({ queue: [...store.getState().queue, ...fresh], index: startAt, loading: false });
+    const t = store.getState().queue[startAt];
+    if (t) {
+      void load(t);
+      void setPlaying(true);
+    }
+  }, [load, setPlaying]);
+
   const next = useCallback(
     (auto = false) => {
       const s = store.getState();
       if (!s.queue.length) return;
+      // `auto` means the track ended by itself: positive evidence. A manual advance is a skip, and
+      // how far into the track the user got says whether it was rejection or boredom.
+      if (auto) signalComplete(s.queue[s.index] ?? null);
+      else signalSkip(s.queue[s.index] ?? null, s.positionSec);
       if (s.repeat === 'one' && auto) {
         // Restart through whichever transport owns playback; `el.currentTime = 0` is a no-op in
         // native mode (no src), which made repeat-one silently advance to the next track instead.
@@ -267,7 +314,13 @@ export function usePlayer() {
       if (nextIndex >= s.queue.length) {
         if (s.repeat === 'all') nextIndex = 0;
         else if (auto) {
-          // End of queue: stop the transport that is actually playing, not just a paused element.
+          // End of queue: keep playing instead of dying silently. This is the behaviour every music
+          // app has and the one docs/07 exists to serve — the radio is re-ranked locally, so the
+          // extension reflects what this device has actually learned.
+          void extendWithRadio();
+          return;
+        } else {
+          // Manual "next" past the end: stay stopped rather than surprising the user with audio.
           store.set({ playing: false, positionSec: 0 });
           const el = audioRef.current;
           if (el && !el.src && hasNativePlayback()) {
@@ -276,7 +329,7 @@ export function usePlayer() {
           }
           if (el) el.pause();
           return;
-        } else return;
+        }
       }
       const t = s.queue[nextIndex];
       if (!t) return;
@@ -284,7 +337,7 @@ export function usePlayer() {
       void load(t);
       void setPlaying(true);
     },
-    [load, setPlaying],
+    [extendWithRadio, load, setPlaying],
   );
 
   const prev = useCallback(() => {
@@ -308,6 +361,7 @@ export function usePlayer() {
       restart();
       return;
     }
+    signalSkip(s.queue[s.index] ?? null, position);
     const t = s.queue[prevIndex];
     if (!t) return;
     store.set({ index: prevIndex });

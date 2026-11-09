@@ -11,6 +11,7 @@ import { useApp } from '@/state/store';
 import type { Lyrics, Track } from '@themashup/core';
 import { activeLineIndex, lineProgress } from '@themashup/core';
 import { formatTime, IconButton, melt, snap } from '@/components/ui/primitives';
+import { toggleLike } from '@/lib/signals';
 import {
   ChevronDownIcon,
   DownloadIcon,
@@ -61,6 +62,9 @@ export function NowPlaying({
   const lyrics = useApp((s) => s.lyrics);
   const lyricsLoading = useApp((s) => s.lyricsLoading);
   const streamError = useApp((s) => s.streamError);
+  // Subscribing to `likes` is what keeps the heart in sync when the same track is liked elsewhere.
+  const likes = useApp((s) => s.likes);
+  const liked = likes.some((t) => t.id === track.id);
   const [face, setFace] = useState<Face>('art');
 
   const dragY = useMotionValue(0);
@@ -313,7 +317,15 @@ export function NowPlaying({
           >
             <QueueIcon width={17} height={17} /> Queue
           </button>
-          <IconButton label="Like" size="sm">
+          <IconButton
+            label={liked ? 'Unlike' : 'Like'}
+            active={liked}
+            size="sm"
+            onClick={() => {
+              const now = toggleLike(track);
+              store.notify(now ? 'Added to your likes' : 'Removed from your likes', now ? 'success' : 'info');
+            }}
+          >
             <HeartIcon width={18} height={18} />
           </IconButton>
         </div>

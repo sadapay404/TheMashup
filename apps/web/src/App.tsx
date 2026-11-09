@@ -44,6 +44,7 @@ function restoreOnce(): void {
     rate: saved.rate,
     history: saved.history,
     affinity: saved.affinity,
+    likes: saved.likes,
   });
 }
 restoreOnce();
