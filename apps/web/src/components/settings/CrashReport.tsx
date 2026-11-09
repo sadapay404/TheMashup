@@ -155,6 +155,12 @@ export function CrashReport() {
         </>
       )}
 
+      {isNative() ? (
+        <p className="font-[family-name:var(--font-mono)] text-[10px] leading-relaxed text-[var(--color-text-3)]">
+          Boot log: Android/data/{info?.package ?? 'app.themashup.music'}/files/diagnostics/boot-log.txt
+        </p>
+      ) : null}
+
       {info ? (
         <p className="font-[family-name:var(--font-mono)] text-[10px] leading-relaxed text-[var(--color-text-3)]">
           {info.versionName} ({info.versionCode}) · {info.device} · API {info.sdk}

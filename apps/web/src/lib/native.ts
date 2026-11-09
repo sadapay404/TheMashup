@@ -310,3 +310,9 @@ export async function nativeClearCrash(): Promise<boolean> {
     return false;
   }
 }
+
+/** Write a line into the on-device boot log, so the web half of startup is recorded too. */
+export function nativeBootMark(message: string): void {
+  if (!isNative()) return;
+  void invoke('MashupLog', 'mark', { message }).catch(() => undefined);
+}

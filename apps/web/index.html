@@ -21,6 +21,74 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Boot sentinel.
+
+      Deliberately a classic script, not a module: it has to run even when the module bundle fails to
+      load. Its whole job is to turn "black screen forever" into a sentence a person can act on,
+      because a black screen is indistinguishable between a missing script, a thrown import, a dead
+      WebView and a native crash - and that ambiguity is what has cost us several rounds already.
+
+      It stays out of the way when boot succeeds: main.tsx calls __mashupBooted() and the timer and
+      error handlers disarm themselves.
+    -->
+    <script>
+      (function () {
+        var booted = false;
+        var shown = false;
+
+        function esc(value) {
+          return String(value).replace(/[&<>"]/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+          });
+        }
+
+        function show(title, detail) {
+          if (shown || booted) return;
+          shown = true;
+          var root = document.getElementById('root');
+          if (!root) return;
+          // Inline styles on purpose: if the stylesheet failed, classes would not help.
+          root.innerHTML =
+            '<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;' +
+            'background:#07070A;color:#EDEDF2;font-family:system-ui,-apple-system,sans-serif;">' +
+            '<div style="max-width:26rem;width:100%">' +
+            '<div style="font-size:19px;font-weight:600;margin-bottom:10px">' + esc(title) + '</div>' +
+            '<div style="font-size:13.5px;line-height:1.55;color:#9A9AA8;white-space:pre-wrap">' + esc(detail) + '</div>' +
+            '<div style="margin-top:18px;font-size:12px;line-height:1.5;color:#6E6E7E">' +
+            'The app could not start, so this is the whole diagnosis it can offer. ' +
+            'The log file on the phone records more: Android/data/app.themashup.music/files/boot-log.txt' +
+            '</div></div></div>';
+        }
+
+        // A thrown import, a missing asset, or any uncaught error before React mounts.
+        window.addEventListener('error', function (event) {
+          var target = event.target;
+          if (target && target.tagName === 'SCRIPT') {
+            show('A script failed to load', 'The build references ' + (target.src || 'a file') + ' which the app could not read.');
+            return;
+          }
+          show('The app stopped while starting', (event.message || 'An unknown error occurred.') +
+            (event.filename ? '\n\n' + event.filename + ':' + event.lineno : ''));
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason;
+          show('The app stopped while starting', (reason && (reason.message || reason)) || 'An unknown error occurred.');
+        });
+
+        // Nothing painted at all. Long enough that a slow cold start is not mistaken for a failure,
+        // short enough that the user is not left staring at black.
+        setTimeout(function () {
+          show('The app did not finish starting', 'No part of the interface loaded within 8 seconds. ' +
+            'This usually means the page itself never ran, rather than a problem inside the app.');
+        }, 8000);
+
+        window.__mashupBooted = function () {
+          booted = true;
+        };
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

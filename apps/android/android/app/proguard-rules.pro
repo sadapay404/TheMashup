@@ -5,6 +5,9 @@
 -keep class app.themashup.music.download.DownloadPlugin { *; }
 -keep class app.themashup.music.auth.AccountPlugin { *; }
 -keep class app.themashup.music.extractor.generated.** { *; }
+# Diagnostics is new and was missing from this list: R8 would rename the plugin class out from under
+# Capacitor's reflective lookup, turning "read the crash log" into a crash of its own.
+-keep class app.themashup.music.diagnostics.** { *; }
 
 # Media3 is reflection-heavy in its session layer.
 -keep class androidx.media3.session.** { *; }

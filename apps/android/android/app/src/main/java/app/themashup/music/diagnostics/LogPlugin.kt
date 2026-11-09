@@ -78,11 +78,47 @@ class LogPlugin : Plugin() {
     }
 
     /** Marks a point in the log so a report can be tied to a specific build and moment. */
+    /**
+     * A note from the web layer into the same boot log.
+     *
+     * Without this the log stops at "boot complete" and says nothing about what the page did next -
+     * which is exactly the window where the user reports the screen staying black.
+     */
     @PluginMethod
     fun mark(call: PluginCall) {
         val message = call.getString("message") ?: "mark"
-        Log.i(TAG, message)
+        boot("web: $message")
         call.resolve(JSObject().put("ok", true))
+    }
+
+    /**
+     * Mirror the crash report somewhere a file manager can reach.
+     *
+     * The report otherwise lives in internal storage, which needs root or adb to read - neither of
+     * which is available if the app will not boot. External app storage is readable through the
+     * system Files app on every supported Android version without any permission prompt, so a user
+     * whose app cannot start can still hand us the reason.
+     */
+    @PluginMethod
+    fun export(call: PluginCall) {
+        val ctx = getContext()
+        val source = File(ctx.filesDir, CRASH_FILE)
+        if (!source.isFile) {
+            call.resolve(JSObject().put("exported", false).put("reason", "no crash recorded"))
+            return
+        }
+        val dir = File(ctx.getExternalFilesDir(null), "crash-report")
+        val target = File(dir, "last-crash.txt")
+        val ok = runCatching {
+            dir.mkdirs()
+            target.writeText(source.readText())
+        }.getOrDefault(false)
+        call.resolve(
+            JSObject()
+                .put("exported", ok)
+                .put("path", if (ok) target.absolutePath else "")
+                .put("reason", if (ok) "" else "could not write to external storage"),
+        )
     }
 
     @PluginMethod
@@ -137,6 +173,37 @@ class LogPlugin : Plugin() {
         private const val SESSION_END = "ended"
 
         private fun sessionFile(app: Context) = File(app.filesDir, SESSION_FILE)
+
+        /**
+         * Boot log in *external* app storage.
+         *
+         * This is the one artefact that survives a native crash and can be read by a person holding
+         * only the phone: the system Files app can open Android/data/<pkg>/files/ without root, a
+         * cable or a permission prompt. Everything else needs the app to reach a screen, which is
+         * exactly what a boot crash prevents.
+         *
+         * Failures to write here are swallowed on purpose - a device with no external storage must
+         * not fail to boot because logging failed.
+         */
+        private var bootLog: File? = null
+
+        fun startBootLog(context: Context) {
+            val app = context.applicationContext
+            bootLog = runCatching {
+                val dir = File(app.getExternalFilesDir(null), "diagnostics").apply { mkdirs() }
+                File(dir, "boot-log.txt").apply { writeText("") }
+            }.getOrNull()
+            boot("process started · ${app.packageName}")
+        }
+
+        fun boot(stage: String) {
+            Log.i(TAG, "boot: $stage")
+            val file = bootLog ?: return
+            runCatching {
+                val stamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+                file.appendText("$stamp  $stage\n")
+            }
+        }
 
         /**
          * Record that a session is starting, and whether the previous one ended cleanly.

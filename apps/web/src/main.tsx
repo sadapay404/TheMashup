@@ -7,7 +7,12 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { Boundary } from './components/shell/Boundary';
+import { nativeBootMark } from './lib/native';
 import './styles.css';
+
+// First line of the web half of the boot log. If the native log ends before this, the page never got
+// as far as executing its entry module, which is a different problem from the app crashing later.
+nativeBootMark('module loaded');
 
 // Global safety net: log, never rethrow.
 window.addEventListener('unhandledrejection', (e) => {
@@ -25,6 +30,10 @@ window.addEventListener('unhandledrejection', (e) => {
   }
   e.preventDefault();
 });
+
+// Tell the boot sentinel in index.html that the bundle loaded and React is about to paint, so it
+// stops waiting. Declared by that inline script; absent in tests and in any non-HTML host.
+const booted = (window as unknown as { __mashupBooted?: () => void }).__mashupBooted;
 
 const rootEl = document.getElementById('root');
 if (rootEl) {
@@ -62,4 +71,8 @@ if (rootEl) {
       </Boundary>
     </StrictMode>,
   );
+  // Armed only after a successful render call: if createRoot threw above, the sentinel still owns
+  // the screen and will report the failure.
+  booted?.();
+  nativeBootMark('react rendered');
 }
