@@ -117,6 +117,21 @@ it carried a cluster of defects that all shared one root cause: code that assume
 | 27 | Seek bar ignored `pointercancel` | An interrupted drag froze the thumb for the rest of the session |
 | 28 | Library still claimed downloads awaited "Phase 3" | Stale copy for a shipped feature |
 
+### CI hygiene (§3b did not cover this)
+
+GitHub annotated **every** run: `cache@v4`, `setup-node@v4` and `upload-artifact@v4` target the
+deprecated Node 20 runtime and were being force-migrated. Each new major's `action.yml` was read
+before bumping, to confirm the inputs this repo actually passes still exist — `setup-node` v7 keeps
+`node-version`/`cache`; `upload-artifact` v7 keeps `name`/`path`/`retention-days`/
+`if-no-files-found` and still zips multi-file paths by default. All five workflows were then proven
+green, not assumed. A stale comment in `soak.yml` (quoting an obsolete cycle count) was corrected
+after verifying the arithmetic against `soak.spec.ts` — the code was right, the comment was not, and
+the comment was changed rather than the code.
+
+One failure is left in the history on purpose: `6d49cd2d` failed `Typecheck (strict)` with a real
+`TS2532` in a test I had just written. It was fixed in the next commit (`a98f07c2`, green). Leaving it
+visible is more useful than rewriting history to look clean.
+
 ### What this audit changed about the process
 
 Two of these (#10 and #19) are the same category of mistake: **a subsystem that was implemented,
