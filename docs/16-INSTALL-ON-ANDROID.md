@@ -15,8 +15,23 @@ https://github.com/sadapay404/TheMashup/releases
 
 Pick the newest `v0.3.0-apk.N` release and tap the **`.apk`** asset under *Assets*.
 
-Expect roughly **2 MB**. The release build is R8-minified; a debug build of the same code is about
-8 MB, and seeing ~2 MB is the signal you got the release one.
+Expect roughly **3 MB**. The release build is R8-minified; a debug build of the same code is about
+9 MB, and the size is the quickest way to tell which one you installed.
+
+### If the app closes immediately on launch
+
+Install the debug build of the same commit instead — it is the same code without R8:
+
+```
+https://github.com/sadapay404/TheMashup/releases/download/v0.3.0-apk.23-debug/app-standard-debug.apk
+```
+
+It installs as a **separate app** (`TheMashup` with a second icon), so it can sit next to the release
+one and you do not have to uninstall anything first. If the debug build starts and the release does
+not, the problem is in the minifier rather than the app, and that narrows the fix to a few lines.
+
+Either way, the log line that explains a crash is the first `FATAL EXCEPTION` in `adb logcat`, or
+the same block in any logcat reader app.
 
 ## 2. Allow the install
 
