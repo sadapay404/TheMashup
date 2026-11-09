@@ -103,7 +103,7 @@ export async function downloadPlaylist(opts: {
         patch({ failed: batch.failed });
         continue;
       }
-      const jobId = await startDownload(track, url, target);
+      const jobId = await startDownload(track, url, target, folder.name);
       // File the job into the playlist folder. startDownload registers it first so progress is
       // visible from the moment it is queued.
       store.set((s) => ({

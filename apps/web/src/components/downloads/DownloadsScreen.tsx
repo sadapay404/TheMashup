@@ -31,6 +31,7 @@ import {
   foldersOf,
   moveToFolder,
   renameFolder,
+  syncFolderToDisk,
   SYSTEM_FOLDER,
 } from '@/lib/folders';
 import { haptic } from '@/lib/haptics';
@@ -275,13 +276,24 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
             folders={folders.filter((f) => f.kind === (moving.kind ?? 'music'))}
             onClose={() => setMoving(null)}
             onMove={(folderId) => {
-              const res = moveToFolder([moving.id], folderId);
-              if (res.folder && res.moved) {
-                haptic('success');
-                store.notify(`Moved to ${res.folder.name}`, 'success');
-                setOpenFolder(folderId);
+              const jobId = moving.id;
+              const res = moveToFolder([jobId], folderId);
+              if (!res.folder || !res.moved) {
+                setMoving(null);
+                return;
               }
+              const target = res.folder;
+              haptic('success');
+              store.notify(`Moved to ${target.name}`, 'success');
+              setOpenFolder(folderId);
               setMoving(null);
+              // The list moved immediately; the file follows. If the disk refuses, the earlier
+              // message would be a lie, so it is corrected rather than left standing.
+              void syncFolderToDisk([jobId], folderId).then((failed) => {
+                if (!failed) return;
+                haptic('error');
+                store.notify('Filed in the app, but the file could not be moved on disk', 'error');
+              });
             }}
           />
         ) : null}
@@ -410,6 +422,7 @@ function MoveSheet({
   folders: DownloadFolder[];
   onClose: () => void;
   onMove: (folderId: string) => void;
+  onDiskFailure?: () => void;
 }) {
   const current = job.folderId ?? SYSTEM_FOLDER[job.kind ?? 'music'];
   return (

@@ -10,6 +10,7 @@
  */
 
 import { store, type DownloadFolder, type MediaKind } from '@/state/store';
+import { isNative, nativeMoveFile } from './native';
 
 export const SYSTEM_FOLDER: Record<MediaKind, string> = {
   music: 'all-songs',
@@ -98,7 +99,10 @@ export function fileCount(folderId: string): number {
  * which folder they sit in would risk a half-moved file for no benefit. The native side is told so
  * the real directory is updated when files live on disk.
  */
-export function moveToFolder(ids: string[], folderId: string): { moved: number; folder: DownloadFolder | null } {
+export function moveToFolder(
+  ids: string[],
+  folderId: string,
+): { moved: number; folder: DownloadFolder | null } {
   const folder = folderById(folderId);
   if (!folder) return { moved: 0, folder: null };
 
@@ -115,7 +119,45 @@ export function moveToFolder(ids: string[], folderId: string): { moved: number; 
       return { ...j, folderId };
     }),
   }));
+
   return { moved, folder };
+}
+
+/**
+ * Move the bytes as well as the record, on platforms where the file exists.
+ *
+ * Separate from `moveToFolder` because it is asynchronous and can fail, and a caller that ignores it
+ * would show a success message for a file that never moved. Resolves to the number of files that
+ * could not be moved; the browser has no filesystem here, so it always resolves to 0.
+ */
+export async function syncFolderToDisk(ids: string[], folderId: string): Promise<number> {
+  if (!isNative()) return 0;
+  const folder = folderById(folderId);
+  if (!folder) return 0;
+
+  let failed = 0;
+  for (const id of ids) {
+    const job = store.getState().downloads.find((j) => j.id === id);
+    // No `path` means the file never reached disk (browser-saved or still moving), so there is
+    // nothing to relocate and nothing to report.
+    if (!job?.path) continue;
+    if ((job.kind ?? 'music') !== folder.kind) continue;
+
+    const next = await nativeMoveFile({
+      from: job.path,
+      fromKind: job.kind ?? 'music',
+      toFolder: folder.name,
+      toKind: folder.kind,
+    });
+    if (!next) {
+      failed += 1;
+      continue;
+    }
+    store.set((s) => ({
+      downloads: s.downloads.map((j) => (j.id === id ? { ...j, path: next } : j)),
+    }));
+  }
+  return failed;
 }
 
 /** Rename a user folder. System buckets keep their names. */

@@ -164,7 +164,12 @@ async function saveBlob(blob: Blob, fileName: string): Promise<void> {
  * Start a download. Returns the job id.
  * The job is registered immediately so the UI shows honest state, then it transitions.
  */
-export async function startDownload(track: Track, url: string, target: Target): Promise<string> {
+export async function startDownload(
+  track: Track,
+  url: string,
+  target: Target,
+  folderName?: string,
+): Promise<string> {
   const id = `dl-${target.itag}-${track.id}-${Date.now()}`;
   const job: DownloadJob = {
     id,
@@ -182,11 +187,16 @@ export async function startDownload(track: Track, url: string, target: Target): 
       id,
       url,
       fileName: fileNameFor(track, target),
-      ...(track.album ? { subdir: track.album } : {}),
+      // A playlist download already decided which folder this belongs to; otherwise the album is
+      // the sensible default. Either way the native side creates the real directory.
+      ...(folderName ? { subdir: folderName } : track.album ? { subdir: track.album } : {}),
+      kind: track.kind === 'video' ? 'video' : 'music',
     });
     if (res) {
       bindNativeDownloadEvents();
-      update(id, { state: 'downloading' });
+      // Keep the real on-disk path: a move later has to act on the file that exists, not on a name
+      // reconstructed from the track title.
+      update(id, { state: 'downloading', ...(res.path ? { path: res.path } : {}) });
       return id;
     }
     // fall through to the browser path if the plugin rejected it

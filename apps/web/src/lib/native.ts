@@ -141,12 +141,22 @@ export async function nativeDownload(args: {
   url: string;
   fileName: string;
   subdir?: string;
+  /** Songs and videos are written under separate roots, so the file lands in the right section. */
+  kind?: 'music' | 'video';
   publicMusicDir?: boolean;
-}): Promise<{ id: string; path: string } | null> {
+}): Promise<{ id: string; path: string; folder: string } | null> {
   if (!plugin('MashupDownloads')) return null;
   try {
-    const res = (await invoke('MashupDownloads', 'enqueue', { ...args })) as { id?: string; path?: string };
-    return { id: String(res.id ?? args.id), path: String(res.path ?? '') };
+    const res = (await invoke('MashupDownloads', 'enqueue', { ...args })) as {
+      id?: string;
+      path?: string;
+      folder?: string;
+    };
+    return {
+      id: String(res.id ?? args.id),
+      path: String(res.path ?? ''),
+      folder: String(res.folder ?? ''),
+    };
   } catch {
     return null;
   }
@@ -179,5 +189,70 @@ export async function nativeCookie(): Promise<string | null> {
     return cookie && cookie.length > 0 ? cookie : null;
   } catch {
     return null;
+  }
+}
+
+/** A folder as the Android side reports it, read from the real filesystem. */
+export interface NativeFolder {
+  name: string;
+  path: string;
+  files: { name: string; path: string; size: number; modified: number }[];
+  size: number;
+}
+
+export interface NativeTreeSection {
+  kind: 'music' | 'video';
+  root: string;
+  folders: NativeFolder[];
+  files: { name: string; path: string; size: number; modified: number }[];
+}
+
+/**
+ * The real download tree, straight from disk.
+ *
+ * Only the Android build can answer this; the browser resolves to null and the UI keeps using the
+ * state model. Never fabricate an empty tree here — "no files" and "cannot look" are different
+ * answers and the UI says different things for each.
+ */
+export async function nativeTree(publicMusicDir = false): Promise<NativeTreeSection[] | null> {
+  if (!plugin('MashupDownloads')) return null;
+  try {
+    const res = (await invoke('MashupDownloads', 'tree', { publicMusicDir })) as { sections?: NativeTreeSection[] };
+    return Array.isArray(res.sections) ? res.sections : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function nativeCreateFolder(name: string, kind: 'music' | 'video' = 'music'): Promise<string | null> {
+  try {
+    const res = (await invoke('MashupDownloads', 'createFolder', { name, kind })) as { path?: string };
+    return res.path ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Move a file on disk. Returns the new path, or null when the native side refused. */
+export async function nativeMoveFile(args: {
+  from: string;
+  fromKind: 'music' | 'video';
+  toFolder: string;
+  toKind?: 'music' | 'video';
+}): Promise<string | null> {
+  try {
+    const res = (await invoke('MashupDownloads', 'move', { ...args })) as { path?: string };
+    return res.path ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function nativeRemoveFile(path: string, kind: 'music' | 'video' = 'music'): Promise<boolean> {
+  try {
+    const res = (await invoke('MashupDownloads', 'remove', { path, kind })) as { removed?: boolean };
+    return Boolean(res.removed);
+  } catch {
+    return false;
   }
 }
