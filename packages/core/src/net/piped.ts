@@ -48,6 +48,17 @@ export const DEFAULT_INSTANCES: PublicApiInstance[] = [
 
 const TIMEOUT_MS = 9000;
 
+/**
+ * Piped's `proxyUrl` is frequently a *relative* path (`/videoplayback?...`), because the instance
+ * serves the media from its own origin. Assigning it straight into `urls[]` produced a URL that the
+ * browser resolved against the app itself, so every stream 404'd. Absolute URLs are passed through.
+ */
+function absoluteUrl(candidate: string | undefined, base: string): string | undefined {
+  if (!candidate) return undefined;
+  if (/^https?:\/\//i.test(candidate)) return candidate;
+  return `${base.replace(/\/$/, '')}${candidate.startsWith('/') ? '' : '/'}${candidate}`;
+}
+
 async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
   const controller = new AbortController();
   const onAbort = () => controller.abort();
@@ -241,30 +252,47 @@ export class PublicApiProvider {
   }
 
   /** Resolve audio + video formats for a track. */
+  /**
+   * Resolve stream formats, preferring an instance that actually yielded playable URLs.
+   *
+   * A proxy instance can answer instantly and still be useless (its own proxy is down, or the
+   * upstream IP is blocked), so the first *answer* is collected but the loop continues until an
+   * instance provides real URLs. This is the difference between "no playable source" and playing.
+   */
   async stream(videoId: string, signal?: AbortSignal): Promise<StreamInfo | null> {
+    let fallback: StreamInfo | null = null;
     for (const inst of this.ordered()) {
       try {
         const info =
           inst.kind === 'piped'
             ? await this.streamPiped(inst, videoId, signal)
             : await this.streamInvidious(inst, videoId, signal);
+        // Requiring a playable URL matters: an instance can return a full format list with no
+        // usable media URL (all null, or every stream 403s). Accepting that ended the ladder and
+        // surfaced "no playable source" while a perfectly good instance was still untried.
         if (info && info.audio.length) {
-          this.preferred = inst.id;
-          this.lastUsed = inst.id;
-          return info;
+          if (Object.keys(info.urls).length > 0) {
+            this.preferred = inst.id;
+            this.lastUsed = inst.id;
+            return info;
+          }
+          // Formats but nothing playable: keep it as a last resort so the UI can still show the
+          // quality ladder, then try the next host.
+          fallback ??= info;
         }
       } catch {
         this.dead.set(inst.id, Date.now());
       }
     }
-    return null;
+    if (fallback) this.lastUsed = fallback.profile.replace(/^\w+:/, '');
+    return fallback;
   }
 
   private async streamPiped(inst: PublicApiInstance, videoId: string, signal?: AbortSignal): Promise<StreamInfo | null> {
     const json = await getJson(`${inst.base}/streams/${videoId}`, signal);
     const root = json as {
-      audioStreams?: Array<{ itag?: number; mimeType?: string; codec?: string; bitrate?: number; quality?: string; url?: string; contentLength?: number }>;
-      videoStreams?: Array<{ itag?: number; mimeType?: string; codec?: string; bitrate?: number; quality?: string; width?: number; height?: number; fps?: number; url?: string; videoOnly?: boolean }>;
+      audioStreams?: Array<{ itag?: number; mimeType?: string; codec?: string; bitrate?: number; quality?: string; url?: string; proxyUrl?: string; contentLength?: number }>;
+      videoStreams?: Array<{ itag?: number; mimeType?: string; codec?: string; bitrate?: number; quality?: string; width?: number; height?: number; fps?: number; url?: string; proxyUrl?: string; videoOnly?: boolean }>;
       duration?: number;
     };
 
@@ -276,7 +304,10 @@ export class PublicApiProvider {
       const itag = Number(a.itag ?? 0);
       if (!itag) continue;
       const kbps = Math.round(Number(a.bitrate ?? 0) / 1000);
-      if (a.url) urls[itag] = a.url;
+      // `url` is often null: Piped strips the direct googlevideo URL (it is IP-bound and would 403)
+      // and exposes `proxyUrl` instead. Reading only `url` left every track with no playable source.
+      const audioUrl = absoluteUrl(a.url ?? a.proxyUrl, inst.base);
+      if (audioUrl) urls[itag] = audioUrl;
       audio.push({
         itag,
         codec: (a.codec ?? (a.mimeType?.includes('opus') ? 'Opus' : 'AAC')).replace(/^audio\//, '').toUpperCase(),
@@ -284,7 +315,7 @@ export class PublicApiProvider {
         actualKbps: kbps,
         container: a.mimeType?.includes('webm') ? 'webm' : 'm4a',
         quality: a.quality ?? '',
-        deliver: a.url ? 'url' : 'none',
+        deliver: audioUrl ? 'url' : 'none',
         premiumOnly: false,
       });
     }
@@ -296,7 +327,8 @@ export class PublicApiProvider {
       const height = Number(v.height ?? Number(v.quality?.replace('p', '')) ?? 0);
       const res = height ? `${height}p` : (v.quality ?? '?');
       if (byRes.has(res)) continue;
-      if (v.url) urls[itag] = v.url;
+      const videoUrl = absoluteUrl(v.url ?? v.proxyUrl, inst.base);
+      if (videoUrl) urls[itag] = videoUrl;
       byRes.set(res, {
         itag,
         height,
@@ -306,7 +338,7 @@ export class PublicApiProvider {
         kbps: Math.round(Number(v.bitrate ?? 0) / 1000),
         container: v.mimeType?.includes('webm') ? 'webm' : 'mp4',
         hasAudio: v.videoOnly === false,
-        deliver: v.url ? 'url' : 'none',
+        deliver: videoUrl ? 'url' : 'none',
       });
     }
 
@@ -330,6 +362,8 @@ export class PublicApiProvider {
       bitrate?: string;
       qualityLabel?: string;
       url?: string;
+      audioUrl?: string;
+      videoUrl?: string;
       audioQuality?: string;
       resolution?: string;
     }
@@ -344,7 +378,9 @@ export class PublicApiProvider {
       if (!itag) continue;
       const type = f.type ?? '';
       const kbps = Math.round(Number(f.bitrate ?? '0') / 1000);
-      if (f.url) urls[itag] = f.url;
+      // Invidious separates audio-only and video-only URLs in some versions; fall back through all.
+      const mediaUrl = absoluteUrl(f.url ?? f.audioUrl ?? f.videoUrl, inst.base);
+      if (mediaUrl) urls[itag] = mediaUrl;
       if (type.startsWith('audio/')) {
         audio.push({
           itag,
@@ -353,7 +389,7 @@ export class PublicApiProvider {
           actualKbps: kbps,
           container: type.includes('webm') ? 'webm' : 'm4a',
           quality: f.audioQuality ?? '',
-          deliver: f.url ? 'url' : 'none',
+          deliver: mediaUrl ? 'url' : 'none',
           premiumOnly: false,
         });
       } else if (type.startsWith('video/')) {
@@ -367,7 +403,7 @@ export class PublicApiProvider {
           kbps,
           container: type.includes('webm') ? 'webm' : 'mp4',
           hasAudio: type.includes('mp4a') || type.includes('opus'),
-          deliver: f.url ? 'url' : 'none',
+          deliver: mediaUrl ? 'url' : 'none',
         });
       }
     }

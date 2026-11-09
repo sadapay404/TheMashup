@@ -55,3 +55,67 @@ describe('PublicApiProvider retry window', () => {
     vi.unstubAllGlobals();
   });
 });
+
+/**
+ * The reported "No playable source" bug.
+ *
+ * Piped instances usually null out `url` (the direct googlevideo link is IP-bound and would 403 for
+ * the user) and expose `proxyUrl` instead — which is often a *relative* path served from the instance
+ * origin. The parser read only `url`, so `audio[]` filled up while `urls{}` stayed empty and every
+ * track looked unplayable.
+ */
+describe('stream URLs from proxying instances', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const reply = (streams: unknown) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => streams }) as unknown as Response),
+    );
+  };
+
+  it('uses proxyUrl when url is null, made absolute against the instance', async () => {
+    const provider = new PublicApiProvider([instances[0]!]);
+    reply({
+      audioStreams: [{ itag: 251, mimeType: 'audio/webm', bitrate: 128000, url: null, proxyUrl: '/videoplayback?id=abc' }],
+      videoStreams: [],
+    });
+
+    const info = await provider.stream('dQw4w9WgXcQ');
+    expect(info).not.toBeNull();
+    expect(info!.urls[251]).toBe('https://a.test/videoplayback?id=abc');
+    expect(info!.audio[0]!.deliver).toBe('url');
+  });
+
+  it('passes absolute proxy urls through unchanged', async () => {
+    const provider = new PublicApiProvider([instances[0]!]);
+    reply({
+      audioStreams: [{ itag: 251, mimeType: 'audio/webm', bitrate: 128000, proxyUrl: 'https://cdn.test/x' }],
+      videoStreams: [],
+    });
+    expect((await provider.stream('dQw4w9WgXcQ'))!.urls[251]).toBe('https://cdn.test/x');
+  });
+
+  it('skips an instance that answers with formats but no playable URL', async () => {
+    // Instance A is a proxy whose proxy is itself down: it responds, but nothing is playable.
+    // The ladder must continue to B instead of reporting failure.
+    const provider = new PublicApiProvider(instances);
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('a.test')) {
+        return {
+          ok: true,
+          json: async () => ({ audioStreams: [{ itag: 251, bitrate: 128000, url: null, proxyUrl: null }] }),
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ audioStreams: [{ itag: 140, bitrate: 128000, proxyUrl: '/vp?x=1' }] }),
+      } as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const info = await provider.stream('dQw4w9WgXcQ');
+    expect(info?.profile).toBe('piped:b');
+    expect(info?.urls[140]).toBe('https://b.test/vp?x=1');
+  });
+});
