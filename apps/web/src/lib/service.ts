@@ -187,7 +187,10 @@ export class MusicService {
         k: 'Network',
         retryable: true,
         cause: 'unknown',
-        message: 'Every route failed. Open Settings → Diagnostics to see which ones are reachable from your network.',
+        // Naming the likely cause is more useful than "it did not work": browser mode depends on
+        // community-run Piped/Invidious hosts, which many mobile networks and regions block.
+        message:
+          'No search route answered. The public mirrors this works through are often blocked on mobile networks — try Wi-Fi, or run Diagnostics in Settings to see exactly which routes are reachable from here.',
       },
     };
   }

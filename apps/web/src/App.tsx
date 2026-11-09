@@ -12,6 +12,7 @@ import { service } from '@/lib/service';
 import { isDesktop, onDesktopAction, onWindowHidden } from '@/lib/desktop';
 import { loadPersisted, startAutosave } from '@/lib/persist';
 import { applyPalette, extractPalette } from '@/lib/palette';
+import { applyTheme } from '@/lib/theme';
 import { Boundary } from '@/components/shell/Boundary';
 import { NavPill } from '@/components/shell/NavPill';
 import { MiniPlayer } from '@/components/player/MiniPlayer';
@@ -45,7 +46,13 @@ function restoreOnce(): void {
     history: saved.history,
     affinity: saved.affinity,
     likes: saved.likes,
+    amoled: saved.amoled,
+    theme: saved.theme,
   });
+
+  // Apply immediately after restore so the first paint is already correct. Previously `amoled` was
+  // persisted nowhere and applied nowhere on load, so the toggle silently reset on every reload.
+  applyTheme(saved.theme, saved.amoled);
 }
 restoreOnce();
 

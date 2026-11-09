@@ -33,9 +33,15 @@
   --accent-soft: color-mix(in oklab, var(--accent) 18%, transparent);
   --accent-glow: color-mix(in oklab, var(--accent) 38%, transparent);
 
-  --glass: rgba(255, 255, 255, 0.045);
-  --glass-strong: rgba(255, 255, 255, 0.075);
-  --hairline: rgba(255, 255, 255, 0.09);
+  /* Defaults match the `obsidian` theme; the theme blocks below override them. */
+  --wash: #ffffff;
+  --on-accent: #000000;
+  /* Solid control chrome (toggle knob, seek thumb). Distinct from --wash, which is translucent. */
+  --knob: #ffffff;
+
+  --glass: color-mix(in oklab, var(--wash) 4.5%, transparent);
+  --glass-strong: color-mix(in oklab, var(--wash) 7.5%, transparent);
+  --hairline: color-mix(in oklab, var(--wash) 9%, transparent);
   --blur: 28px;
 
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -49,7 +55,100 @@
   --dur-slow: 380ms;
 }
 
-/* AMOLED option toggled by data-theme on <html>. */
+/*
+ * ── Themes ────────────────────────────────────────────────────────────────────────────────────────
+ * `data-theme` on <html> selects a surface palette. Every theme defines the same five slots:
+ *   ground (void/base/raised) · wash (neutral overlay) · text ramp · on-accent · accent seeds
+ *
+ * `--wash` is the important one: components build every chip, glass panel and row from it instead of
+ * hardcoding `bg-white/…`. White wash on dark grounds, black wash on light ones, so a light theme
+ * keeps the same visual rhythm rather than turning into unreadable white-on-white.
+ *
+ * `--on-accent` is the foreground for solid accent fills. Black suits bright accents; a deep neon
+ * accent needs light text, so each theme states its own.
+ */
+html[data-theme='obsidian'] {
+  --color-void: #07070a;
+  --color-base: #0c0c11;
+  --color-raised: #131319;
+  --color-text: #f4f4f6;
+  --color-text-2: #a6a6b2;
+  --color-text-3: #6e6e7c;
+  --wash: #ffffff;
+  --on-accent: #000000;
+  --hairline: rgba(255, 255, 255, 0.09);
+}
+
+/* Vinyl Sleeve — warm charcoal, aged paper, brass accent. */
+html[data-theme='vinyl'] {
+  --color-void: #14100c;
+  --color-base: #1a1510;
+  --color-raised: #221b14;
+  --color-text: #f3e9d9;
+  --color-text-2: #b8a892;
+  --color-text-3: #7d6f5d;
+  --wash: #f3e9d9;
+  --on-accent: #1a1510;
+  --hairline: rgba(243, 233, 217, 0.12);
+  --accent: #d99a4e;
+  --accent-2: #b87333;
+}
+
+/* Ink on Paper — a genuine light theme. Text ramp inverts; washes become ink. */
+html[data-theme='paper'] {
+  --color-void: #f6f1e7;
+  --color-base: #fbf7f0;
+  --color-raised: #ffffff;
+  --color-text: #1a1712;
+  --color-text-2: #4a443b;
+  --color-text-3: #7a7266;
+  --wash: #000000;
+  --on-accent: #ffffff;
+  --knob: #1a1712;
+  --hairline: rgba(26, 23, 18, 0.14);
+  --accent: #1d4ed8;
+  --accent-2: #7c3aed;
+  --glass: rgba(255, 255, 255, 0.6);
+  --glass-strong: rgba(255, 255, 255, 0.78);
+  --color-danger: #c81e1e;
+  --color-ok: #15803d;
+  --color-warn: #a16207;
+}
+
+/* Neon Rain — deep violet night, hot magenta. */
+html[data-theme='cyberpunk'] {
+  --color-void: #05010d;
+  --color-base: #0a0417;
+  --color-raised: #120a24;
+  --color-text: #e9e6ff;
+  --color-text-2: #a99ed0;
+  --color-text-3: #6f6690;
+  --wash: #e9e6ff;
+  --on-accent: #05010d;
+  --hairline: rgba(255, 46, 136, 0.22);
+  --accent: #ff2e88;
+  --accent-2: #22d3ee;
+}
+
+/* Midnight Forest — mossy, low contrast. */
+html[data-theme='forest'] {
+  --color-void: #06110d;
+  --color-base: #0a1712;
+  --color-raised: #0d1d16;
+  --color-text: #e3f2e8;
+  --color-text-2: #9dbcaa;
+  --color-text-3: #64806f;
+  --wash: #e3f2e8;
+  --on-accent: #06110d;
+  --hairline: rgba(163, 230, 190, 0.14);
+  --accent: #4ade80;
+  --accent-2: #22d3ee;
+}
+
+/*
+ * AMOLED: crush the ground to true black. Applies only to dark themes (the theme picker refuses to
+ * combine it with `paper`, where it would be meaningless).
+ */
 html[data-amoled='true'] {
   --color-void: #000000;
   --color-base: #000000;
@@ -66,6 +165,7 @@ html {
 body {
   margin: 0;
   font-family: var(--font-sans);
+  /* Theme-aware: `var(--color-void)` is the theme ground, so this works on paper too. */
   background:
     radial-gradient(1200px 600px at 50% -10%, var(--accent-soft), transparent 70%),
     var(--color-void);

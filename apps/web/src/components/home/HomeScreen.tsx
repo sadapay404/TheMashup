@@ -37,7 +37,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
             type="button"
             onClick={onGoSearch}
             aria-label="Search the catalogue"
-            className="grid h-12 w-12 place-items-center rounded-full bg-white/6 transition hover:bg-white/10"
+            className="grid h-12 w-12 place-items-center rounded-full bg-[color-mix(in_oklab,var(--wash)_7%,transparent)] transition hover:bg-[color-mix(in_oklab,var(--wash)_11%,transparent)]"
           >
             <SearchIcon width={21} height={21} />
           </button>
@@ -79,7 +79,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
                 whileTap={{ scale: 0.96 }}
                 className="w-[136px] shrink-0 text-left"
               >
-                <div className="relative aspect-square overflow-hidden rounded-2xl bg-white/6">
+                <div className="relative aspect-square overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
                   {t.thumbs[0] ? (
                     <img src={t.thumbs[0].url} alt="" className="h-full w-full object-cover" loading="lazy" />
                   ) : (
@@ -113,7 +113,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
             detail="Search for a song, or paste a lyric you remember. Everything you play shows up here and teaches the on-device recommender."
             action={{ label: 'Find something to play', onClick: onGoSearch }}
           />
-          <div className="mx-auto mt-2 max-w-sm rounded-2xl border border-[var(--hairline)] bg-white/3 p-3 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
+          <div className="mx-auto mt-2 max-w-sm rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_3%,transparent)] p-3 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
             <strong className="text-[var(--color-text-2)]">Zero server:</strong> search, streaming, lyrics and
             downloads all run in this tab. There is no account, no backend, and no analytics.
           </div>
@@ -121,7 +121,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
       ) : null}
 
       {queue.length ? (
-        <div className="mt-6 rounded-2xl border border-[var(--hairline)] bg-white/3 p-3 text-[11.5px] text-[var(--color-text-3)]">
+        <div className="mt-6 rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_3%,transparent)] p-3 text-[11.5px] text-[var(--color-text-3)]">
           Queue · {queue.length} tracks ·{' '}
           {formatTime(queue.reduce((n, t) => n + t.durationSec, 0))} total
         </div>

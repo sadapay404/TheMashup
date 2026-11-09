@@ -71,7 +71,7 @@ export class Boundary extends Component<Props, State> {
         <button
           type="button"
           onClick={this.reset}
-          className="mt-1 rounded-full bg-white/10 px-3 py-1.5 text-[11.5px] font-medium"
+          className="mt-1 rounded-full bg-[color-mix(in_oklab,var(--wash)_11%,transparent)] px-3 py-1.5 text-[11.5px] font-medium"
         >
           Try again
         </button>

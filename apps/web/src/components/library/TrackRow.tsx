@@ -29,14 +29,14 @@ export function TrackRow({
       transition={{ ...snap, delay: Math.min(6, index ?? 0) * 0.018 }}
       whileTap={{ scale: 0.985 }}
       className={`group flex items-center gap-3 rounded-[var(--radius-row)] px-2 py-2 transition-colors ${
-        active ? 'bg-white/8' : 'hover:bg-white/5'
+        active ? 'bg-[color-mix(in_oklab,var(--wash)_9%,transparent)]' : 'hover:bg-[color-mix(in_oklab,var(--wash)_6%,transparent)]'
       }`}
     >
       <button
         type="button"
         onClick={onPlay}
         aria-label={`Play ${track.title} by ${track.artist}`}
-        className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/6"
+        className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]"
       >
         {art ? (
           <img src={art} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" draggable={false} />
@@ -69,7 +69,7 @@ export function TrackRow({
           type="button"
           onClick={() => onDownload(track)}
           aria-label={`Download ${track.title}`}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] opacity-0 transition hover:bg-white/8 hover:text-[var(--color-text)] group-hover:opacity-100 focus-visible:opacity-100"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] opacity-0 transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)] group-hover:opacity-100 focus-visible:opacity-100"
         >
           <DownloadIcon width={17} height={17} />
         </button>

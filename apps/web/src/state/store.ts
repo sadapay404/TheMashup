@@ -7,6 +7,8 @@ import { useCallback, useSyncExternalStore } from 'react';
 import type { AffinityState, Lyrics, StreamInfo, Track } from '@themashup/core';
 import { emptyAffinity } from '@themashup/core';
 
+export type ThemeId = 'obsidian' | 'vinyl' | 'paper' | 'cyberpunk' | 'forest';
+
 export type RepeatMode = 'off' | 'all' | 'one';
 export type Route = 'home' | 'search' | 'library' | 'settings';
 
@@ -53,6 +55,8 @@ export interface AppState {
   likes: Track[];
 
   amoled: boolean;
+  /** Visual theme id. See `THEMES` in lib/theme.ts. */
+  theme: ThemeId;
   transportRoute: string;
   toast: { id: number; text: string; kind: 'info' | 'error' | 'success' } | null;
 }
@@ -87,6 +91,7 @@ const initialState: AppState = {
   likes: [],
 
   amoled: false,
+  theme: 'obsidian',
   transportRoute: 'detecting',
   toast: null,
 };

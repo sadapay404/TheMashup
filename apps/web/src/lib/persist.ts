@@ -17,7 +17,7 @@
  */
 
 import { emptyAffinity, type AffinityState, type Track } from '@themashup/core';
-import type { AppState, RepeatMode, Route } from '@/state/store';
+import type { AppState, RepeatMode, Route, ThemeId } from '@/state/store';
 
 const KEY = 'mashup.state.v1';
 const MAX_QUEUE = 200;
@@ -38,6 +38,8 @@ export interface PersistedState {
   repeat: RepeatMode;
   shuffle: boolean;
   rate: number;
+  amoled: boolean;
+  theme: ThemeId;
   history: Track[];
   affinity: AffinityState;
   /** Optional: files written before favourites existed simply omit it and load with none. */
@@ -49,6 +51,7 @@ export interface PersistedState {
 }
 
 const ROUTES: readonly Route[] = ['home', 'search', 'library', 'settings'];
+const THEMES: readonly ThemeId[] = ['obsidian', 'vinyl', 'paper', 'cyberpunk', 'forest'];
 const REPEATS: readonly RepeatMode[] = ['off', 'all', 'one'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -58,6 +61,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function num(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, value));
+}
+
+/** Unknown or absent theme ids fall back to the default rather than leaving the UI unstyled. */
+function theme(value: unknown): ThemeId {
+  return typeof value === 'string' && (THEMES as readonly string[]).includes(value)
+    ? (value as ThemeId)
+    : 'obsidian';
 }
 
 function bool(value: unknown, fallback: boolean): boolean {
@@ -120,6 +130,8 @@ export function loadPersisted(): PersistedState | null {
     repeat,
     shuffle: bool(parsed['shuffle'], false),
     rate: num(parsed['rate'], 1, 0.5, 2),
+    amoled: bool(parsed['amoled'], false),
+    theme: theme(parsed['theme']),
     history: tracks(parsed['history'], MAX_HISTORY),
     likes: tracks(parsed['likes'], MAX_LIKES),
     affinity: isRecord(parsed['affinity']) ? (parsed['affinity'] as unknown as AffinityState) : emptyAffinitySafe(),
@@ -150,6 +162,8 @@ function toPersisted(s: AppState): PersistedState {
     repeat: s.repeat,
     shuffle: s.shuffle,
     rate: s.rate,
+    amoled: s.amoled,
+    theme: s.theme,
     history: s.history.slice(0, MAX_HISTORY),
     likes: s.likes.slice(0, MAX_LIKES),
     affinity: s.affinity,

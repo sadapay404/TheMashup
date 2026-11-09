@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import type { Track } from '@themashup/core';
 import { useApp } from '@/state/store';
-import { EmptyState, formatTime, glide, snap } from '@/components/ui/primitives';
+import { EmptyState, glide, snap } from '@/components/ui/primitives';
 import { DownloadIcon, HeartIcon, LibraryIcon, TrashIcon } from '@/components/ui/icons';
 import { TrackRow } from '@/components/library/TrackRow';
 
@@ -29,7 +29,7 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
         {history.length} tracks · {totalMinutes} min · stored on this device only
       </p>
 
-      <div className="mt-4 flex gap-1 rounded-full bg-white/5 p-1">
+      <div className="mt-4 flex gap-1 rounded-full bg-[color-mix(in_oklab,var(--wash)_6%,transparent)] p-1">
         {(
           [
             ['history', 'History'],
@@ -44,7 +44,7 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
             className="relative flex-1 rounded-full px-3 py-2 text-[12.5px] font-semibold"
           >
             {tab === id ? (
-              <motion.span layoutId="lib-tab" className="absolute inset-0 rounded-full bg-white/10" transition={snap} />
+              <motion.span layoutId="lib-tab" className="absolute inset-0 rounded-full bg-[color-mix(in_oklab,var(--wash)_11%,transparent)]" transition={snap} />
             ) : null}
             <span className={tab === id ? 'relative z-10' : 'relative z-10 text-[var(--color-text-3)]'}>{label}</span>
           </button>
@@ -80,9 +80,9 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ ...snap, delay: i * 0.02 }}
-                className="flex items-center gap-3 rounded-[var(--radius-row)] bg-white/4 px-3 py-2.5"
+                className="flex items-center gap-3 rounded-[var(--radius-row)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] px-3 py-2.5"
               >
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/6">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
                   <DownloadIcon width={16} height={16} />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -97,7 +97,7 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
                 </span>
               </motion.div>
             ))}
-            <div className="mt-3 flex items-start gap-2 rounded-2xl border border-[var(--hairline)] bg-white/3 p-3 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
+            <div className="mt-3 flex items-start gap-2 rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_3%,transparent)] p-3 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
               <TrashIcon width={15} height={15} className="mt-0.5 shrink-0" />
               <span>
                 In the browser, files are written with the File System Access API where available, otherwise saved

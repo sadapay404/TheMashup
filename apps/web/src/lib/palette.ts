@@ -96,11 +96,33 @@ export async function extractPalette(imageUrl: string): Promise<{ accent: string
   }
 }
 
+/**
+ * Apply an artwork-derived palette.
+ *
+ * The extracted accent sits at 62% lightness with black text, which is right on a dark ground. On the
+ * light `paper` theme that same accent is too pale to read against paper stock, so the accent is
+ * darkened and the foreground flipped. Doing this here — rather than in CSS — keeps the extractor
+ * theme-agnostic while still guaranteeing contrast in every theme.
+ */
 export function applyPalette(p: { accent: string; accent2: string } | null): void {
   if (!p || typeof document === 'undefined') return;
   const root = document.documentElement;
-  root.style.setProperty('--accent', p.accent);
-  root.style.setProperty('--accent-2', p.accent2);
-  root.style.setProperty('--accent-soft', `color-mix(in oklab, ${p.accent} 18%, transparent)`);
-  root.style.setProperty('--accent-glow', `color-mix(in oklab, ${p.accent} 42%, transparent)`);
+  const light = root.dataset['theme'] === 'paper';
+
+  const accent = light ? darkenForPaper(p.accent) : p.accent;
+  const accent2 = light ? darkenForPaper(p.accent2) : p.accent2;
+
+  root.style.setProperty('--accent', accent);
+  root.style.setProperty('--accent-2', accent2);
+  root.style.setProperty('--accent-soft', `color-mix(in oklab, ${accent} ${light ? 12 : 18}%, transparent)`);
+  root.style.setProperty('--accent-glow', `color-mix(in oklab, ${accent} 42%, transparent)`);
+  root.style.setProperty('--on-accent', light ? '#ffffff' : '#000000');
+}
+
+/** Drop an `hsl(h s% l%)` accent to a legible lightness on paper. Passes anything else through. */
+function darkenForPaper(color: string): string {
+  const m = /^hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%\s*\)$/.exec(color.trim());
+  if (!m) return color;
+  const l = Math.min(46, Number(m[3]) * 0.62);
+  return `hsl(${m[1]} ${Math.min(88, Number(m[2]) + 6)}% ${l.toFixed(1)}%)`;
 }

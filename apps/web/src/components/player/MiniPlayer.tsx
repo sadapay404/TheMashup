@@ -51,7 +51,7 @@ export function MiniPlayer({
         type="button"
         onClick={onOpen}
         aria-label="Expand artwork to full player"
-        className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white/10"
+        className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--wash)_11%,transparent)]"
       >
         {track.thumbs[0] ? (
           <img
@@ -94,7 +94,7 @@ export function MiniPlayer({
       </motion.button>
 
       {/* Hairline progress along the bottom edge */}
-      <div className="absolute inset-x-2.5 bottom-1 h-[2px] overflow-hidden rounded-full bg-white/10">
+      <div className="absolute inset-x-2.5 bottom-1 h-[2px] overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--wash)_11%,transparent)]">
         <motion.div
           className="h-full rounded-full bg-[var(--accent)]"
           style={{ width: `${Math.min(100, progress * 100)}%` }}

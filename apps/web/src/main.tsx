@@ -40,7 +40,7 @@ if (rootEl) {
               <button
                 type="button"
                 onClick={reset}
-                className="rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-black"
+                className="rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[var(--on-accent)]"
               >
                 Try again
               </button>
@@ -50,7 +50,7 @@ if (rootEl) {
                   localStorage.clear();
                   location.reload();
                 }}
-                className="rounded-full bg-white/10 px-5 py-2.5 text-sm font-semibold"
+                className="rounded-full bg-[color-mix(in_oklab,var(--wash)_11%,transparent)] px-5 py-2.5 text-sm font-semibold"
               >
                 Reset local data
               </button>

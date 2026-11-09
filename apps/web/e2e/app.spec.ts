@@ -129,3 +129,51 @@ test('mobile viewport has no horizontal overflow', async ({ page }) => {
   // A 1px tolerance absorbs sub-pixel rounding without hiding a real layout break.
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
 });
+
+/**
+ * Themes.
+ *
+ * Five themes ship, and the failure mode for theme code is silence: everything renders, but in the
+ * wrong colours. These assert the computed ground and text colours actually change, which is the only
+ * thing a user would notice.
+ */
+test('all five themes apply and change the rendered colours', async ({ page }) => {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+
+  const readGround = () =>
+    page.evaluate(() => {
+      // --color-void is the canvas; --color-text is the ink. Both must move together, or the theme is
+      // half-applied and text becomes unreadable.
+      const css = getComputedStyle(document.documentElement);
+      return {
+        theme: document.documentElement.dataset['theme'],
+        void: css.getPropertyValue('--color-void').trim(),
+        text: css.getPropertyValue('--color-text').trim(),
+      };
+    });
+
+  const seen: string[] = [];
+  for (const name of ['Liquid Obsidian', 'Vinyl Sleeve', 'Ink on Paper', 'Neon Rain', 'Midnight Forest']) {
+    await page.getByRole('button', { name: new RegExp(name) }).click();
+    const applied = await readGround();
+    expect(applied.void, `${name} ground`).not.toBe('');
+    expect(applied.text, `${name} text`).not.toBe('');
+    // A theme where ink and ground are the same colour is unreadable by definition.
+    expect(applied.text.toLowerCase()).not.toBe(applied.void.toLowerCase());
+    seen.push(applied.void);
+  }
+  // Five themes that produce four identical grounds would be one theme with five names.
+  expect(new Set(seen).size).toBeGreaterThanOrEqual(4);
+
+  await page.screenshot({ path: 'screenshots/themes.png', fullPage: true });
+});
+
+test('diagnostics produce a verdict summary, not just dots', async ({ page }) => {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const run = page.getByRole('button', { name: /Run diagnostics/i });
+  await run.click();
+  await expect(run).toBeEnabled({ timeout: 90_000 });
+
+  // The summary is the whole point: "search is blocked on this network" must be sayable.
+  await expect(page.getByRole('button', { name: /Copy full report/i })).toBeVisible();
+});

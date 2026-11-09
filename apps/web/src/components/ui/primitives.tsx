@@ -54,7 +54,7 @@ export function IconButton({
     <Pressable
       label={label}
       onClick={onClick}
-      className={`${dim} ${active ? 'text-[var(--accent)]' : 'text-[var(--color-text)]'} hover:bg-white/8`}
+      className={`${dim} ${active ? 'text-[var(--accent)]' : 'text-[var(--color-text)]'} hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)]`}
     >
       {children}
     </Pressable>
@@ -64,7 +64,7 @@ export function IconButton({
 /** Skeleton with a travelling sheen — used by every loading state. */
 export function Skeleton({ className = '' }: { className?: string }) {
   return (
-    <div className={`relative overflow-hidden rounded-[var(--radius-row)] bg-white/5 ${className}`}>
+    <div className={`relative overflow-hidden rounded-[var(--radius-row)] bg-[color-mix(in_oklab,var(--wash)_6%,transparent)] ${className}`}>
       <motion.div
         className="absolute inset-0"
         style={{
@@ -102,7 +102,7 @@ export function EmptyState({
         <button
           type="button"
           onClick={action.onClick}
-          className="mt-2 rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-black transition active:scale-95"
+          className="mt-2 rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[var(--on-accent)] transition active:scale-95"
         >
           {action.label}
         </button>
@@ -128,8 +128,8 @@ export function Chip({
       transition={snap}
       className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
         active
-          ? 'border-transparent bg-[var(--accent)] text-black'
-          : 'border-[var(--hairline)] bg-white/4 text-[var(--color-text-2)] hover:text-[var(--color-text)]'
+          ? 'border-transparent bg-[var(--accent)] text-[var(--on-accent)]'
+          : 'border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] text-[var(--color-text-2)] hover:text-[var(--color-text)]'
       }`}
     >
       {children}

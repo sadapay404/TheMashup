@@ -115,7 +115,7 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/8"
+            className="grid h-9 w-9 place-items-center rounded-full hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)]"
           >
             <CloseIcon width={18} height={18} />
           </button>
@@ -134,7 +134,7 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
             </div>
           ) : (
             <>
-              <div className="mb-3 rounded-2xl bg-white/4 p-3 text-[11.5px] leading-relaxed text-[var(--color-text-2)]">
+              <div className="mb-3 rounded-2xl bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] p-3 text-[11.5px] leading-relaxed text-[var(--color-text-2)]">
                 Resolved via <strong className="text-[var(--color-text)]">{stream?.profile}</strong> · URLs expire in{' '}
                 {stream ? Math.round(stream.expiresInSec / 3600) : 0} h, so downloads start immediately. FLAC is a
                 lossless <em>container</em> — the source itself is lossy, and the app will never pretend otherwise.
@@ -182,11 +182,11 @@ function FormatRow({ row, onPick }: { row: Row; onPick: () => void }) {
       onClick={onPick}
       className={`mb-1.5 flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
         row.usable
-          ? 'border-[var(--hairline)] bg-white/4 hover:border-[var(--accent)]/50 hover:bg-white/8'
-          : 'cursor-not-allowed border-white/6 bg-white/2 opacity-50'
+          ? 'border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] hover:border-[var(--accent)]/50 hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)]'
+          : 'cursor-not-allowed border-[color-mix(in_oklab,var(--wash)_8%,transparent)] bg-[color-mix(in_oklab,var(--wash)_2%,transparent)] opacity-50'
       }`}
     >
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/6">
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
         <DownloadIcon width={16} height={16} />
       </div>
       <div className="min-w-0 flex-1">

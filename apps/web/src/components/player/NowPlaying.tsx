@@ -72,11 +72,8 @@ export function NowPlaying({
   const backdropOpacity = useTransform(dragY, [0, 300], [1, 0.2]);
 
   const art = track.thumbs[track.thumbs.length - 1]?.url ?? '';
-  const progress = durationSec > 0 ? positionSec / durationSec : 0;
-
+  // SeekBar owns the time read-outs; computing them here as well was dead code.
   const duration = durationSec || track.durationSec;
-  const total = formatTime(duration);
-  const elapsed = formatTime(positionSec);
 
   const activeIdx = useMemo(
     () => (lyrics?.synced ? activeLineIndex(lyrics.synced, positionSec) : -1),
@@ -115,7 +112,7 @@ export function NowPlaying({
         <IconButton label="Close player" onClick={onClose} size="sm">
           <ChevronDownIcon width={22} height={22} />
         </IconButton>
-        <div className="pointer-events-none absolute left-1/2 top-[max(14px,env(safe-area-inset-top))] h-1 w-10 -translate-x-1/2 rounded-full bg-white/25" />
+        <div className="pointer-events-none absolute left-1/2 top-[max(14px,env(safe-area-inset-top))] h-1 w-10 -translate-x-1/2 rounded-full bg-[color-mix(in_oklab,var(--wash)_22%,transparent)]" />
         <IconButton label="Why this track" onClick={() => onWhy(track)} size="sm">
           <SparkIcon width={19} height={19} />
         </IconButton>
@@ -140,7 +137,7 @@ export function NowPlaying({
             {face === id ? (
               <motion.span
                 layoutId="face-pill"
-                className="absolute inset-0 rounded-full bg-white/10"
+                className="absolute inset-0 rounded-full bg-[color-mix(in_oklab,var(--wash)_11%,transparent)]"
                 transition={snap}
               />
             ) : null}
@@ -177,7 +174,7 @@ export function NowPlaying({
                     draggable={false}
                   />
                 ) : (
-                  <div className="grid h-full w-full place-items-center bg-white/5 text-4xl">♪</div>
+                  <div className="grid h-full w-full place-items-center bg-[color-mix(in_oklab,var(--wash)_6%,transparent)] text-4xl">♪</div>
                 )}
               </motion.div>
 
@@ -206,7 +203,7 @@ export function NowPlaying({
                   type="button"
                   onClick={() => onSelectQueue(i)}
                   className={`flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left ${
-                    i === index ? 'bg-white/8' : 'hover:bg-white/4'
+                    i === index ? 'bg-[color-mix(in_oklab,var(--wash)_9%,transparent)]' : 'hover:bg-[color-mix(in_oklab,var(--wash)_5%,transparent)]'
                   }`}
                 >
                   <span className="w-5 shrink-0 text-center text-[11px] tabular-nums text-[var(--color-text-3)]">
@@ -215,7 +212,7 @@ export function NowPlaying({
                   {t.thumbs[0] ? (
                     <img src={t.thumbs[0].url} alt="" className="h-10 w-10 rounded-lg object-cover" loading="lazy" />
                   ) : (
-                    <div className="h-10 w-10 rounded-lg bg-white/5" />
+                    <div className="h-10 w-10 rounded-lg bg-[color-mix(in_oklab,var(--wash)_6%,transparent)]" />
                   )}
                   <span className="min-w-0 flex-1">
                     <span className={`block truncate text-[13px] ${i === index ? 'font-semibold' : ''}`}>{t.title}</span>
@@ -269,7 +266,7 @@ export function NowPlaying({
               whileTap={{ scale: 0.92 }}
               transition={snap}
               aria-label={playing ? 'Pause' : 'Play'}
-              className="relative grid h-16 w-16 place-items-center rounded-full bg-[var(--accent)] text-black shadow-[0_16px_40px_-14px_var(--accent-glow)]"
+              className="relative grid h-16 w-16 place-items-center rounded-full bg-[var(--accent)] text-[var(--on-accent)] shadow-[0_16px_40px_-14px_var(--accent-glow)]"
             >
               {loading ? (
                 <motion.span
@@ -414,7 +411,7 @@ function SeekBar({
           if (e.key === 'End') onSeek(Math.max(0, durationSec - 1));
         }}
       >
-        <div className="absolute inset-x-0 top-1/2 h-[4px] -translate-y-1/2 overflow-hidden rounded-full bg-white/12">
+        <div className="absolute inset-x-0 top-1/2 h-[4px] -translate-y-1/2 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--wash)_13%,transparent)]">
           <div
             className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-150 ease-linear"
             style={{ width: `${pct * 100}%` }}
@@ -426,7 +423,7 @@ function SeekBar({
           />
         </div>
         <div
-          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-md transition-transform group-active:scale-125"
+          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--knob)] shadow-md transition-transform group-active:scale-125"
           style={{ left: `${pct * 100}%` }}
         />
       </div>
@@ -463,7 +460,7 @@ function LyricsFace({
     return (
       <div className="space-y-3 pt-6">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-4 animate-pulse rounded bg-white/6" style={{ width: `${60 + ((i * 13) % 35)}%` }} />
+          <div key={i} className="h-4 animate-pulse rounded bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]" style={{ width: `${60 + ((i * 13) % 35)}%` }} />
         ))}
       </div>
     );

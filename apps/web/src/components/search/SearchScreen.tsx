@@ -15,7 +15,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { SearchFilter, Track } from '@themashup/core';
 import { looksLikeLyrics } from '@themashup/core';
 import { service } from '@/lib/service';
-import { Chip, EmptyState, glide, Skeleton, snap } from '@/components/ui/primitives';
+import { Chip, EmptyState, Skeleton, snap } from '@/components/ui/primitives';
 import { MicIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
 import { TrackRow } from '@/components/library/TrackRow';
 import { useDebounced } from '@/hooks/useDebounced';
@@ -110,7 +110,7 @@ export function SearchScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => 
             aria-label="Search"
             autoComplete="off"
             spellCheck={false}
-            className="h-12 w-full rounded-2xl border border-[var(--hairline)] bg-white/5 pl-11 pr-11 text-[15px] text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-3)] focus:border-[var(--accent)]/60 focus:bg-white/8"
+            className="h-12 w-full rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_6%,transparent)] pl-11 pr-[4.5rem] text-[15px] text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-3)] focus:border-[var(--accent)]/60 focus:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)]"
           />
           {query ? (
             <button
@@ -119,7 +119,7 @@ export function SearchScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => 
                 setQuery('');
                 inputRef.current?.focus();
               }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-2 py-1 text-xs text-[var(--color-text-3)] hover:text-[var(--color-text)]"
+              className="absolute right-2 top-1/2 flex h-8 -translate-y-1/2 items-center rounded-full px-2.5 text-xs font-medium text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
             >
               Clear
             </button>
@@ -170,6 +170,13 @@ export function SearchScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => 
         />
       ) : shown.length ? (
         <motion.div layout className="space-y-1">
+          {/* Which route actually answered. Without this the app is a black box when a host is
+              blocked, and the user cannot tell "no results" from "no network". */}
+          {routeNote ? (
+            <div className="mb-2 px-2 font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-text-3)]">
+              via {routeNote}
+            </div>
+          ) : null}
           {lyricMode ? (
             <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-3)]">
               Best lyric matches

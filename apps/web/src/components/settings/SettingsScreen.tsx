@@ -6,13 +6,14 @@
  * live behaviour — and it is honest about what each check proves.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { buildRequest, PROFILES, STREAM_LADDER } from '@themashup/core';
 import { service } from '@/lib/service';
 import { isNative, nativeAccountStatus, nativeCookie, nativeSignIn } from '@/lib/native';
 import { store, useApp } from '@/state/store';
 import { snap } from '@/components/ui/primitives';
+import { applyTheme, THEMES } from '@/lib/theme';
 import { SparkIcon } from '@/components/ui/icons';
 
 type CheckState = 'idle' | 'run' | 'pass' | 'fail' | 'warn';
@@ -31,10 +32,26 @@ export function SettingsScreen() {
     { id: 'tv', label: 'TVHTML5 player', detail: 'Token-free rung 2', state: 'idle' },
     { id: 'lrclib', label: 'LRCLIB lyrics', detail: 'Title/artist lookup (no lyric-body search exists upstream)', state: 'idle' },
     { id: 'storage', label: 'Persistent storage', detail: 'Can downloads survive eviction?', state: 'idle' },
+    // These two are the honest "what will not work here" rows. They are checks, not chores: a
+    // feature that cannot exist on this platform should say so in the report rather than be absent.
+    {
+      id: 'native',
+      label: 'Native shell features',
+      detail: 'Background audio, lockscreen, hardware keys — Android build only',
+      state: 'idle',
+    },
+    {
+      id: 'account',
+      label: 'Google account',
+      detail: 'Checked below in the Account section',
+      state: 'idle',
+    },
   ]);
   const [running, setRunning] = useState(false);
+  const [finished, setFinished] = useState(false);
   const transportRoute = useApp((s) => s.transportRoute);
   const amoled = useApp((s) => s.amoled);
+  const theme = useApp((s) => s.theme);
   // Account state is re-read after sign-in and on mount, because the native WebView completes
   // out-of-band: there is no promise to await that means "the user finished signing in".
   const [signedIn, setSignedIn] = useState(service.hasAccount());
@@ -143,8 +160,75 @@ export function SettingsScreen() {
       `${persisted ? 'Persistent' : 'Best-effort'} · ${estimate?.usage ? `${Math.round(estimate.usage / 1e6)} MB used` : 'unknown usage'}`,
     );
 
+    // 7. Platform capabilities. Reported truthfully instead of silently omitted.
+    update(
+      'native',
+      isNative() ? 'pass' : 'warn',
+      isNative()
+        ? 'Android shell detected — background playback and lockscreen should work'
+        : 'Not available in a browser: audio stops when the tab is backgrounded, and there are no lockscreen controls',
+    );
+    update(
+      'account',
+      service.hasAccount() ? 'pass' : 'warn',
+      service.hasAccount()
+        ? 'Signed in'
+        : isNative()
+          ? 'Anonymous — you can sign in below'
+          : 'Anonymous — sign-in requires the Android build (see the Account section)',
+    );
+
     setRunning(false);
+    setFinished(true);
     store.notify('Diagnostics complete', 'success');
+  };
+
+  /**
+   * A verdict, not a pile of dots.
+   *
+   * Six coloured dots do not tell the user whether the app works. This summarises them into a
+   * sentence, names the single most important blocker, and can be copied for a bug report.
+   */
+  const summary = useMemo(() => {
+    const pass = checks.filter((c) => c.state === 'pass').length;
+    const fail = checks.filter((c) => c.state === 'fail').length;
+    const warn = checks.filter((c) => c.state === 'warn').length;
+    const total = pass + fail + warn;
+    const searchCheck = checks.find((c) => c.id === 'search');
+    const searchOk = searchCheck?.state === 'pass';
+
+    let verdict: string;
+    let advice: string;
+    if (!total) {
+      verdict = 'Not run yet';
+      advice = 'Tap Run diagnostics to test this device against the live services.';
+    } else if (searchOk && fail === 0) {
+      verdict = 'Everything essential works';
+      advice = `${pass} of ${total} checks passed. Search, streaming and lyrics are reachable from this network.`;
+    } else if (searchOk) {
+      verdict = 'The app works, with caveats';
+      advice = `${pass} passed, ${warn} degraded, ${fail} failed. Search and playback work; the failures above are optional paths that fall back to another route.`;
+    } else {
+      verdict = 'Search is blocked on this network';
+      advice =
+        'No search route answered. This is usually the network blocking the community Piped/Invidious instances (very common on mobile data and in some regions) rather than the app itself. Try Wi-Fi, a VPN, or add your own relay below.';
+    }
+
+    return { pass, fail, warn, total, verdict, advice };
+  }, [checks]);
+
+  const copyReport = () => {
+    const lines = [
+      `TheMashup diagnostics · ${new Date().toISOString()}`,
+      `verdict: ${summary.verdict}`,
+      `passed ${summary.pass} · degraded ${summary.warn} · failed ${summary.fail}`,
+      '',
+      ...checks.map((c) => `[${c.state.toUpperCase().padEnd(4)}] ${c.label} — ${c.detail}`),
+    ];
+    void navigator.clipboard?.writeText(lines.join('\n')).then(
+      () => store.notify('Report copied to clipboard', 'success'),
+      () => store.notify('Could not access the clipboard', 'error'),
+    );
   };
 
   return (
@@ -159,7 +243,7 @@ export function SettingsScreen() {
             type="button"
             onClick={() => (signedIn ? doSignOut() : void doSignIn())}
             disabled={signingIn}
-            className="w-full rounded-2xl bg-white/8 py-2.5 text-[12.5px] font-semibold disabled:opacity-60"
+            className="w-full rounded-2xl bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] py-2.5 text-[12.5px] font-semibold disabled:opacity-60"
           >
             {signingIn ? 'Waiting for Google…' : signedIn ? 'Sign out' : 'Sign in with Google'}
           </button>
@@ -171,14 +255,56 @@ export function SettingsScreen() {
       </Section>
 
       <Section title="Appearance">
-        <Toggle
-          label="True black (AMOLED)"
-          value={amoled}
-          onChange={(v) => {
-            store.set({ amoled: v });
-            document.documentElement.dataset['amoled'] = String(v);
-          }}
-        />
+        <p className="mb-2 px-1 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
+          Each theme sets its own ground, text and accent. Colour inside a track still comes from its
+          artwork, so the app keeps the original idea while the surface changes.
+        </p>
+        <div className="grid gap-1.5">
+          {THEMES.map((t) => {
+            const active = theme === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => {
+                  store.set({ theme: t.id });
+                  applyTheme(t.id, amoled);
+                  store.notify(`${t.name} applied`, 'success');
+                }}
+                aria-pressed={active}
+                className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition ${
+                  active
+                    ? 'bg-[color-mix(in_oklab,var(--accent)_16%,transparent)] ring-1 ring-[var(--accent)]'
+                    : 'bg-[color-mix(in_oklab,var(--wash)_5%,transparent)]'
+                }`}
+              >
+                {/* Four real swatches of the theme rather than a generic dot. */}
+                <span className="flex shrink-0 overflow-hidden rounded-lg ring-1 ring-black/20">
+                  {t.swatch.map((c) => (
+                    <span key={c} style={{ background: c }} className="h-8 w-3" />
+                  ))}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] font-semibold">{t.name}</span>
+                  <span className="block truncate text-[11px] text-[var(--color-text-3)]">{t.blurb}</span>
+                </span>
+                {active ? <span className="shrink-0 text-[11px] font-semibold text-[var(--accent)]">Active</span> : null}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-3">
+          <Toggle
+            label="True black (AMOLED)"
+            value={amoled}
+            onChange={(v) => {
+              store.set({ amoled: v });
+              // Re-applied through the same path as every other theme change, so a light theme
+              // correctly ignores an AMOLED request instead of going half-inverted.
+              applyTheme(theme, v);
+            }}
+          />
+        </div>
         <Row label="Accent" value="Derived from artwork" />
       </Section>
 
@@ -187,9 +313,27 @@ export function SettingsScreen() {
           These checks run live against the real services. Nothing is sent anywhere except the requests
           themselves.
         </p>
+        {finished ? (
+          <div className="mb-3 rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12.5px] font-semibold">{summary.verdict}</span>
+              <span className="shrink-0 font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-text-3)]">
+                {summary.pass}✓ {summary.warn}⚠ {summary.fail}✕
+              </span>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--color-text-2)]">{summary.advice}</p>
+            <button
+              type="button"
+              onClick={copyReport}
+              className="mt-2 rounded-full bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] px-3 py-1 text-[11px] font-semibold"
+            >
+              Copy full report
+            </button>
+          </div>
+        ) : null}
         <div className="space-y-1.5">
           {checks.map((c) => (
-            <div key={c.id} className="flex items-start gap-2.5 rounded-2xl bg-white/4 px-3 py-2.5">
+            <div key={c.id} className="flex items-start gap-2.5 rounded-2xl bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] px-3 py-2.5">
               <StatusDot state={c.state} />
               <div className="min-w-0 flex-1">
                 <div className="text-[12.5px] font-medium">{c.label}</div>
@@ -204,7 +348,7 @@ export function SettingsScreen() {
           transition={snap}
           disabled={running}
           onClick={() => void runDiagnostics()}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] py-3 text-[13px] font-semibold text-black disabled:opacity-60"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] py-3 text-[13px] font-semibold text-[var(--on-accent)] disabled:opacity-60"
         >
           <SparkIcon width={17} height={17} />
           {running ? 'Running…' : 'Run diagnostics'}
@@ -237,7 +381,7 @@ function StatusDot({ state }: { state: CheckState }) {
           ? 'bg-[var(--color-warn)]'
           : state === 'run'
             ? 'bg-[var(--accent)]'
-            : 'bg-white/20';
+            : 'bg-[color-mix(in_oklab,var(--wash)_10%,transparent)]';
   return (
     <motion.span
       className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${color}`}
@@ -260,29 +404,29 @@ function Section({ title, children, id }: { title: string; children: React.React
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-[var(--hairline)] px-1 py-2.5 last:border-0">
-      <span className="text-[12.5px]">{label}</span>
-      <span className="max-w-[60%] truncate text-right text-[11.5px] text-[var(--color-text-3)]">{value}</span>
+    <div className="flex items-center justify-between gap-4 border-b border-[var(--hairline)] px-1 py-2.5 last:border-0">
+      <span className="min-w-0 flex-1 truncate text-[12.5px]">{label}</span>
+      <span className="max-w-[58%] shrink-0 truncate text-right text-[11.5px] text-[var(--color-text-3)]">{value}</span>
     </div>
   );
 }
 
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between px-1 py-2.5">
-      <span className="text-[12.5px]">{label}</span>
+    <div className="flex items-center justify-between gap-4 px-1 py-2.5">
+      <span className="min-w-0 flex-1 text-[12.5px]">{label}</span>
       <button
         type="button"
         role="switch"
         aria-checked={value}
         aria-label={label}
         onClick={() => onChange(!value)}
-        className={`relative h-6 w-11 rounded-full transition-colors ${value ? 'bg-[var(--accent)]' : 'bg-white/15'}`}
+        className={`relative h-6 w-11 rounded-full transition-colors ${value ? 'bg-[var(--accent)]' : 'bg-[color-mix(in_oklab,var(--wash)_16%,transparent)]'}`}
       >
         <motion.span
           layout
           transition={snap}
-          className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow"
+          className="absolute top-0.5 h-5 w-5 rounded-full bg-[var(--knob)] shadow"
           style={{ left: value ? 22 : 2 }}
         />
       </button>
