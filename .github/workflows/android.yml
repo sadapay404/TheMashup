@@ -99,7 +99,18 @@ jobs:
           # Tag pushes carry no inputs, so the default matters. A tag is a release: build release
           # variant (R8-minified, no debug badge, faster runtime). Manual runs can still ask for debug.
           FLAVOR="${{ github.event.inputs.flavor || 'standard' }}"
-          TYPE="${{ github.event.inputs.build_type || 'release' }}"
+          # Third source of truth for the build type, in priority order: an explicit manual input,
+          # then the tag name, then release. A tag ending in -debug produces a debuggable,
+          # unminified APK, which is what tells us whether a crash lives in the R8 output or in the
+          # app; without this a diagnostic tag would silently build the very variant under suspicion.
+          TYPE="${{ github.event.inputs.build_type }}"
+          if [ -z "$TYPE" ]; then
+            case "${GITHUB_REF_NAME:-}" in
+              *-debug) TYPE="debug" ;;
+              *) TYPE="release" ;;
+            esac
+          fi
+          echo "Build type: $TYPE"
           TASK_TYPE="$(tr '[:lower:]' '[:upper:]' <<< "${TYPE:0:1}")${TYPE:1}"
 
           TASKS=""
