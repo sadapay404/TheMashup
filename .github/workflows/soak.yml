@@ -38,7 +38,10 @@ jobs:
           CI: true
         run: |
           MINUTES="${{ github.event.inputs.minutes || '30' }}"
-          # 90 cycles/1500 ms ≈ 2.25 min per batch; scale cycles from the requested duration.
+          # One cycle is SOAK_CYCLE_MS (1500 ms), i.e. exactly 40 cycles per minute, so
+          # CYCLES = minutes x 40 hits the requested duration. Per-cycle page work adds a little
+          # on top, so the run always errs long rather than short. (An earlier comment quoted
+          # 90 cycles / 2.25 min, a leftover from the old default; the arithmetic was correct.)
           CYCLES=$(( MINUTES * 40 ))
           echo "running $CYCLES cycles (~${MINUTES} min)"
           SOAK_CYCLES="$CYCLES" SOAK_CYCLE_MS=1500 SOAK_BUDGET_MIB=32 \
