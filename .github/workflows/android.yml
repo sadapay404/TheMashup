@@ -39,7 +39,7 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -133,7 +133,7 @@ jobs:
 
       - name: Upload Gradle log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gradle-build-log
           path: apps/android/android/gradle-build.log
@@ -176,7 +176,7 @@ jobs:
           echo "$BADGING | $VERIFY | $SIGNER" > out/apk-verification.txt
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: themashup-apk
           path: out/*.apk
