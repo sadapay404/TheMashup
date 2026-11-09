@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -189,14 +190,18 @@ internal object PlaybackBridge {
             return
         }
 
-        // Duration belongs on MediaMetadata, not MediaItem: MediaItem.Builder has no duration setter.
-        // Providing it lets the notification show a real scrubber before the stream is probed;
-        // Media3 substitutes the true value once known.
+        // NOTE: neither MediaItem.Builder nor MediaMetadata.Builder exposes a duration setter at this
+        // Media3 version. The parameter is kept because the JS bridge already sends it (and a future
+        // Media3 may accept it), but the authoritative duration comes from ExoPlayer once the stream
+        // is prepared — which is what `PlaybackBridge.durationMs()` reports. Do not reintroduce a
+        // speculative setter: two wrong guesses here already broke the build.
+        // Defensive, not assertive: a bad hint is logged and ignored, never thrown.
+        if (durationMs < 0L) Log.w("MashupPlayback", "negative duration hint ignored: $durationMs")
+
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(artist)
             .setArtworkUri(artUrl?.let { Uri.parse(it) })
-            .apply { if (durationMs > 0) setDurationMs(durationMs) }
             .build()
 
         val item = MediaItem.Builder()
