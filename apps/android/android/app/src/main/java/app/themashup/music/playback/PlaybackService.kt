@@ -6,7 +6,9 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -188,16 +190,80 @@ class PlaybackService : MediaSessionService() {
     }
 }
 
-/** Small helper so the JS bridge does not need a reference to the service instance. */
+/**
+ * Small helper so the JS bridge does not need a reference to the service instance.
+ *
+ * THREADING - the reason every mutator below posts to the main thread.
+ *
+ * ExoPlayer is single-threaded: it must be created on, and only ever touched from, the thread that
+ * owns it. Capacitor invokes `@PluginMethod`s on its own `CapacitorPlugins` HandlerThread, so calling
+ * the player straight from a plugin method throws
+ *
+ *     IllegalStateException: Player is accessed on the wrong thread.
+ *     Current thread: 'CapacitorPlugins'  Expected thread: 'main'
+ *
+ * and because Capacitor does not catch it, the exception reaches the default handler and kills the
+ * process - the app closed a fraction of a second after first paint, on every launch, in debug and
+ * release alike. This is a crash on the very first call the web layer makes, not a rare race.
+ *
+ * Every method is therefore either posted to the main looper (mutators) or read through a cached
+ * snapshot (getState), so no caller can reach the player from a foreign thread even by accident.
+ */
 internal object PlaybackBridge {
+    @Volatile
     private var player: ExoPlayer? = null
+
+    private val main = Handler(Looper.getMainLooper())
 
     fun attach(p: ExoPlayer) {
         player = p
+        // Start mirroring state so getState() never has to touch the player itself.
+        p.addListener(object : Player.Listener {
+            override fun onEvents(p2: Player, events: Player.Events) {
+                if (events.containsAny(
+                        Player.EVENT_PLAYBACK_STATE_CHANGED,
+                        Player.EVENT_IS_PLAYING_CHANGED,
+                        Player.EVENT_POSITION_DISCONTINUITY,
+                        Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    )
+                ) {
+                    snapshot(p2)
+                }
+            }
+        })
+        snapshot(p)
     }
 
     fun detach() {
         player = null
+        cachedPositionMs = 0L
+        cachedDurationMs = 0L
+        cachedIsPlaying = false
+    }
+
+    // Volatile because they are written on main and read on CapacitorPlugins.
+    @Volatile private var cachedPositionMs: Long = 0L
+    @Volatile private var cachedDurationMs: Long = 0L
+    @Volatile private var cachedIsPlaying: Boolean = false
+
+    private fun snapshot(p: Player) {
+        cachedPositionMs = p.currentPosition
+        cachedDurationMs = p.duration.takeIf { it > 0 } ?: 0L
+        cachedIsPlaying = p.isPlaying
+    }
+
+    /**
+     * Run [block] with the player on the main thread.
+     *
+     * `post` rather than `runOnUiThread`: this object is not an Activity, and posting keeps the call
+     * asynchronous, so a plugin method never blocks its own thread waiting for the main looper.
+     */
+    private inline fun onMain(crossinline block: (ExoPlayer) -> Unit) {
+        main.post {
+            val p = player ?: return@post
+            runCatching { block(p) }
+                .onFailure { Log.w("MashupPlayback", "player call failed", it) }
+        }
     }
 
     fun emitEnded() = NativeEvents.post("ended", null)
@@ -215,8 +281,9 @@ internal object PlaybackBridge {
         // CRITICAL: `player ?: return` used to fail silently when the service was not bound yet,
         // which made the first play of every session a no-op with no error anywhere. Report it so
         // the JS layer can fall back to the WebView element instead of showing a dead player.
-        val p = player
-        if (p == null) {
+        // Read once into a local: `player` is @Volatile, so this is the documented way to read it
+        // from the CapacitorPlugins thread without a race.
+        if (player == null) {
             emitError("player_not_ready")
             return
         }
@@ -240,19 +307,30 @@ internal object PlaybackBridge {
             .setMediaMetadata(metadata)
             .build()
 
-        p.setMediaItem(item)
-        p.prepare()
-        // Honouring the flag matters: loading a track to reproduce a paused session must not start
-        // audio on its own, and the JS layer relies on this being respected.
-        p.playWhenReady = shouldPlay
+        // The MediaItem and its metadata are built here, off the player's thread, because building
+        // them touches nothing the player owns. Only the three calls below have to be on main.
+        onMain { p ->
+            p.setMediaItem(item)
+            p.prepare()
+            // Honouring the flag matters: loading a track to reproduce a paused session must not
+            // start audio on its own, and the JS layer relies on this being respected.
+            p.playWhenReady = shouldPlay
+        }
     }
 
-    fun pause() { player?.pause() }
-    fun resume() { player?.play() }
-    fun seekTo(ms: Long) { player?.seekTo(ms) }
-    fun setVolume(v: Float) { player?.volume = v.coerceIn(0f, 1f) }
-    fun setRate(r: Float) { player?.setPlaybackSpeed(r.coerceIn(0.5f, 3f)) }
-    fun positionMs(): Long = player?.currentPosition ?: 0L
-    fun durationMs(): Long = player?.duration?.takeIf { it > 0 } ?: 0L
-    fun isPlaying(): Boolean = player?.isPlaying == true
+    fun pause() = onMain { it.pause() }
+    fun resume() = onMain { it.play() }
+    fun seekTo(ms: Long) {
+        // Optimistic cache update so a JS read straight after a seek is not stale for a frame.
+        cachedPositionMs = ms.coerceAtLeast(0L)
+        onMain { it.seekTo(ms) }
+    }
+    fun setVolume(v: Float) = onMain { it.volume = v.coerceIn(0f, 1f) }
+    fun setRate(r: Float) = onMain { it.setPlaybackSpeed(r.coerceIn(0.5f, 3f)) }
+
+    // Reads come from the snapshot. Touching the player here would reintroduce the exact crash these
+    // accessors exist to avoid, and a synchronous hop to main from a plugin thread risks an ANR.
+    fun positionMs(): Long = cachedPositionMs
+    fun durationMs(): Long = cachedDurationMs
+    fun isPlaying(): Boolean = cachedIsPlaying
 }
