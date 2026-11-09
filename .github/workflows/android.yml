@@ -94,8 +94,10 @@ jobs:
           MASHUP_KEY_PASSWORD: ${{ secrets.MASHUP_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
+          # Tag pushes carry no inputs, so the default matters. A tag is a release: build release
+          # variant (R8-minified, no debug badge, faster runtime). Manual runs can still ask for debug.
           FLAVOR="${{ github.event.inputs.flavor || 'standard' }}"
-          TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          TYPE="${{ github.event.inputs.build_type || 'release' }}"
           TASK_TYPE="$(tr '[:lower:]' '[:upper:]' <<< "${TYPE:0:1}")${TYPE:1}"
 
           TASKS=""
