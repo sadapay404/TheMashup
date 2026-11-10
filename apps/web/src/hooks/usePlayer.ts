@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { service } from '@/lib/service';
 import {
   hasNativePlayback,
+  nativeBootMark,
   nativePause,
   nativePlay,
   nativeResume,
@@ -145,6 +146,15 @@ export function usePlayer() {
       if (playable.preview) {
         store.notify('Only a 30-second preview is available for this track right now.', 'info');
       }
+
+      // Which stream, from which client, at what rate. If a report says "it stopped", this line
+      // says whether the player chose a token-gated stream or a short one.
+      const chosen = resolved.info.audio.find((a) => a.itag === playable.itag);
+      nativeBootMark(
+        `play ${t.id}: profile=${service.lastProfile || service.lastRoute} itag=${playable.itag} ` +
+          `kbps=${chosen?.nominalKbps ?? '?'} declared=${chosen?.durationSec ? chosen.durationSec + 's' : 'n/a'} ` +
+          `preview=${playable.preview} track=${t.durationSec}s`,
+      );
 
       // Native shell: Media3 owns playback so audio survives backgrounding + screen-off and
       // appears on the lockscreen. Falls back to the element if the plugin is absent.

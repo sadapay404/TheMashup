@@ -19,6 +19,7 @@ import type {
   Track,
   VideoFormat,
 } from '../domain.js';
+import { PROFILES, type ProfileName } from './profiles.js';
 
 type Json = Record<string, unknown>;
 
@@ -434,42 +435,55 @@ export function parsePlayer(json: unknown, profile: string, videoId: string): St
 }
 
 /** Best playable audio URL for streaming, preferring the best free tier. */
+/**
+ * Choose a stream, preferring one that will actually play to the end.
+ *
+ * Three separate traps, in the order they cost the listener:
+ *
+ *  1. **Ciphered formats.** `signatureCipher` entries need YouTube's player JavaScript to turn into
+ *     a URL. We have no JS interpreter, so such a format is not a stream — only a direct `url` is.
+ *     Accepting one looks like success and plays nothing.
+ *
+ *  2. **PoToken-gated formats.** These yield a working URL that serves roughly the first megabyte
+ *     and then answers 403. At 256 kbps that is ~30 seconds, which is indistinguishable from a
+ *     preview clip or a stall. They are the last resort, never the first choice.
+ *
+ *  3. **Preview clips.** Some responses genuinely carry a ~30s sample. `expectedSec` (the track's own
+ *     runtime) exposes them: a format declaring a small fraction of the track is a clip.
+ *
+ * Bitrate is then treated differently depending on who produced the stream. From a token-free
+ * client we take the best quality available — there is nothing to economise against. From a
+ * token-gated client we deliberately take the *cheapest* stream, because if the server caps us at
+ * one megabyte, that budget is measured in bytes, not seconds: 160 kbps buys nearly twice the
+ * playback of 256 for a difference no phone speaker reveals.
+ */
 export function pickAudioUrl(
   info: StreamInfo,
-  /**
-   * Runtime of the track being played, in seconds, when known. Formats that deliver far less than
-   * this are preview clips and are passed over.
-   *
-   * This is the difference between "the song did not play" and "the first thirty seconds played and
-   * then it went quiet": YouTube serves unauthenticated clients a ~30s snippet for some tracks, and
-   * the only way to tell is to compare what the format declares against what the track should be.
-   * Silently handing back a snippet is what makes a working player look broken.
-   */
   expectedSec = 0,
 ): { itag: number; url: string; preview: boolean } | undefined {
-  // Treat a format as a preview when it declares a length and that length is a small fraction of
-  // the track. 60% tolerates intros/outros and rounding without ever excusing a 30s clip of a
-  // 3-minute song.
   const isPreview = (f: AudioFormat): boolean =>
     Boolean(expectedSec) && f.durationSec > 0 && f.durationSec < expectedSec * 0.6;
 
-  const tiers = [
-    info.audio.filter((f) => info.urls[f.itag] && !f.premiumOnly),
-    info.audio.filter((f) => info.urls[f.itag]),
-  ];
+  // Only formats we can actually turn into a URL. `deliver: 'cipher'` is not playable here.
+  const playable = info.audio.filter((f) => info.urls[f.itag]);
+  if (!playable.length) return undefined;
 
-  // Prefer a full-length stream in either tier before accepting a preview from the better tier.
-  for (const tier of tiers) {
-    for (const f of tier) {
-      if (!isPreview(f)) return { itag: f.itag, url: info.urls[f.itag]!, preview: false };
-    }
-  }
-  // Everything available is short. Return the best of them and say so, rather than pretending the
-  // request failed: partial audio beats silence, and the caller can explain it.
-  for (const tier of tiers) {
-    for (const f of tier) {
-      if (f.durationSec > 0) return { itag: f.itag, url: info.urls[f.itag]!, preview: true };
-    }
-  }
-  return undefined;
+  const free = playable.filter((f) => !f.premiumOnly);
+  const pool = free.length ? free : playable;
+
+  // Does the client that produced this response require a stream PoToken? If so the server may cut
+  // us off after roughly a megabyte, and the cheapest stream is the one that plays longest.
+  const gated = PROFILES[info.profile as ProfileName]?.needsStreamPoToken ?? true;
+
+  const byAffinity = (a: AudioFormat, b: AudioFormat) => {
+    // Full-length before preview, always: a cheap clip is still a clip.
+    const pa = isPreview(a) ? 1 : 0;
+    const pb = isPreview(b) ? 1 : 0;
+    if (pa !== pb) return pa - pb;
+    return gated ? a.nominalKbps - b.nominalKbps : b.nominalKbps - a.nominalKbps;
+  };
+
+  const best = [...pool].sort(byAffinity)[0];
+  if (!best) return undefined;
+  return { itag: best.itag, url: info.urls[best.itag]!, preview: isPreview(best) };
 }

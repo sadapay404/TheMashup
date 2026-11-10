@@ -36,6 +36,22 @@ import {
 } from '@themashup/core';
 
 import { isDesktop, nativeHttp } from './desktop';
+import { nativeBootMark } from './native';
+
+/**
+ * One line into the on-device diagnostics file.
+ *
+ * Resolution failures used to be invisible: the app would go quiet and there was nothing on the
+ * phone to read afterwards. Every routing decision that matters writes a line here, so a report
+ * carries the answer instead of a guess. Never throws, never blocks, and is a no-op in a browser.
+ */
+function diag(message: string): void {
+  try {
+    nativeBootMark(message);
+  } catch {
+    /* diagnostics must never break playback */
+  }
+}
 import type { RawResponse } from '@themashup/core';
 
 const LS_VISITOR = 'mashup.visitorData';
@@ -114,6 +130,9 @@ export class MusicService {
   cookie: string | null;
   /** Human-readable description of what actually served the last request. */
   lastRoute = 'unknown';
+  /** Which InnerTube profile finally produced a stream, and what YouTube said about it. */
+  lastProfile = '';
+  lastPlayability = '';
 
   constructor() {
     // Native first whenever the shell provides it; otherwise the ladder is unchanged.
@@ -274,8 +293,12 @@ export class MusicService {
         const info = parsePlayer(res.json, profile, videoId);
         if (pickAudioUrl(info)) {
           this.lastRoute = `InnerTube · ${profile}`;
+          this.lastProfile = profile;
+          this.lastPlayability = info.playability;
+          diag(`resolve ${videoId}: ${profile} ok, playability=${info.playability}, audio=${info.audio.length}`);
           return { ok: true, info };
         }
+        diag(`resolve ${videoId}: ${profile} no url (playability=${info.playability}, audio=${info.audio.length})`);
         if (info.audio.length && profile === STREAM_LADDER[STREAM_LADDER.length - 1]) {
           return { ok: true, info };
         }

@@ -12,6 +12,7 @@ import {
   parseSearch,
   pickAudioUrl,
   PROFILES,
+  STREAM_LADDER,
   TokenBucket,
   CircuitBreaker,
   backoffDelay,
@@ -203,6 +204,76 @@ describe('format ladder honesty', () => {
     );
     // durationSec 0 means "unknown", not "zero-length": no stream may be dropped on a guess.
     expect(pickAudioUrl(info, 0)?.itag).toBe(140);
+  });
+
+  it('never returns a ciphered format, because we cannot decipher it', () => {
+    // The trap: a ciphered format is listed, looks like the best quality, and cannot be turned into
+    // a URL by anything we ship. Choosing it plays nothing at all.
+    const info = parsePlayer(
+      {
+        streamingData: {
+          adaptiveFormats: [
+            { itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 160000, signatureCipher: 's=X&sp=sig' },
+            { itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128000, url: 'https://x/?itag=140' },
+          ],
+        },
+      },
+      'TVHTML5',
+      'v',
+    );
+    expect(pickAudioUrl(info, 200)?.itag).toBe(140);
+  });
+
+  it('takes the cheapest stream from a token-gated client, so the byte budget lasts longer', () => {
+    // A gated client serves about one megabyte before answering 403. At 256 kbps that is ~31s of
+    // audio; at 160 kbps it is ~50s. Quality we cannot hear beats duration we cannot reach.
+    const info = parsePlayer(
+      {
+        streamingData: {
+          adaptiveFormats: [
+            { itag: 141, mimeType: 'audio/mp4', bitrate: 256000, url: 'https://x/?itag=141' },
+            { itag: 251, mimeType: 'audio/webm', bitrate: 160000, url: 'https://x/?itag=251' },
+          ],
+        },
+      },
+      'WEB_REMIX',
+      'v',
+    );
+    expect(pickAudioUrl(info, 200)?.itag).toBe(251);
+  });
+
+  it('takes the best quality from a token-free client, because there is nothing to economise', () => {
+    const info = parsePlayer(
+      {
+        streamingData: {
+          adaptiveFormats: [
+            // 140 (128k) and 251 (160k) are both free; the richer of the two should win when the
+            // client asks for no token and the server therefore has no reason to cut us off.
+            { itag: 140, mimeType: 'audio/mp4', bitrate: 128000, url: 'https://x/?itag=140' },
+            { itag: 251, mimeType: 'audio/webm', bitrate: 160000, url: 'https://x/?itag=251' },
+          ],
+        },
+      },
+      'ANDROID_VR',
+      'v',
+    );
+    expect(pickAudioUrl(info, 200)?.itag).toBe(251);
+  });
+
+  it('tries the token-free clients before the gated ones', () => {
+    // Ordering is the fix: a gated client resolves to a URL that works for one megabyte and then
+    // stops, which is exactly the reported symptom.
+    const vr = STREAM_LADDER.indexOf('ANDROID_VR');
+    const simply = STREAM_LADDER.indexOf('TVHTML5_SIMPLY');
+    const remix = STREAM_LADDER.indexOf('WEB_REMIX');
+    expect(vr).toBeGreaterThanOrEqual(0);
+    expect(simply).toBeGreaterThanOrEqual(0);
+    expect(vr).toBeLessThan(remix);
+    expect(simply).toBeLessThan(remix);
+    for (const name of ['ANDROID_VR', 'TVHTML5_SIMPLY'] as const) {
+      expect(PROFILES[name].needsStreamPoToken).toBe(false);
+      expect(PROFILES[name].cipherFree).toBe(true);
+    }
   });
 
   it('reports ciphered formats as cipher rather than hiding them', () => {

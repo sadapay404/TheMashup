@@ -6,7 +6,15 @@
  * version. Verified against yt-dlp `INNERTUBE_CLIENTS` and InnerTune `YouTubeClient.kt`.
  */
 
-export type ProfileName = 'WEB_REMIX' | 'VISIONOS' | 'TVHTML5' | 'ANDROID' | 'IOS' | 'MWEB';
+export type ProfileName =
+  | 'WEB_REMIX'
+  | 'VISIONOS'
+  | 'TVHTML5'
+  | 'TVHTML5_SIMPLY'
+  | 'ANDROID'
+  | 'ANDROID_VR'
+  | 'IOS'
+  | 'MWEB';
 
 export interface ClientProfile {
   readonly name: ProfileName;
@@ -101,6 +109,51 @@ export const PROFILES: Readonly<Record<ProfileName, ClientProfile>> = {
     cipherFree: false,
     role: 'stream',
   },
+  /**
+   * The TV client without a real Smart-TV handshake.
+   *
+   * The regular TVHTML5 player needs the pairing flow, so it is metadata-only for us. This variant
+   * skips the handshake entirely and is the client that, historically, never asked for a PoToken
+   * because a TV set has no place to run BotGuard.
+   */
+  TVHTML5_SIMPLY: {
+    name: 'TVHTML5_SIMPLY',
+    clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+    clientVersion: '2.0',
+    clientNameId: 85,
+    apiKey: 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8',
+    userAgent:
+      'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)',
+    referer: 'https://www.youtube.com/',
+    needsStreamPoToken: false,
+    cipherFree: true,
+    role: 'stream',
+  },
+  /**
+   * The Quest client, pinned to an OLD version on purpose.
+   *
+   * yt-dlp's client table carries a warning worth repeating: `clientVersion > 1.65` may return SABR
+   * streams only, and newer builds started demanding a GVS PoToken. 1.65.10 is the last version
+   * known to hand back plain, unauthenticated media URLs for the whole file. Do not "update" this
+   * string without re-testing that a full track still plays — a newer number here is what breaks
+   * playback, not what fixes it.
+   */
+  ANDROID_VR: {
+    name: 'ANDROID_VR',
+    clientName: 'ANDROID_VR',
+    clientVersion: '1.65.10',
+    clientNameId: 28,
+    apiKey: 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+    userAgent: 'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
+    osName: 'Android',
+    osVersion: '12L',
+    androidSdkVersion: 32,
+    deviceMake: 'Oculus',
+    deviceModel: 'Quest 3',
+    needsStreamPoToken: false,
+    cipherFree: true,
+    role: 'stream',
+  },
   MWEB: {
     name: 'MWEB',
     clientName: 'MWEB',
@@ -119,6 +172,28 @@ export const PROFILES: Readonly<Record<ProfileName, ClientProfile>> = {
  * Stream resolution order. Ordered by *freedom from tokens*, not speed (Amendment A-4).
  * Metadata always comes from WEB_REMIX, which has the richest YTM payload.
  */
-export const STREAM_LADDER: readonly ProfileName[] = ['VISIONOS', 'TVHTML5', 'ANDROID', 'IOS', 'WEB_REMIX'];
+/**
+ * Stream resolution order.
+ *
+ * The ordering is the whole fix for "songs stop after thirty seconds".
+ *
+ * A profile that returns a *ciphered* format is useless to us: we have no JavaScript interpreter to
+ * run YouTube's player JS, so `signatureCipher` entries cannot be turned into a playable URL. A
+ * profile that returns a *direct* URL but requires a PoToken is worse than useless, because it looks
+ * like success: the first megabyte of the file downloads fine and then the server answers 403. At
+ * 256 kbps that is almost exactly thirty seconds of audio, which reads as a player that cannot play.
+ *
+ * So the ladder asks the clients that are both `cipherFree` and `needsStreamPoToken: false` first,
+ * and only then falls back to the token-bound web clients. See `pickAudioUrl` for the second half of
+ * the defence: it also refuses a stream that declares far less length than the track.
+ */
+export const STREAM_LADDER: readonly ProfileName[] = [
+  'ANDROID_VR',
+  'TVHTML5_SIMPLY',
+  'IOS',
+  'TVHTML5',
+  'ANDROID',
+  'WEB_REMIX',
+];
 
 export const METADATA_PROFILE: ProfileName = 'WEB_REMIX';
