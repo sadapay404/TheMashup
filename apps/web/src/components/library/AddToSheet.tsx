@@ -7,10 +7,12 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
+import { createPortal } from 'react-dom';
 import { useEffect, useState } from 'react';
 import type { Track } from '@themashup/core';
 import { store } from '@/state/store';
 import { glide, snap } from '@/components/ui/primitives';
+import { pushOverlay } from '@/lib/overlays';
 import { CheckIcon, CloseIcon, PlusIcon, QueueIcon } from '@/components/ui/icons';
 import {
   addToPlaylist,
@@ -57,7 +59,35 @@ export function AddToSheet({
     refresh();
   };
 
-  return (
+  // Hardware back must close this sheet. Registering here keeps the knowledge next to the component
+  // that owns it; the app-level handler just asks the stack.
+  useEffect(() => pushOverlay(onClose), [onClose]);
+
+  // Escape is the reflex for "get me out of this" on a keyboard, and Android's back button maps to
+  // the same intent. Neither worked: the sheet had no key handler, and the app-level back handler
+  // does not know a sheet is open. Registering here keeps the knowledge next to the component that
+  // owns it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  /*
+   * Rendered into `document.body`, not in place.
+   *
+   * The sheet is opened from inside `TrackRow`, whose wrapper is a `motion.div` with a
+   * `whileTap={{ scale }}`. A transform on an ancestor makes it the containing block for
+   * `position: fixed`, so the backdrop and panel were being positioned against a 72-pixel-tall row
+   * instead of the viewport — the panel appeared misplaced, and the full-screen tap-to-dismiss
+   * backdrop had no area outside the sheet to occupy. That is why it felt impossible to get out of.
+   */
+  return createPortal(
     <>
       <motion.div
         initial={{ opacity: 0 }}
@@ -196,6 +226,7 @@ export function AddToSheet({
           </p>
         )}
       </motion.div>
-    </>
+    </>,
+    document.body,
   );
 }

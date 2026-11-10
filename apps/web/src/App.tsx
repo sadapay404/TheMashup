@@ -11,6 +11,7 @@ import { usePlayer } from '@/hooks/usePlayer';
 import { service } from '@/lib/service';
 import { isDesktop, onDesktopAction, onWindowHidden } from '@/lib/desktop';
 import { loadPersisted, startAutosave } from '@/lib/persist';
+import { dismissTopOverlay } from '@/lib/overlays';
 import { applyPalette, extractPalette } from '@/lib/palette';
 import { applyTheme } from '@/lib/theme';
 import { signalQueueAdd } from '@/lib/signals';
@@ -37,6 +38,15 @@ function restoreOnce(): void {
   if (!saved) return;
   store.set({
     route: saved.route,
+    /*
+     * Rebuild a history for the restored page.
+     *
+     * Only `route` was restored before, while `navHistory` kept its initial `['home']`. Reopening the
+     * app on Library therefore produced a state that claimed to be one page deep: `goBack()` saw
+     * `length <= 1`, returned false, and the platform closed the app on the first back press. From
+     * the user's side the back button worked — it just had nowhere to go, every single session.
+     */
+    navHistory: saved.route === 'home' ? ['home'] : ['home', saved.route],
     queue: saved.queue,
     index: saved.index,
     // Never resume playing automatically: browsers block it, and users find it startling.
@@ -121,6 +131,13 @@ export default function App() {
    */
   useEffect(() => {
     const onBack = (): boolean => {
+      // Overlays first, in the order they stack. A sheet is the most recently opened thing, so it
+      // is the first thing back should take away.
+      //
+      // Anything that opens an overlay must register its close here, or back will skip straight to
+      // navigation and leave the overlay on screen — which is exactly how the "add to" sheet trapped
+      // the user.
+      if (dismissTopOverlay()) return true;
       const s = store.getState();
       if (s.playerOpen) {
         store.set({ playerOpen: false });

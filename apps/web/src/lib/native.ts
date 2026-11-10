@@ -164,6 +164,17 @@ export async function nativeDownload(args: {
   }
 }
 
+/** Ask the foreground service to abandon a transfer. Best-effort by design. */
+export async function nativeCancelDownload(id: string): Promise<boolean> {
+  if (!plugin('MashupDownloads')) return false;
+  try {
+    await invoke('MashupDownloads', 'cancel', { id });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Account: native WebView sign-in (Android only). */
 export async function nativeAccountStatus(): Promise<{ signedIn: boolean; visitorData: string } | null> {
   if (!plugin('MashupAccount')) return null;

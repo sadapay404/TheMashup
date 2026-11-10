@@ -12,8 +12,9 @@
  */
 
 import { store, type DownloadJob } from '@/state/store';
-import type { Track } from '@themashup/core';
-import { nativeDownload, isNative, onNativeEvent } from './native';
+import type { StreamInfo, Track } from '@themashup/core';
+import { nativeCancelDownload, nativeDownload, isNative, onNativeEvent } from './native';
+import { service } from './service';
 
 export type DownloadState = DownloadJob['state'];
 
@@ -197,6 +198,19 @@ export async function startDownload(
       // Keep the real on-disk path: a move later has to act on the file that exists, not on a name
       // reconstructed from the track title.
       update(id, { state: 'downloading', ...(res.path ? { path: res.path } : {}) });
+
+      /*
+       * The native service accepted the job, but that is a promise, not a transfer. If its events
+       * never arrive — the service was killed, the bridge lost its sink, or the socket is silent —
+       * this job sits on "downloading" forever and the only thing the user sees is a notification
+       * that never moves. Nothing in the chain had a deadline, so a zombie job was indistinguishable
+       * from a slow one.
+       *
+       * The watchdog turns silence into a visible failure with a reason. It is cleared by the first
+       * real progress event (see `bindNativeDownloadEvents`), so a genuinely slow download on a poor
+       * connection is unaffected.
+       */
+      armWatchdog(id);
       return id;
     }
     // fall through to the browser path if the plugin rejected it
@@ -213,6 +227,9 @@ export async function startDownload(
 
   const controller = new AbortController();
   update(id, { state: 'downloading' });
+  // Same deadline as the native path. A browser fetch to a dead CDN edge hangs without erroring,
+  // so without this the row sits at 0 % indefinitely with nothing to act on.
+  armWatchdog(id);
 
   try {
     const blob = await downloadWithRanges(
@@ -222,11 +239,13 @@ export async function startDownload(
       },
       controller.signal,
     );
+    clearWatchdog(id);
     update(id, { state: 'muxing', progress: 1 });
     await saveBlob(blob, fileNameFor(track, target));
     update(id, { state: 'done', progress: 1, totalBytes: blob.size });
     store.notify(`Saved ${track.title}`, 'success');
   } catch (e) {
+    clearWatchdog(id);
     if (e instanceof SaveCancelled) {
       // Not an error: the user chose not to save. Keep the progress so a retry can resume.
       update(id, { state: 'partial', error: 'Saved to disk was cancelled — the download can be retried.' });
@@ -254,6 +273,41 @@ export async function startDownload(
  * reports over its own event bus. Registered once per session.
  */
 let nativeBound = false;
+
+/**
+ * Fail a job that produces no sign of life.
+ *
+ * 45 s: long enough that a slow mobile start is not punished, short enough that a dead job does not
+ * look like a working one for the rest of the session.
+ */
+const WATCHDOG_MS = 45_000;
+const watchdogs = new Map<string, number>();
+
+function armWatchdog(id: string): void {
+  window.clearTimeout(watchdogs.get(id));
+  watchdogs.set(
+    id,
+    window.setTimeout(() => {
+      watchdogs.delete(id);
+      const job = store.getState().downloads.find((j) => j.id === id);
+      if (!job || job.state === 'done' || job.state === 'failed') return;
+      update(id, {
+        state: 'failed',
+        error: 'The download service never reported progress. It may have been stopped by the system — retry, and check that the file can be fetched.',
+      });
+      store.notify('Download stalled — no progress from the service', 'error');
+    }, WATCHDOG_MS),
+  );
+}
+
+function clearWatchdog(id: string): void {
+  const t = watchdogs.get(id);
+  if (t !== undefined) {
+    window.clearTimeout(t);
+    watchdogs.delete(id);
+  }
+}
+
 export function bindNativeDownloadEvents(): void {
   if (nativeBound || !isNative()) return;
   nativeBound = true;
@@ -261,6 +315,7 @@ export function bindNativeDownloadEvents(): void {
   onNativeEvent('downloadProgress', (data) => {
     const d = data as { id?: string; bytes?: number; total?: number };
     if (!d?.id) return;
+    clearWatchdog(d.id);
     const total = Number(d.total ?? 0);
     const bytes = Number(d.bytes ?? 0);
     // exactOptionalPropertyTypes: only include totalBytes when it is actually known.
@@ -275,6 +330,7 @@ export function bindNativeDownloadEvents(): void {
   onNativeEvent('downloadComplete', (data) => {
     const d = data as { id?: string; name?: string };
     if (!d?.id) return;
+    clearWatchdog(d.id);
     update(d.id, { state: 'done', progress: 1 });
     store.notify(`Saved ${d.name ?? 'track'}`, 'success');
   });
@@ -282,6 +338,7 @@ export function bindNativeDownloadEvents(): void {
   onNativeEvent('downloadFailed', (data) => {
     const d = data as { id?: string; reason?: string };
     if (!d?.id) return;
+    clearWatchdog(d.id);
     const cancelled = (d.reason ?? '').toLowerCase().includes('cancel');
     update(d.id, {
       // A cancel is not an error; anything else is, and carries the reason verbatim.
@@ -292,6 +349,98 @@ export function bindNativeDownloadEvents(): void {
 }
 
 /** Bytes currently queued/in-flight, for the Library storage line. */
+/**
+ * Abandon a job and forget it.
+ *
+ * Without this, a job that stalls had no exit: it stayed in "In progress" for the life of the
+ * install, with no cancel, no retry and no way to remove the line. A list the user cannot clean is
+ * worse than no list — it turns one bad transfer into permanent clutter.
+ *
+ * Cancelling the native side is best-effort: the job is forgotten locally either way, because the
+ * user asked for it to be gone, not for a negotiation.
+ */
+export function cancelDownload(id: string): void {
+  clearWatchdog(id);
+  void nativeCancelDownload(id);
+  store.set((s) => ({ downloads: s.downloads.filter((d) => d.id !== id) }));
+}
+
+/** Drop a finished or failed job from the list. Running jobs go through `cancelDownload`. */
+export function removeDownload(id: string): void {
+  clearWatchdog(id);
+  store.set((s) => ({ downloads: s.downloads.filter((d) => d.id !== id) }));
+}
+
+/** Remove every job that is no longer doing anything. */
+export function clearFinishedDownloads(): number {
+  const before = store.getState().downloads.length;
+  store.set((s) => ({
+    downloads: s.downloads.filter((d) => d.state === 'downloading' || d.state === 'queued'),
+  }));
+  return before - store.getState().downloads.length;
+}
+
+/**
+ * Rebuild the exact `Target` a job was created from, using a freshly resolved stream.
+ *
+ * Matching is by itag, which is the stable identity of a format. The label is rebuilt rather than
+ * reused so a retry cannot inherit a stale bitrate.
+ */
+export function targetFor(info: StreamInfo, itag: number): Target | null {
+  const audio = info.audio.find((f) => f.itag === itag);
+  if (audio) {
+    return {
+      label: `${audio.container.toUpperCase()} · ${audio.nominalKbps} kbps`,
+      container: audio.container as Target['container'],
+      itag,
+      needsTranscode: false,
+      kbps: audio.nominalKbps,
+    };
+  }
+  const video = info.video.find((f) => f.itag === itag);
+  if (video) {
+    return {
+      label: `${video.container.toUpperCase()} · ${video.res}${video.fps > 30 ? ` ${video.fps}fps` : ''}`,
+      container: 'mp4',
+      itag,
+      needsTranscode: false,
+    };
+  }
+  return null;
+}
+
+/**
+ * Start the same track over again.
+ *
+ * A retry must re-resolve, never replay the old URL: stream URLs are signed and time-limited, so
+ * retrying against a stored URL would fail for a reason unrelated to the original failure and would
+ * look like the retry itself is broken. The itag is recovered from the previous job's id, which is
+ * built as `dl-<itag>-<trackId>-<ts>` and is therefore the only place that identity survives.
+ */
+export async function retryDownload(job: DownloadJob): Promise<string | null> {
+  const itag = Number(job.id.split('-')[1]);
+  if (!Number.isFinite(itag)) {
+    store.notify('Cannot retry this job — its format is unknown', 'error');
+    return null;
+  }
+  const res = await service.resolveStream(job.track.id);
+  if (!res.ok) {
+    store.notify(res.error.message, 'error');
+    return null;
+  }
+  const target = targetFor(res.info, itag);
+  if (!target) {
+    store.notify('That format is no longer offered for this track', 'error');
+    return null;
+  }
+  const url = res.info.urls[itag];
+  if (!url) {
+    store.notify('This tier has no direct URL — try another.', 'error');
+    return null;
+  }
+  return startDownload(job.track, url, target);
+}
+
 export function pendingBytes(): number {
   return store.getState().downloads.reduce((n, j) => n + (j.bytes ?? 0), 0);
 }

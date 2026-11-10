@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AudioFormat, StreamInfo, Track, VideoFormat } from '@themashup/core';
 import { service } from '@/lib/service';
@@ -14,6 +15,7 @@ import { startDownload, type Target } from '@/lib/downloader';
 import { store } from '@/state/store';
 import { glide, Skeleton, snap } from '@/components/ui/primitives';
 import { CloseIcon, DownloadIcon } from '@/components/ui/icons';
+import { pushOverlay } from '@/lib/overlays';
 
 type Row =
   | { kind: 'audio'; label: string; detail: string; format: AudioFormat; usable: boolean }
@@ -40,6 +42,27 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
       cancelled = true;
     };
   }, [track.id]);
+
+  /*
+   * This sheet opens on top of the full player, which is already full-screen with its own backdrop.
+   * Two stacked dim layers made it genuinely unclear which one a tap would dismiss, and hardware
+   * back had no idea the sheet existed — it went straight to the page behind. Registering the close
+   * here means back takes the topmost thing first, which is the only ordering that makes sense.
+   */
+  useEffect(() => {
+    const off = pushOverlay(onClose);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      off();
+      document.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
 
   const rows: Row[] = [];
   if (stream) {
@@ -85,7 +108,11 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
     onClose();
   };
 
-  return (
+  // Portalled: the page container animates `scale`/`y`, and a transformed ancestor makes
+  // `position: fixed` resolve against it instead of the viewport. Rendered in place, this sheet sat
+  // inside a few hundred pixels of the page and its backdrop was mostly untappable — the same
+  // containment bug that trapped the user in the "add to" sheet.
+  return createPortal(
     <motion.div
       className="fixed inset-0 z-[60] flex items-end justify-center bg-black/55 backdrop-blur-sm"
       initial={{ opacity: 0 }}
@@ -165,7 +192,8 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
           )}
         </div>
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }
 

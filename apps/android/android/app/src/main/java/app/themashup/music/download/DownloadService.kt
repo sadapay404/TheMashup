@@ -47,7 +47,12 @@ class DownloadService : Service() {
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
+        // A stalled CDN would otherwise hold the job — and this foreground service — open forever,
+        // which is indistinguishable from "stuck on preparing" from the user's side. 30 s of silence
+        // on a socket that is meant to be streaming is a failure, not patience.
         .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.MINUTES)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -77,7 +82,7 @@ class DownloadService : Service() {
     }
 
     private fun startForegroundIfNeeded() {
-        val channelId = "mashup_downloads"
+        val channelId = CHANNEL_ID
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (nm.getNotificationChannel(channelId) == null) {
@@ -89,19 +94,73 @@ class DownloadService : Service() {
                 )
             }
         }
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Downloading")
-            .setContentText("Preparing download…")
-            .setOngoing(true)
-            .setProgress(0, 0, true)
-            .build()
+        val notification = buildNotification("Downloading", "Preparing download…", indeterminate = true, pct = 0, ongoing = true)
         // Android 14 enforces the declared type at startForeground time; without it the service is
         // killed with ForegroundServiceTypeNotAllowed and every download silently dies.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(NOTIF_ID, notification)
+        }
+    }
+
+    /**
+     * One notification, re-posted as the transfer moves.
+     *
+     * The foreground notification used to be built once, with the text "Preparing download…" and an
+     * indeterminate spinner, and was never touched again. The transfer would finish correctly while
+     * the shade still claimed it was preparing — so the only thing the user could see said it was
+     * stuck, no matter what was actually happening. Every progress event now re-posts it with real
+     * numbers, and completion replaces it with a done state.
+     */
+    private fun buildNotification(
+        title: String,
+        text: String,
+        indeterminate: Boolean,
+        pct: Int,
+        ongoing: Boolean,
+    ) = NotificationCompat.Builder(this, CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.stat_sys_download)
+        .setContentTitle(title)
+        .setContentText(text)
+        .setOngoing(ongoing)
+        .setAutoCancel(!ongoing)
+        .setOnlyAlertOnce(true) // re-posting must not buzz on every 256 KiB
+        .apply { if (indeterminate) setProgress(0, 0, true) else setProgress(100, pct.coerceIn(0, 100), false) }
+        .build()
+
+    /** Re-post the foreground notification with live progress. Safe to call from any thread. */
+    private fun updateNotification(title: String, text: String, pct: Int) {
+        runCatching {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIF_ID, buildNotification(title, text, indeterminate = false, pct = pct, ongoing = true))
+        }
+    }
+
+    /**
+     * The final word, posted under its own id.
+     *
+     * The `finally` block below calls `stopForeground(STOP_FOREGROUND_REMOVE)`, which deletes the
+     * foreground notification the moment the queue empties. Posting "Downloaded" under that same id
+     * meant it was erased in the same breath — a user watching the shade would see it flicker and
+     * vanish. A separate, dismissable id outlives the service, so the outcome is actually readable
+     * after the screen has been off for two minutes.
+     */
+    private fun postResult(title: String, text: String, failed: Boolean) {
+        runCatching {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(
+                NOTIF_ID_RESULT,
+                NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(
+                        if (failed) android.R.drawable.stat_notify_error else android.R.drawable.stat_sys_download_done,
+                    )
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setOngoing(false)
+                    .setAutoCancel(true)
+                    .build(),
+            )
         }
     }
 
@@ -152,6 +211,13 @@ class DownloadService : Service() {
                                 if (downloaded - reported[0] >= PROGRESS_STEP) {
                                     reported[0] = downloaded
                                     DownloadEvents.progress(id, downloaded, total)
+                                    val pct = if (total > 0) ((downloaded * 100) / total).toInt() else 0
+                                    updateNotification(
+                                        displayName,
+                                        if (total > 0) "$pct% · ${downloaded / 1024 / 1024} MB of ${total / 1024 / 1024} MB"
+                                        else "${downloaded / 1024 / 1024} MB",
+                                        pct,
+                                    )
                                 }
                             }
                             raf.fd.sync()
@@ -179,9 +245,12 @@ class DownloadService : Service() {
                     part.delete()
                 }
                 DownloadEvents.complete(id, dest.absolutePath, displayName)
+                postResult("Downloaded", displayName, failed = false)
             } catch (t: Throwable) {
                 Log.w(TAG, "download $id failed", t)
-                DownloadEvents.failed(id, t.message ?: t::class.java.simpleName)
+                val reason = t.message ?: t::class.java.simpleName
+                DownloadEvents.failed(id, reason)
+                postResult("Download failed", reason.take(80), failed = true)
             } finally {
                 cancelFlags.remove(id)
                 jobs.remove(id)
@@ -201,7 +270,10 @@ class DownloadService : Service() {
 
     companion object {
         private const val TAG = "MashupDownload"
+        private const val CHANNEL_ID = "mashup_downloads"
         private const val NOTIF_ID = 4211
+        /** Survives `stopForeground(STOP_FOREGROUND_REMOVE)`, so the outcome stays in the shade. */
+        private const val NOTIF_ID_RESULT = 4212
 
         /** Progress granularity. 256 KiB keeps the UI smooth without flooding the JS bridge. */
         private const val PROGRESS_STEP = 256L * 1024L

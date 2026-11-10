@@ -13,10 +13,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useMemo, useState } from 'react';
 import type { Track } from '@themashup/core';
 import { store, useApp, type DownloadFolder, type DownloadJob, type MediaKind } from '@/state/store';
-import { Chip, EmptyState, glide, snap } from '@/components/ui/primitives';
+import { Chip, EmptyState, glide, Sheet, snap } from '@/components/ui/primitives';
 import {
   CheckIcon,
   ChevronDownIcon,
+  CloseIcon,
   DownloadIcon,
   FolderIcon,
   FolderOpenIcon,
@@ -36,6 +37,7 @@ import {
 } from '@/lib/folders';
 import { haptic } from '@/lib/haptics';
 import { batchProgress, cancelPlaylist } from '@/lib/playlist';
+import { cancelDownload, clearFinishedDownloads, removeDownload, retryDownload } from '@/lib/downloader';
 import { useContentBottom } from '@/hooks/useContentBottom';
 
 const SECTIONS: { id: MediaKind; label: string }[] = [
@@ -384,13 +386,31 @@ function PendingList({ kind }: { kind: MediaKind }) {
   const downloads = useApp((s) => s.downloads);
   const pending = downloads.filter((d) => (d.kind ?? 'music') === kind && d.state !== 'done');
   if (!pending.length) return null;
+  const stoppable = pending.filter((j) => j.state !== 'failed').length;
   return (
     <div className="mt-5 space-y-1.5">
       <div className="flex items-center justify-between px-1">
         <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--color-text-3)]">
           In progress
         </span>
-        <span className="text-[10.5px] text-[var(--color-text-3)]">{pending.length}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10.5px] text-[var(--color-text-3)]">{pending.length}</span>
+          {/* One press clears the whole pile, which is the only sane option after a run of failures. */}
+          {pending.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => {
+                const n = clearFinishedDownloads();
+                const stopped = stoppable;
+                if (n > 0) store.notify(`Cleared ${n} finished`, 'success');
+                else if (stopped > 0) store.notify('Nothing finished yet — stop a transfer to remove it', 'info');
+              }}
+              className="rounded-lg px-1.5 py-0.5 text-[10.5px] font-semibold text-[var(--color-accent)]"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
       </div>
       {pending.map((j) => (
         <div
@@ -408,6 +428,49 @@ function PendingList({ kind }: { kind: MediaKind }) {
           <span className="shrink-0 text-[10px] tabular-nums text-[var(--color-text-3)]">
             {formatBytes(j.bytes)}
           </span>
+          {/*
+            Every row gets an exit.
+
+            A stalled transfer used to sit here permanently — no cancel, no dismiss, no retry — so
+            one bad job cluttered the list for the life of the install and the only recovery was
+            clearing app data. A failed job offers Retry (which re-resolves, because stream URLs
+            expire); anything else offers Stop, which also forgets the row.
+          */}
+          {j.state === 'failed' ? (
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  removeDownload(j.id);
+                  void retryDownload(j);
+                }}
+                aria-label={`Retry ${j.track.title}`}
+                className="rounded-lg px-2 py-1 text-[11px] font-semibold text-[var(--color-accent)]"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => removeDownload(j.id)}
+                aria-label={`Dismiss ${j.track.title}`}
+                className="grid h-7 w-7 place-items-center rounded-lg text-[var(--color-text-3)]"
+              >
+                <CloseIcon width={13} height={13} />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                cancelDownload(j.id);
+                store.notify('Download stopped', 'info');
+              }}
+              aria-label={`Stop downloading ${j.track.title}`}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[var(--color-text-3)]"
+            >
+              <CloseIcon width={13} height={13} />
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -450,48 +513,5 @@ function MoveSheet({
         Folders appear here as they are created. A playlist download makes its own folder automatically.
       </p>
     </Sheet>
-  );
-}
-
-function Sheet({
-  title,
-  children,
-  onClose,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-[2px]"
-      />
-      <motion.div
-        initial={{ y: 28, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 28, opacity: 0 }}
-        transition={glide}
-        role="dialog"
-        aria-label={title}
-        className="fixed inset-x-0 bottom-0 z-[61] mx-auto max-w-2xl rounded-t-[26px] border-t border-[var(--hairline)] bg-[var(--color-void)] px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4"
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="truncate pr-3 text-[14px] font-semibold">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 text-[12px] text-[var(--color-text-3)]"
-          >
-            Cancel
-          </button>
-        </div>
-        {children}
-      </motion.div>
-    </>
   );
 }

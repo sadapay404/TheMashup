@@ -109,11 +109,25 @@ export function usePlayer() {
 
   /** Resolve + load the current track. Generation-guarded against rapid switching. */
   const load = useCallback(
-    async (t: Track) => {
+    /**
+     * Resolve and start a track.
+     *
+     * `resumeAt` exists for recovery, not for the user. When a stream stalls mid-song, reloading it
+     * from zero throws away everything already heard — the user pressed play once and got the intro
+     * three times. Any recovery path that restarts a track has to be able to say "continue from
+     * here", otherwise "recovering" looks exactly like "the song restarts itself".
+     */
+    async (t: Track, resumeAt = 0) => {
       const gen = ++generation.current;
       const el = ensureAudio();
       const art = t.thumbs[t.thumbs.length - 1]?.url;
-      store.set({ loading: true, streamError: null, positionSec: 0, stream: null, lyrics: null });
+      store.set({
+        loading: true,
+        streamError: null,
+        positionSec: Math.max(0, resumeAt),
+        stream: null,
+        lyrics: null,
+      });
 
       /*
        * Local file first.
@@ -141,13 +155,17 @@ export function usePlayer() {
           durationMs: Math.round((t.durationSec || 0) * 1000),
           shouldPlay: true,
         }))) {
-          store.set({ loading: false, playing: true });
+          store.set({ loading: false, playing: true, positionSec: Math.max(0, resumeAt) });
+          // A local file can stall too (a slow SD card is enough). Recovery must continue, and
+          // Media3 only accepts a seek once it holds the item.
+          if (resumeAt > 0.5) void nativeSeek(resumeAt);
           return;
         }
         if (el) {
           el.src = localUrl;
           void el.play().catch(() => undefined);
-          store.set({ loading: false, playing: true });
+          store.set({ loading: false, playing: true, positionSec: Math.max(0, resumeAt) });
+          if (resumeAt > 0.5) el.currentTime = resumeAt;
           return;
         }
       }
@@ -210,8 +228,11 @@ export function usePlayer() {
         el.removeAttribute('src');
         // Report the real track duration immediately; Media3 only learns it after buffering, and a
         // zero duration makes the seek bar jump from 0 to the true length a second later.
-        store.set({ loading: false, durationSec: t.durationSec, playing: true });
+        store.set({ loading: false, durationSec: t.durationSec, playing: true, positionSec: Math.max(0, resumeAt) });
         lastTimeUpdate.current = Date.now();
+        // Seek after handing over: Media3 cannot accept a position before it has a media item.
+        // This is what makes a mid-song recovery continue instead of replaying the intro.
+        if (resumeAt > 0.5) void nativeSeek(resumeAt);
         void nativeSetRate(store.getState().rate);
         store.set({ lyricsLoading: true });
         void service.lyricsFor(t).then((lyrics) => {
@@ -225,6 +246,11 @@ export function usePlayer() {
       el.playbackRate = store.getState().rate;
       store.set({ loading: false });
       lastTimeUpdate.current = Date.now();
+      if (resumeAt > 0.5) {
+        // `fastSeek` where available: an exact seek on a freshly attached stream forces a second
+        // range request and can stall the very recovery that asked for it.
+        el.currentTime = resumeAt;
+      }
 
       // Lyrics load in the background; they never block playback.
       store.set({ lyricsLoading: true });
@@ -544,7 +570,7 @@ export function usePlayer() {
       }
 
       store.notify('Native player error — re-resolving…', 'error');
-      void load(t);
+      void load(t, store.getState().positionSec);
     });
     return () => {
       alive = false;
@@ -580,8 +606,10 @@ export function usePlayer() {
           nativeStall.reset(s.positionSec);
           const t = s.queue[s.index];
           if (t) {
-            store.notify('Playback stalled — reloading…', 'info');
-            void load(t);
+            store.notify('Playback stalled — continuing from here…', 'info');
+            // Resume from the frozen position. Restarting a two-minute song at 1:50 because of a
+            // buffer dip is the difference between a player and a toy.
+            void load(t, s.positionSec);
           }
         }
         return;
@@ -591,8 +619,8 @@ export function usePlayer() {
         lastTimeUpdate.current = Date.now();
         const t = s.queue[s.index];
         if (t) {
-          store.notify('Stream stalled — finding another source…', 'info');
-          void load(t);
+          store.notify('Stream stalled — continuing from here…', 'info');
+          void load(t, store.getState().positionSec);
         }
       }
     }, 3000);

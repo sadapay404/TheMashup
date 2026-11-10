@@ -151,8 +151,16 @@ class MainActivity : BridgeActivity() {
         // as "true". Anything else — "false", "null", "" — means the web layer has nothing left to
         // step back to, and finishing is the correct answer.
         web.eval("window.__mashupBack && window.__mashupBack()") { result: String? ->
-            if (result != "true") {
-                // Nothing left: this is a real exit, not a missed navigation.
+            if (result == "true") {
+                // The web layer consumed the press. Mark the gesture settled so the timeout below
+                // cannot then finish the activity out from under it.
+                //
+                // This was the bug behind "back goes back, then the app closes": `settled` was only
+                // ever written inside `finishOnce`, so a *successful* web-side back left it false and
+                // the 900 ms fallback fired regardless, closing the app a beat after it had
+                // correctly navigated.
+                settled.set(true)
+            } else {
                 runOnUiThread(finishOnce)
             }
         }
