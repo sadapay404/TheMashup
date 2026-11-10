@@ -27,7 +27,7 @@ import { ChevronDownIcon, SparkIcon } from '@/components/ui/icons';
 import { CrashReport } from '@/components/settings/CrashReport';
 import { useContentBottom } from '@/hooks/useContentBottom';
 
-type CheckState = 'idle' | 'run' | 'pass' | 'fail' | 'warn';
+type CheckState = 'idle' | 'run' | 'pass' | 'fail' | 'warn' | 'skipped';
 interface CheckRow {
   id: string;
   label: string;
@@ -193,10 +193,30 @@ export function SettingsScreen() {
             `${report.formats} formats, ${report.direct} direct`,
           );
         }
-      } catch {
-        rungs.push(`${profile}:blocked`);
-        if (profile === 'VISIONOS') update('visionos', 'fail', 'blocked — using another rung');
+      } catch (e) {
+        // Never the opaque word "blocked". A missing plugin, a CORS rejection, a 403 and a timeout
+        // are four different problems with four different fixes, and printing one word for all of
+        // them is how this took five attempts to diagnose.
+        const err = e as { k?: string; status?: number; cause?: string; missing?: string; message?: string };
+        const why =
+          err.k === 'Upstream'
+            ? `HTTP ${err.status}`
+            : err.k === 'Capability'
+              ? `missing ${err.missing ?? 'capability'}`
+              : err.k === 'Network'
+                ? `network ${err.cause ?? 'unknown'}`
+                : err.k ?? 'unknown';
+        rungs.push(`${profile}:${why}`);
+        if (profile === 'VISIONOS') update('visionos', 'fail', why);
+        if (profile === 'TVHTML5') update('tv', 'fail', why);
       }
+    }
+
+    // Anything the loop never reached is skipped, not left running. A row stuck on [RUN] is a dead
+    // gauge: the earlier code broke out on the first winning rung, so later rows never settled.
+    if (!winner) {
+      if (!rungs.some((r) => r.startsWith('VISIONOS'))) update('visionos', 'skipped', 'not reached');
+      if (!rungs.some((r) => r.startsWith('TVHTML5:'))) update('tv', 'skipped', 'not reached');
     }
 
     // The line that actually answers "why do songs stop". The winning rung's token status decides

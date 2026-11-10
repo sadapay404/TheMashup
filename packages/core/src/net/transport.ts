@@ -184,11 +184,15 @@ export class TransportChain {
       else this.health.relays[route] = 'ok';
       return res;
     } catch (e) {
-      breaker.recordFailure();
-      if (route === NATIVE_ROUTE) this.health.native = 'down';
-      else if (route === 'direct') this.health.direct = 'cors';
-      else this.health.relays[route] = 'down';
-      if (this.preferred === route) this.preferred = undefined;
+      // Only a real transport fault counts against the route. A 403 delivered by YouTube is proof
+      // the route works, and counting it here was what locked the app out of its own network.
+      if (isRouteFailure(e)) {
+        breaker.recordFailure();
+        if (route === NATIVE_ROUTE) this.health.native = 'down';
+        else if (route === 'direct') this.health.direct = 'cors';
+        else this.health.relays[route] = 'down';
+        if (this.preferred === route) this.preferred = undefined;
+      }
       throw e;
     }
   }
@@ -290,6 +294,29 @@ export class TransportChain {
     }
     return b;
   }
+}
+
+/**
+ * Did this failure indicate the *route* is bad, or only that the *request* was rejected?
+ *
+ * This distinction is the whole difference between a working app and one that reports "no route
+ * available" while the network is perfectly healthy.
+ *
+ * A 400/403 from YouTube is a complete round trip: DNS resolved, TCP connected, TLS negotiated, the
+ * request was delivered and YouTube answered. The route is fine. Treating that as a route failure
+ * trips the breaker for every subsequent call, and the app then refuses to send anything — which is
+ * exactly how a reachable host becomes an app that cannot play.
+ *
+ * Only 5xx and 429 mean the path itself is unhealthy and worth backing away from for a while.
+ */
+function isRouteFailure(e: unknown): boolean {
+  if (typeof e !== 'object' || e === null) return true;
+  const err = e as { k?: string; status?: number };
+  if (err.k === 'Upstream') return (err.status ?? 0) >= 500 || err.status === 429;
+  // A parse error is an upstream payload problem, not a route problem; a playability response is a
+  // successful round trip carrying bad news. Neither says anything about the network path.
+  if (err.k === 'Parse' || err.k === 'Playability' || err.k === 'Auth' || err.k === 'Cancelled') return false;
+  return true;
 }
 
 async function readResponse(res: Response): Promise<RawResponse> {

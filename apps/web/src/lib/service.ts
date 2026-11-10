@@ -74,10 +74,32 @@ function writeLocal(key: string, value: string): void {
   }
 }
 
-function makeVisitorData(): string {
-  const bytes = new Uint8Array(11);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes));
+/**
+ * Is this a visitor id YouTube actually issued, or bytes we invented?
+ *
+ * Real `visitorData` is a base64url-encoded protobuf whose first field is a string, so it opens with
+ * the tag byte 0x0A and a length — base64 `Cg…` — and is longer than the 11-byte id alone.
+ *
+ * This check exists because of a real bug: the app used to mint 11 random bytes and send them as
+ * `X-Goog-Visitor-Id` on every request. YouTube's protobuf parser rejects that, answering 400 or
+ * `UNPLAYABLE`, and 400s were also tripping the transport breaker. Inventing an identity is worse
+ * than having none: with no visitor id, YouTube issues one on the first response and we adopt it.
+ */
+export function isValidVisitorData(candidate: string | null | undefined): boolean {
+  if (!candidate) return false;
+  // Values come back URL-encoded from the wire (`…%3D%3D` for the base64 `==` padding), and a raw
+  // `=` would fail the character class below. Decode before judging the shape.
+  let value = candidate.trim();
+  try {
+    value = decodeURIComponent(value);
+  } catch {
+    /* a stray '%' is already proof this is not a valid token */
+    return false;
+  }
+  if (value.length < 18) return false;
+  // `[t-zA-Z…]` looks like "the letter t then a-z" but is a literal range, so the ranges here
+  // are written out explicitly.
+  return /^Cg[A-Za-z0-9_\-+/]+=*$/.test(value);
 }
 
 /** Capacitor/Tauri expose a native bridge; detect it so we can prefer InnerTube there. */
@@ -141,8 +163,17 @@ export class MusicService {
     this.provider = new PublicApiProvider();
     this.native = isNativeShell();
 
-    this.visitorData = readLocal(LS_VISITOR) ?? makeVisitorData();
-    writeLocal(LS_VISITOR, this.visitorData);
+    // Only ever send a visitor id YouTube gave us. An empty string means "none", and the first
+    // response will hand us a real one to adopt.
+    const stored = readLocal(LS_VISITOR);
+    if (!isValidVisitorData(stored)) {
+      try {
+        localStorage.removeItem(LS_VISITOR);
+      } catch {
+        /* private mode — non-fatal */
+      }
+    }
+    this.visitorData = isValidVisitorData(stored) ? stored! : '';
     this.cookie = readLocal(LS_COOKIE);
 
     const lang = typeof navigator !== 'undefined' ? navigator.language : 'en';
@@ -150,12 +181,29 @@ export class MusicService {
       {
         hl: lang.split('-')[0] ?? 'en',
         gl: (lang.split('-')[1] ?? 'US').toUpperCase(),
-        visitorData: this.visitorData,
+        visitorData: this.visitorData || undefined,
         cookie: this.cookie ?? undefined,
       },
       this.transport.fetch,
     );
     this.lyricIndex = new LyricIndex();
+  }
+
+  /**
+   * Take the visitor id YouTube issued in a response, if we do not already have one.
+   *
+   * YouTube returns `responseContext.visitorData` on the first call from an unidentified client. It
+   * is the identity every later request should carry — sending none is a fresh anonymous session on
+   * every call, which is part of why playability answers were inconsistent.
+   */
+  adoptVisitorData(json: unknown): void {
+    if (this.visitorData) return;
+    const ctx = (json as { responseContext?: { visitorData?: unknown } } | null)?.responseContext;
+    const issued = typeof ctx?.visitorData === 'string' ? ctx.visitorData : '';
+    if (!isValidVisitorData(issued)) return;
+    this.visitorData = issued;
+    writeLocal(LS_VISITOR, issued);
+    diag(`visitor: adopted server-issued id (${issued.slice(0, 8)}…)`);
   }
 
   setCookie(cookie: string | null): void {
@@ -291,6 +339,7 @@ export class MusicService {
       tried.push(profile);
       try {
         const res = await this.innertube.player(profile, videoId);
+        this.adoptVisitorData(res.json);
         const info = parsePlayer(res.json, profile, videoId);
         if (pickAudioUrl(info)) {
           this.lastRoute = `InnerTube · ${profile}`;
@@ -310,7 +359,13 @@ export class MusicService {
         if (info.audio.length && profile === STREAM_LADDER[STREAM_LADDER.length - 1]) {
           return { ok: true, info };
         }
-      } catch {
+      } catch (e) {
+        const err = e as { k?: string; status?: number; cause?: string; missing?: string; message?: string };
+        diag(
+          `resolve ${videoId}: ${profile} FAILED — k=${err.k ?? '?'} status=${err.status ?? '-'} ` +
+            `cause=${err.cause ?? err.missing ?? '-'} route=${this.transport.health.lastRoute ?? 'none'} ` +
+            `msg=${err.message ?? 'no message'}`,
+        );
         continue;
       }
     }
