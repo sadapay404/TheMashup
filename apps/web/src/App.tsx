@@ -266,8 +266,9 @@ export default function App() {
             playing={playing}
             progress={progress}
             onToggle={() => void player.setPlaying(!playing)}
-            onNext={() => player.next(false)}
             onOpen={() => store.set({ playerOpen: true })}
+            onClose={() => void player.stop()}
+            onDownload={() => setDownload(track)}
           />
         ) : null}
       </AnimatePresence>

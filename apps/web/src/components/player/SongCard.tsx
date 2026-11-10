@@ -22,7 +22,7 @@
 
 import { motion, useMotionValue, useTransform } from 'framer-motion';
 import type { Track } from '@themashup/core';
-import { NextIcon, PauseIcon, PlayIcon } from '@/components/ui/icons';
+import { CloseIcon, DownloadIcon, PauseIcon, PlayIcon } from '@/components/ui/icons';
 import { CARD_H, cardBottom } from '@/lib/layout';
 import { snap } from '@/components/ui/primitives';
 
@@ -35,15 +35,18 @@ export function SongCard({
   playing,
   progress,
   onToggle,
-  onNext,
   onOpen,
+  onClose,
+  onDownload,
 }: {
   track: Track;
   playing: boolean;
   progress: number;
   onToggle: () => void;
-  onNext: () => void;
   onOpen: () => void;
+  onClose: () => void;
+  /** Opens the quality sheet. Kept as a prop so the card owns no download logic itself. */
+  onDownload: () => void;
 }) {
   const dragY = useMotionValue(0);
   // Upward drag reads as "lifting the card towards the full player".
@@ -59,7 +62,19 @@ export function SongCard({
       dragDirectionLock
       dragConstraints={{ top: -DRAG_OPEN_PX * 1.4, bottom: 0 }}
       dragElastic={{ top: 0.2, bottom: 0.02 }}
-      style={{ y: dragY, bottom: cardBottom(), height: CARD_H }}
+      style={{
+        y: dragY,
+        bottom: cardBottom(),
+        height: CARD_H,
+        // Translucent, not transparent. The shared `glass` utility mixes the theme wash at 4.5%,
+        // which over a busy screen is indistinguishable from nothing — text appeared to float on
+        // the artwork behind it. This keeps the blur, so it still reads as a layer over the page,
+        // but gives the surface enough body to hold two lines of text anywhere on any theme.
+        background: 'color-mix(in oklab, var(--color-raised) 62%, transparent)',
+        backdropFilter: 'blur(24px) saturate(150%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(150%)',
+        border: '1px solid color-mix(in oklab, var(--wash) 13%, transparent)',
+      }}
       onDragEnd={(_, info) => {
         if (info.offset.y < -DRAG_OPEN_PX || info.velocity.y < -DRAG_OPEN_VELOCITY) {
           onOpen();
@@ -68,7 +83,7 @@ export function SongCard({
       }}
       role="region"
       aria-label="Now playing"
-      className="glass fixed inset-x-3 z-40 mx-auto flex max-w-2xl touch-pan-y items-center gap-3 overflow-hidden rounded-2xl px-2.5 shadow-[0_20px_50px_-24px_rgba(0,0,0,0.95)]"
+      className="fixed inset-x-3 z-40 mx-auto flex max-w-2xl touch-pan-y items-center gap-2.5 overflow-hidden rounded-2xl px-2.5 shadow-[0_20px_50px_-24px_rgba(0,0,0,0.95)]"
     >
       {/* Whole card is the open target, minus the transport buttons which sit above it. */}
       <motion.button
@@ -108,13 +123,29 @@ export function SongCard({
 
       <motion.button
         type="button"
-        onClick={onNext}
+        onClick={onDownload}
         whileTap={{ scale: 0.9 }}
         transition={snap}
-        aria-label="Next track"
-        className="mr-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--color-text-2)]"
+        aria-label="Save for offline listening"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-2)]"
       >
-        <NextIcon width={18} height={18} />
+        <DownloadIcon width={17} height={17} />
+      </motion.button>
+
+      {/*
+        End the song outright. Deliberately its own control rather than a long-press or a menu item:
+        when someone wants the music to stop they are usually already annoyed, and making them hunt
+        for it is how an app gets closed instead.
+      */}
+      <motion.button
+        type="button"
+        onClick={onClose}
+        whileTap={{ scale: 0.9 }}
+        transition={snap}
+        aria-label="Stop and close the player"
+        className="mr-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-2)]"
+      >
+        <CloseIcon width={16} height={16} />
       </motion.button>
 
       {/* Progress hairline, flush with the card's bottom edge. */}

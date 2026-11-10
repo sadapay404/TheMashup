@@ -78,32 +78,29 @@ describe('SmartDock', () => {
     }
   });
 
-  it('does not lay invisible tap traps over the card while compact', () => {
+  it('draws all five destinations while a song is loaded', () => {
     resetState();
     store.set({ queue: [track as never], index: 0, route: 'home' });
     render(<SmartDock />);
 
-    // The compact dock gives its spare width to the song card. Leaving invisible buttons there
-    // would mean taps on the card's controls landed on the dock instead, so the hidden
-    // destinations must take no pointer events at all.
+    // The dock used to collapse to a single pill the moment a track loaded. That is gone: shrinking
+    // navigation when music starts takes the app away from the user. All five are drawn, always.
+    for (const label of ['Home', 'Search', 'Library', 'Downloads', 'Settings']) {
+      const el = screen.getByRole('button', { name: label });
+      expect(el.getAttribute('aria-current')).toBe(label === 'Home' ? 'page' : null);
+    }
+    // Nothing is hidden from assistive tech, because nothing is hidden at all.
     const dock = screen.getByRole('navigation', { name: 'Primary' });
     const hidden = Array.from(dock.querySelectorAll('[data-dock-item]')).filter(
-      (el) => el.getAttribute('aria-current') !== 'page',
+      (el) => el.getAttribute('aria-hidden') === 'true',
     );
-    expect(hidden).toHaveLength(4);
-    for (const el of hidden) {
-      expect(el.getAttribute('aria-hidden')).toBe('true');
-      expect(el.className).toContain('pointer-events-none');
-    }
+    expect(hidden).toHaveLength(0);
   });
 
-  it('still navigates from the compact dock through the accessible layer', () => {
+  it('navigates from the dock while a song is loaded', () => {
     resetState();
     store.set({ queue: [track as never], index: 0, route: 'home' });
     render(<SmartDock />);
-
-    // One icon is drawn, but five destinations are offered: a screen reader or keyboard user is
-    // not locked out of the app because a song is playing.
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(store.getState().route).toBe('search');
   });
@@ -120,14 +117,12 @@ describe('SmartDock', () => {
     resetState();
     store.set({ queue: [track as never], index: 0, route: 'home' });
     render(<SmartDock />);
-    // Compact draws one pill, so the other four destinations are invisible — but they must still be
-    // announced, or starting a song would cut a screen-reader user off from navigation. Exactly one
-    // copy of each label: the drawing and the accessible layer must not both speak.
+
+    // This used to be hard-won: the compact dock drew one pill and had to republish the other four
+    // as sr-only buttons so screen readers were not locked out of navigation. Once the dock stopped
+    // shrinking, the problem disappeared — every destination is a real, visible, named button.
     for (const label of ['Home', 'Search', 'Library', 'Downloads', 'Settings']) {
       expect(screen.getAllByRole('button', { name: label })).toHaveLength(1);
-    }
-    for (const label of ['Search', 'Library', 'Downloads', 'Settings']) {
-      expect(screen.getByRole('button', { name: label }).closest('.sr-only')).not.toBeNull();
     }
   });
 });
@@ -136,7 +131,7 @@ describe('SongCard', () => {
   it('renders the track and opens the player from the title', () => {
     const onOpen = vi.fn();
     render(
-      <SongCard track={track as never} playing={false} progress={0} onToggle={vi.fn()} onNext={vi.fn()} onOpen={onOpen} />,
+      <SongCard track={track as never} playing={false} progress={0} onToggle={vi.fn()} onOpen={onOpen} onClose={vi.fn()} onDownload={vi.fn()} />,
     );
     expect(screen.getByText('Jhol')).toBeTruthy();
     // Artwork and title both open the player, so both carry the same label by intent.
@@ -145,21 +140,32 @@ describe('SongCard', () => {
     expect(onOpen).toHaveBeenCalled();
   });
 
-  it('exposes transport as named controls', () => {
+  it('exposes transport, save and stop as named controls', () => {
     const onToggle = vi.fn();
-    const onNext = vi.fn();
+    const onClose = vi.fn();
+    const onDownload = vi.fn();
     render(
-      <SongCard track={track as never} playing progress={0.5} onToggle={onToggle} onNext={onNext} onOpen={vi.fn()} />,
+      <SongCard
+        track={track as never}
+        playing
+        progress={0.5}
+        onToggle={onToggle}
+        onOpen={vi.fn()}
+        onClose={onClose}
+        onDownload={onDownload}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Next track' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save for offline listening' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop and close the player' }));
     expect(onToggle).toHaveBeenCalledOnce();
-    expect(onNext).toHaveBeenCalledOnce();
+    expect(onDownload).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('clamps progress instead of overflowing the hairline', () => {
     const { container } = render(
-      <SongCard track={track as never} playing progress={4} onToggle={vi.fn()} onNext={vi.fn()} onOpen={vi.fn()} />,
+      <SongCard track={track as never} playing progress={4} onToggle={vi.fn()} onOpen={vi.fn()} onClose={vi.fn()} onDownload={vi.fn()} />,
     );
     const bar = container.querySelector<HTMLElement>('.bg-\\[var\\(--accent\\)\\]');
     expect(bar?.style.width).toBe('100%');

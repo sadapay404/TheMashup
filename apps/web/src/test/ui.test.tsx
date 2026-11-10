@@ -94,8 +94,9 @@ describe('Component contracts', () => {
         playing
         progress={0.4}
         onToggle={onToggle}
-        onNext={() => undefined}
         onOpen={() => undefined}
+        onClose={() => undefined}
+        onDownload={() => undefined}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }));

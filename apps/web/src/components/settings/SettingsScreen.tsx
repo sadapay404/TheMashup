@@ -212,11 +212,14 @@ export function SettingsScreen() {
       }
     }
 
-    // Anything the loop never reached is skipped, not left running. A row stuck on [RUN] is a dead
-    // gauge: the earlier code broke out on the first winning rung, so later rows never settled.
-    if (!winner) {
-      if (!rungs.some((r) => r.startsWith('VISIONOS'))) update('visionos', 'skipped', 'not reached');
-      if (!rungs.some((r) => r.startsWith('TVHTML5:'))) update('tv', 'skipped', 'not reached');
+    // Every row must reach a terminal state. Two ways a row could still be sitting on [RUN]:
+    // the loop broke early because an earlier rung won, or the loop finished while `winner` was set
+    // so the fallback below never ran. Both are settled here, unconditionally.
+    if (!rungs.some((r) => r.startsWith('VISIONOS:'))) {
+      update('visionos', winner ? 'skipped' : 'fail', winner ? 'not reached — an earlier rung won' : 'no response');
+    }
+    if (!rungs.some((r) => r.startsWith('TVHTML5:'))) {
+      update('tv', winner ? 'skipped' : 'fail', winner ? 'not reached — VISIONOS resolved first' : 'no response');
     }
 
     // The line that actually answers "why do songs stop". The winning rung's token status decides

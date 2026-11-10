@@ -65,7 +65,12 @@ export function SmartDock() {
   const tracks = useApp((s) => s.queue);
   const index = useApp((s) => s.index);
 
-  /** Compact is tied to a track existing, not to whether it is currently making sound. */
+  /**
+   * A track existing used to collapse the dock to a single pill. That is gone: shrinking navigation
+   * the moment music starts makes the app feel like it is taking itself away, and the user asked
+   * for it to stop. `compact` now only controls where the dock sits — above the song card — never
+   * how much of it is drawn.
+   */
   const compact = tracks.length > 0 && index >= 0;
   const [open, setOpen] = useState(false);
   const [holding, setHolding] = useState(false);
@@ -251,7 +256,9 @@ export function SmartDock() {
     }
   };
 
-  const expanded = !compact || open;
+  // Always expanded. Kept as a named value so the JSX below stays a single branch and the
+  // hold-to-open gesture still has something to do (it now just re-anchors the dock).
+  const expanded = true;
 
   return (
     <nav
@@ -431,38 +438,7 @@ export function SmartDock() {
         ) : null}
       </AnimatePresence>
 
-      {/*
-        The compact dock keeps its spare destinations in the accessibility tree without drawing them.
 
-        Showing one pill is a visual rule, not a navigational one: hiding the other four from
-        assistive tech would mean starting a song takes the whole app away from anyone using a
-        screen reader or keyboard. These are `sr-only` — laid out at 1px, still focusable, still
-        announced. Focusing one springs the dock open so a sighted keyboard user can see where they
-        are. The open dock draws all five itself, so this stands down to avoid reading each label
-        twice; the current page is the drawn pill and is skipped for the same reason.
-      */}
-      {compact && !open ? (
-        <div className="sr-only">
-          {ITEMS.map(({ id, label }) =>
-            id === route ? null : (
-              <button
-                key={id}
-                type="button"
-                onClick={() => {
-                  if (store.getState().route !== id) navigate(id);
-                  setOpen(true);
-                }}
-                onFocus={() => {
-                  clearTimers();
-                  setOpen(true);
-                }}
-              >
-                {label}
-              </button>
-            ),
-          )}
-        </div>
-      ) : null}
     </nav>
   );
 }

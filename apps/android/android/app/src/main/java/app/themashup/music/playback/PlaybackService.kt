@@ -168,11 +168,36 @@ class PlaybackService : MediaSessionService() {
     }
 
     private inner class SessionCallback : MediaSession.Callback {
+        /**
+         * What the notification is allowed to show and do.
+         *
+         * The shade's buttons come from the *player commands* this returns — Media3 builds them from
+         * what the session advertises. There is no `setSessionCommands` on a built session; the
+         * available-commands result built here is the only place that has any effect.
+         *
+         * The user asked for "many controls", and the two people actually reach for in a music
+         * notification are next and previous. `DEFAULT_PLAYER_COMMANDS` has them, but only dimmed
+         * out when the player has a single item, so we also advertise seek-to-next/previous and
+         * keep a multi-item queue on the native side (see PlaybackBridge.play, which appends).
+         */
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
-        ): MediaSession.ConnectionResult =
-            MediaSession.ConnectionResult.AcceptedResultBuilder(session).build()
+        ): MediaSession.ConnectionResult {
+            val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                .addAll(
+                    Player.COMMAND_SEEK_TO_NEXT,
+                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
+                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                    Player.COMMAND_GET_METADATA,
+                )
+                .build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailablePlayerCommands(playerCommands)
+                .build()
+        }
 
         /**
          * Media3 1.3.x signature: (session, controller, items) -> ListenableFuture.

@@ -115,6 +115,43 @@ export function usePlayer() {
       const art = t.thumbs[t.thumbs.length - 1]?.url;
       store.set({ loading: true, streamError: null, positionSec: 0, stream: null, lyrics: null });
 
+      /*
+       * Local file first.
+       *
+       * This is the whole point of downloading: a file already on the device cannot be truncated by
+       * a token gate, cannot 403 after a megabyte, and does not need the network at all. Until now
+       * `load` went straight to `resolveStream` and never looked at the downloads list, so a
+       * downloaded song still streamed — and still stopped.
+       *
+       * The native service plays a plain filesystem path directly; Media3 hands `file://` to its own
+       * data source without a socket. The web element needs the same URL. If the file has vanished
+       * since it was downloaded, fall through to the network rather than failing outright.
+       */
+      const onDisk = store.getState().downloads.find((d) => d.state === 'done' && d.track.id === t.id && d.path);
+      if (onDisk?.path) {
+        const localUrl = `file://${onDisk.path}`;
+        nativeBootMark(`play ${t.id}: local file ${onDisk.path}`);
+        store.set({ stream: null });
+        signalPlay(t);
+        if (!nativeDisabled && (await nativePlay({
+          url: localUrl,
+          title: t.title,
+          artist: t.artist,
+          ...(art ? { artUrl: art } : {}),
+          durationMs: Math.round((t.durationSec || 0) * 1000),
+          shouldPlay: true,
+        }))) {
+          store.set({ loading: false, playing: true });
+          return;
+        }
+        if (el) {
+          el.src = localUrl;
+          void el.play().catch(() => undefined);
+          store.set({ loading: false, playing: true });
+          return;
+        }
+      }
+
       const resolved = await service.resolveStream(t.id);
       if (gen !== generation.current) return;
 
@@ -656,9 +693,43 @@ export function usePlayer() {
     return () => el.removeEventListener('loadedmetadata', apply);
   }, [track]);
 
+  /**
+   * End the song outright.
+   *
+   * Not a pause: the queue is cleared, the native service is told to stop, and the element is
+   * unloaded. Anything less leaves the notification alive with a phantom track, which is exactly
+   * what "I pressed the X and it is still in my shade" looks like.
+   */
+  const stop = useCallback(async () => {
+    generation.current += 1; // invalidate any in-flight resolve
+    const el = audioRef.current;
+    if (hasNativePlayback()) {
+      await nativePause().catch(() => undefined);
+      await nativeSeek(0).catch(() => undefined);
+    }
+    if (el) {
+      el.pause();
+      el.removeAttribute('src');
+      el.load();
+    }
+    store.set({
+      playing: false,
+      loading: false,
+      positionSec: 0,
+      queue: [],
+      index: -1,
+      stream: null,
+      streamError: null,
+      playerOpen: false,
+      lyricsOpen: false,
+    });
+    haptic('tap');
+  }, []);
+
   return {
     track,
     playTrack,
+    stop,
     toggle: () => void setPlaying(!store.getState().playing),
     setPlaying,
     next,

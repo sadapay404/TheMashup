@@ -47,8 +47,8 @@ class MainActivity : BridgeActivity() {
         Extractor.delegate = BuildConfigStreamExtractorDelegate.create()
         LogPlugin.boot("extractor: resolved")
 
-        LogPlugin.boot("requesting notification permission")
-        requestNotificationPermissionOnce()
+        // The notification permission is requested in onResume, not here: see the note on
+        // requestNotificationPermissionOnce for why asking this early silently does nothing.
         LogPlugin.boot("binding playback service")
         preparePlaybackSession()
         LogPlugin.boot("boot complete")
@@ -78,13 +78,40 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    /**
+     * Ask for POST_NOTIFICATIONS — once, and only when the activity is actually in front.
+     *
+     * This used to be called from `onCreate`. On API 33+ a permission request made before the
+     * activity is resumed is dropped by the system without a dialog and without an error, so the
+     * notification permission was never granted and the media notification never appeared. The
+     * request has to happen in `onResume`, after the first frame.
+     */
     private fun requestNotificationPermissionOnce() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (notifPermissionAsked) return
         val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
-        if (!granted) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF)
+        if (granted) return
+        notifPermissionAsked = true
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_NOTIF) {
+            val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+            LogPlugin.boot("notifications: ${if (granted) "granted" else "denied by user"}")
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Deferred by one frame: the permission dialog cannot attach to a window that has not drawn.
+        window.decorView.post { requestNotificationPermissionOnce() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -150,6 +177,9 @@ class MainActivity : BridgeActivity() {
         }
         super.onDestroy()
     }
+
+    /** Set the first time we ask, so a denial is not re-prompted on every resume. */
+    private var notifPermissionAsked = false
 
     private companion object {
         const val REQ_NOTIF = 1001
