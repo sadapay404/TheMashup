@@ -8,9 +8,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { buildRequest, PROFILES, STREAM_LADDER } from '@themashup/core';
+import { buildRequest, inspectRungs, parsePlayer, pickAudioUrl, PROFILES, STREAM_LADDER } from '@themashup/core';
 import { service } from '@/lib/service';
-import { isNative, nativeAccountStatus, nativeCookie, nativeSignIn } from '@/lib/native';
+import { isNative, nativeAccountStatus, nativeBootMark, nativeCookie, nativeSignIn } from '@/lib/native';
 import { store, useApp } from '@/state/store';
 import { snap } from '@/components/ui/primitives';
 import { applyTheme, THEMES, themeMeta } from '@/lib/theme';
@@ -40,8 +40,9 @@ export function SettingsScreen() {
   const [checks, setChecks] = useState<CheckRow[]>([
     { id: 'direct', label: 'Direct InnerTube request', detail: 'Can this browser POST to music.youtube.com?', state: 'idle' },
     { id: 'search', label: 'Search via active route', detail: 'WEB_REMIX search for a known query', state: 'idle' },
-    { id: 'visionos', label: 'VISIONOS player', detail: 'Token-free, cipher-free stream ladder rung 1', state: 'idle' },
-    { id: 'tv', label: 'TVHTML5 player', detail: 'Token-free rung 2', state: 'idle' },
+    { id: 'resolve', label: 'Stream resolution', detail: 'Walks the real ladder with the real picker', state: 'idle' },
+    { id: 'visionos', label: 'VISIONOS player', detail: 'First rung — the one that resolves here', state: 'idle' },
+    { id: 'tv', label: 'TVHTML5 player', detail: 'Token-free, but ciphers everything on this device', state: 'idle' },
     { id: 'lrclib', label: 'LRCLIB lyrics', detail: 'Title/artist lookup (no lyric-body search exists upstream)', state: 'idle' },
     { id: 'storage', label: 'Persistent storage', detail: 'Can downloads survive eviction?', state: 'idle' },
     // These two are the honest "what will not work here" rows. They are checks, not chores: a
@@ -147,20 +148,71 @@ export function SettingsScreen() {
       update('search', 'fail', s.error?.message ?? 'failed');
     }
 
-    // 3/4. Player rungs on a stable, well-known video id
-    for (const [id, profile] of [
-      ['visionos', 'VISIONOS'],
-      ['tv', 'TVHTML5'],
-    ] as const) {
+    // 3/4. Stream resolution, exactly as the player does it.
+    //
+    // The old version counted `adaptiveFormats` and asked "is any url a string?" — a test that a
+    // ciphered-only response could still look reassuring on, and which said nothing about whether
+    // the picker would accept the result. It now runs the real ladder through the real picker, so
+    // "what this page says" and "what playback will do" cannot disagree.
+    const probe = 'dQw4w9WgXcQ';
+    const rungs: string[] = [];
+    let winner: { profile: string; itag: number; kbps: number; gated: boolean } | null = null;
+
+    for (const profile of STREAM_LADDER) {
       try {
-        const res = await service.innertube.player(profile, 'dQw4w9WgXcQ');
-        const formats = (res.json as { streamingData?: { adaptiveFormats?: unknown[] } })?.streamingData?.adaptiveFormats;
-        const n = Array.isArray(formats) ? formats.length : 0;
-        const hasUrl = Array.isArray(formats) && formats.some((f) => typeof (f as { url?: string }).url === 'string');
-        update(id, hasUrl ? 'pass' : n ? 'warn' : 'fail', `${n} formats, ${hasUrl ? 'direct URLs' : 'ciphered only'}`);
+        const res = await service.innertube.player(profile, probe);
+        const report = inspectRungs(res.json, profile, probe);
+        rungs.push(`${profile}:${report.direct}/${report.formats}`);
+        if (report.playable && !winner) {
+          const info = parsePlayer(res.json, profile, probe);
+          const pick = pickAudioUrl(info);
+          const chosen = info.audio.find((a) => a.itag === pick?.itag);
+          winner = {
+            profile,
+            itag: pick?.itag ?? 0,
+            kbps: chosen?.nominalKbps ?? 0,
+            gated: PROFILES[profile].needsStreamPoToken,
+          };
+          break;
+        }
+        if (profile === 'TVHTML5') {
+          // Reported separately because it is the one rung the user's own device has measured:
+          // zero usable formats, everything ciphered.
+          update(
+            'tv',
+            report.playable ? 'pass' : 'fail',
+            report.formats
+              ? `${report.formats} formats, ${report.direct} direct`
+              : '0 formats — ciphered only, cannot be used',
+          );
+        }
+        if (profile === 'VISIONOS') {
+          update(
+            'visionos',
+            report.playable ? 'pass' : report.direct ? 'warn' : 'fail',
+            `${report.formats} formats, ${report.direct} direct`,
+          );
+        }
       } catch {
-        update(id, 'fail', 'blocked from this browser — using the public API path instead');
+        rungs.push(`${profile}:blocked`);
+        if (profile === 'VISIONOS') update('visionos', 'fail', 'blocked — using another rung');
       }
+    }
+
+    // The line that actually answers "why do songs stop". The winning rung's token status decides
+    // it: a gated client serves about a megabyte and then 403s, however healthy it looks.
+    if (winner) {
+      update(
+        'resolve',
+        winner.gated ? 'warn' : 'pass',
+        `${winner.profile} · itag ${winner.itag} @ ${winner.kbps}kbps${
+          winner.gated ? ' · token-gated, may stop early' : ' · token-free, should play through'
+        }`,
+      );
+      nativeBootMark(`settings: ladder ${rungs.join(' ')} → ${winner.profile} itag ${winner.itag}`);
+    } else {
+      update('resolve', 'fail', `no stream resolved — ${rungs.join(' ')}`);
+      nativeBootMark(`settings: ladder ${rungs.join(' ')} → nothing playable`);
     }
 
     // 5. Lyrics

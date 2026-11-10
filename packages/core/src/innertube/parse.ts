@@ -487,3 +487,35 @@ export function pickAudioUrl(
   if (!best) return undefined;
   return { itag: best.itag, url: info.urls[best.itag]!, preview: isPreview(best) };
 }
+
+/**
+ * Walk the client ladder and report what each rung actually offered.
+ *
+ * Exists because "the song stops after thirty seconds" and "this client returns ciphered formats" are
+ * the same fact seen from two ends, and neither was observable before. Returns the first rung that
+ * yields a stream we can point a player at, plus a line per rung so the caller can log or display the
+ * whole picture.
+ */
+export interface RungReport {
+  profile: ProfileName;
+  /** Formats the response listed. */
+  formats: number;
+  /** Formats that could become a URL (a direct `url`, not `signatureCipher`). */
+  direct: number;
+  /** Direct formats withheld because they need a stream PoToken. */
+  gated: number;
+  playable: boolean;
+}
+
+export function inspectRungs(json: unknown, profile: ProfileName, videoId: string): RungReport {
+  const info = parsePlayer(json, profile, videoId);
+  const needsToken = PROFILES[profile]?.needsStreamPoToken ?? true;
+  const direct = info.audio.filter((f) => info.urls[f.itag]).length;
+  return {
+    profile,
+    formats: info.audio.length,
+    direct,
+    gated: needsToken ? direct : 0,
+    playable: Boolean(pickAudioUrl(info)),
+  };
+}

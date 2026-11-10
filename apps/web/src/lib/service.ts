@@ -12,6 +12,7 @@
 import {
   InnerTube,
   LyricIndex,
+  PROFILES,
   PublicApiProvider,
   parseVideoDetails,
   STREAM_LADDER,
@@ -295,10 +296,17 @@ export class MusicService {
           this.lastRoute = `InnerTube · ${profile}`;
           this.lastProfile = profile;
           this.lastPlayability = info.playability;
-          diag(`resolve ${videoId}: ${profile} ok, playability=${info.playability}, audio=${info.audio.length}`);
+          diag(
+            `resolve ${videoId}: ${profile} WON — playability=${info.playability} ` +
+              `formats=${info.audio.length} direct=${info.audio.filter((f) => info.urls[f.itag]).length}`,
+          );
           return { ok: true, info };
         }
-        diag(`resolve ${videoId}: ${profile} no url (playability=${info.playability}, audio=${info.audio.length})`);
+        const direct = info.audio.filter((f) => info.urls[f.itag]).length;
+        diag(
+          `resolve ${videoId}: ${profile} unusable — playability=${info.playability} ` +
+            `formats=${info.audio.length} direct=${direct} gated=${PROFILES[profile].needsStreamPoToken}`,
+        );
         if (info.audio.length && profile === STREAM_LADDER[STREAM_LADDER.length - 1]) {
           return { ok: true, info };
         }

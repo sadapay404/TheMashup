@@ -260,6 +260,16 @@ describe('format ladder honesty', () => {
     expect(pickAudioUrl(info, 200)?.itag).toBe(251);
   });
 
+  it('asks VISIONOS first, because it is the one rung measured to resolve here', () => {
+    // Regression guard. An earlier ladder dropped VISIONOS entirely and promoted TVHTML5, which
+    // returns nothing but ciphered formats on the user's device. The first rung must be the client
+    // that actually produces direct URLs.
+    expect(STREAM_LADDER[0]).toBe('VISIONOS');
+    expect(PROFILES.VISIONOS.cipherFree).toBe(true);
+    // TVHTML5 is welcome to be present, but never first.
+    expect(STREAM_LADDER.indexOf('TVHTML5')).toBeGreaterThan(0);
+  });
+
   it('tries the token-free clients before the gated ones', () => {
     // Ordering is the fix: a gated client resolves to a URL that works for one megabyte and then
     // stops, which is exactly the reported symptom.

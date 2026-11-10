@@ -169,29 +169,30 @@ export const PROFILES: Readonly<Record<ProfileName, ClientProfile>> = {
 };
 
 /**
- * Stream resolution order. Ordered by *freedom from tokens*, not speed (Amendment A-4).
- * Metadata always comes from WEB_REMIX, which has the richest YTM payload.
- */
-/**
  * Stream resolution order.
  *
- * The ordering is the whole fix for "songs stop after thirty seconds".
+ * The ordering is the whole fix for "songs stop after thirty seconds", so it is worth being precise
+ * about why this order and not another.
  *
- * A profile that returns a *ciphered* format is useless to us: we have no JavaScript interpreter to
- * run YouTube's player JS, so `signatureCipher` entries cannot be turned into a playable URL. A
- * profile that returns a *direct* URL but requires a PoToken is worse than useless, because it looks
- * like success: the first megabyte of the file downloads fine and then the server answers 403. At
- * 256 kbps that is almost exactly thirty seconds of audio, which reads as a player that cannot play.
+ *  - **VISIONOS** is first. It is the client yt-dlp moved to as its JavaScript-free default, and the
+ *    one this app's own diagnostics measurably resolve on the user's device: 27 formats, direct URLs.
+ *    Verified on hardware, not assumed.
+ *  - **ANDROID_VR** and **TVHTML5_SIMPLY** follow: both token-free in principle. VR is pinned to an
+ *    old version on purpose (see its entry).
+ *  - **TVHTML5** is next *only* because it is token-free. On the user's device it returns zero usable
+ *    formats — every one ciphered — so it cannot be the first rung, whatever the tables say.
+ *  - **IOS / ANDROID / WEB_REMIX** last: they need a stream PoToken, which we cannot mint. A response
+ *    from these yields a URL that serves roughly one megabyte and then answers 403. Best-effort only.
  *
- * So the ladder asks the clients that are both `cipherFree` and `needsStreamPoToken: false` first,
- * and only then falls back to the token-bound web clients. See `pickAudioUrl` for the second half of
- * the defence: it also refuses a stream that declares far less length than the track.
+ * What to measure if this regresses: `pickStreamFromLadder` reports how many formats each rung
+ * returned and how many were blocked, and Settings shows the same numbers the player will see.
  */
 export const STREAM_LADDER: readonly ProfileName[] = [
+  'VISIONOS',
   'ANDROID_VR',
   'TVHTML5_SIMPLY',
-  'IOS',
   'TVHTML5',
+  'IOS',
   'ANDROID',
   'WEB_REMIX',
 ];
