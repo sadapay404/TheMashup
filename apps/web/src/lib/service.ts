@@ -344,8 +344,12 @@ export class MusicService {
     return null;
   }
 
-  playableUrl(info: StreamInfo): { itag: number; url: string } | undefined {
-    return pickAudioUrl(info);
+  /**
+   * The best stream for a track. `expectedSec` is the track's own runtime; passing it lets the
+   * picker reject 30-second preview clips in favour of a full-length stream.
+   */
+  playableUrl(info: StreamInfo, expectedSec = 0): { itag: number; url: string; preview: boolean } | undefined {
+    return pickAudioUrl(info, expectedSec);
   }
 
   /** Lyrics + local index warm-up. */

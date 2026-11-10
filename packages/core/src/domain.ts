@@ -70,6 +70,12 @@ export interface AudioFormat {
   quality: string;
   deliver: 'url' | 'cipher' | 'none';
   premiumOnly: boolean;
+  /**
+   * Length of the audio this format actually delivers, in seconds; 0 when the response omits it.
+   * A format much shorter than the track is a preview clip, and playing one sounds like the song
+   * stopping dead rather than like a bad connection.
+   */
+  durationSec: number;
 }
 
 export interface VideoFormat {

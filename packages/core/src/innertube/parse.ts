@@ -397,6 +397,7 @@ export function parsePlayer(json: unknown, profile: string, videoId: string): St
         quality: String(f['audioQuality'] ?? '').replace('AUDIO_QUALITY_', '') || 'UNKNOWN',
         deliver,
         premiumOnly: meta?.premium === true,
+        durationSec: Number(f['approxDurationMs'] ?? 0) / 1000,
       });
     } else if (mime.startsWith('video/')) {
       const height = Number(f['height'] ?? 0);
@@ -433,14 +434,42 @@ export function parsePlayer(json: unknown, profile: string, videoId: string): St
 }
 
 /** Best playable audio URL for streaming, preferring the best free tier. */
-export function pickAudioUrl(info: StreamInfo): { itag: number; url: string } | undefined {
-  for (const f of info.audio) {
-    const url = info.urls[f.itag];
-    if (url && !f.premiumOnly) return { itag: f.itag, url };
+export function pickAudioUrl(
+  info: StreamInfo,
+  /**
+   * Runtime of the track being played, in seconds, when known. Formats that deliver far less than
+   * this are preview clips and are passed over.
+   *
+   * This is the difference between "the song did not play" and "the first thirty seconds played and
+   * then it went quiet": YouTube serves unauthenticated clients a ~30s snippet for some tracks, and
+   * the only way to tell is to compare what the format declares against what the track should be.
+   * Silently handing back a snippet is what makes a working player look broken.
+   */
+  expectedSec = 0,
+): { itag: number; url: string; preview: boolean } | undefined {
+  // Treat a format as a preview when it declares a length and that length is a small fraction of
+  // the track. 60% tolerates intros/outros and rounding without ever excusing a 30s clip of a
+  // 3-minute song.
+  const isPreview = (f: AudioFormat): boolean =>
+    Boolean(expectedSec) && f.durationSec > 0 && f.durationSec < expectedSec * 0.6;
+
+  const tiers = [
+    info.audio.filter((f) => info.urls[f.itag] && !f.premiumOnly),
+    info.audio.filter((f) => info.urls[f.itag]),
+  ];
+
+  // Prefer a full-length stream in either tier before accepting a preview from the better tier.
+  for (const tier of tiers) {
+    for (const f of tier) {
+      if (!isPreview(f)) return { itag: f.itag, url: info.urls[f.itag]!, preview: false };
+    }
   }
-  for (const f of info.audio) {
-    const url = info.urls[f.itag];
-    if (url) return { itag: f.itag, url };
+  // Everything available is short. Return the best of them and say so, rather than pretending the
+  // request failed: partial audio beats silence, and the caller can explain it.
+  for (const tier of tiers) {
+    for (const f of tier) {
+      if (f.durationSec > 0) return { itag: f.itag, url: info.urls[f.itag]!, preview: true };
+    }
   }
   return undefined;
 }

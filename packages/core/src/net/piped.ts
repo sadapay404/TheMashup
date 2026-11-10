@@ -317,6 +317,9 @@ export class PublicApiProvider {
         quality: a.quality ?? '',
         deliver: audioUrl ? 'url' : 'none',
         premiumOnly: false,
+        // These relays hand back a whole track, so there is no per-format length to compare
+        // against; 0 means "not declared" and the preview guard ignores it.
+        durationSec: 0,
       });
     }
 
@@ -391,6 +394,9 @@ export class PublicApiProvider {
           quality: f.audioQuality ?? '',
           deliver: mediaUrl ? 'url' : 'none',
           premiumOnly: false,
+        // These relays hand back a whole track, so there is no per-format length to compare
+        // against; 0 means "not declared" and the preview guard ignores it.
+        durationSec: 0,
         });
       } else if (type.startsWith('video/')) {
         const height = Number(f.qualityLabel?.replace('p', '') ?? 0);

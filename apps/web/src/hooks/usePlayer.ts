@@ -123,7 +123,10 @@ export function usePlayer() {
         return;
       }
 
-      const playable = service.playableUrl(resolved.info);
+      // The track's own runtime goes into the picker so a 30-second preview cannot masquerade as
+      // a complete stream. `t.durationSec` is 0 for some link-sourced tracks, which the picker
+      // treats as "unknown" rather than as "zero length".
+      const playable = service.playableUrl(resolved.info, t.durationSec);
       store.set({ stream: resolved.info });
       // Count the attempt only once a source resolved: a failed resolve is not a listening choice.
       signalPlay(t);

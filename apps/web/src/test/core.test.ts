@@ -138,6 +138,73 @@ describe('format ladder honesty', () => {
     expect(info.audio.find((a) => a.itag === 141)?.premiumOnly).toBe(true);
   });
 
+  it('refuses a 30-second preview when a full-length stream exists', () => {
+    // The bug this pins: YouTube hands unauthenticated clients a ~30s snippet for some tracks.
+    // The player rendered it faithfully and then went silent at 30.0 seconds — 1,438,080 frames at
+    // 48kHz — which reads as "the app cannot play songs" rather than "this stream is a preview".
+    const info = parsePlayer(
+      {
+        streamingData: {
+          adaptiveFormats: [
+            // Higher bitrate, but truncated to a preview: accepting it is the trap.
+            {
+              itag: 141,
+              mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+              bitrate: 256000,
+              url: 'https://x/?itag=141',
+              approxDurationMs: '30000',
+            },
+            {
+              itag: 140,
+              mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+              bitrate: 128000,
+              url: 'https://x/?itag=140',
+              approxDurationMs: '197000',
+            },
+          ],
+        },
+      },
+      'ANDROID',
+      'v',
+    );
+    const best = pickAudioUrl(info, 200);
+    expect(best?.itag).toBe(140);
+    expect(best?.preview).toBe(false);
+  });
+
+  it('says so plainly when every stream is a preview, instead of pretending it failed', () => {
+    const info = parsePlayer(
+      {
+        streamingData: {
+          adaptiveFormats: [
+            { itag: 140, mimeType: 'audio/mp4', url: 'https://x/?itag=140', approxDurationMs: '30000' },
+          ],
+        },
+      },
+      'ANDROID',
+      'v',
+    );
+    const best = pickAudioUrl(info, 200);
+    expect(best?.itag).toBe(140);
+    expect(best?.preview).toBe(true);
+  });
+
+  it('still picks the best stream when runtime is unknown', () => {
+    const info = parsePlayer(
+      {
+        streamingData: {
+          adaptiveFormats: [
+            { itag: 140, mimeType: 'audio/mp4', url: 'https://x/?itag=140', approxDurationMs: '30000' },
+          ],
+        },
+      },
+      'ANDROID',
+      'v',
+    );
+    // durationSec 0 means "unknown", not "zero-length": no stream may be dropped on a guess.
+    expect(pickAudioUrl(info, 0)?.itag).toBe(140);
+  });
+
   it('reports ciphered formats as cipher rather than hiding them', () => {
     const info = parsePlayer(
       { streamingData: { adaptiveFormats: [{ itag: 140, mimeType: 'audio/mp4', signatureCipher: 's=x' }] } },
