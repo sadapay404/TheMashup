@@ -12,6 +12,7 @@ import app.themashup.music.diagnostics.LogPlugin
 import app.themashup.music.extractor.Extractor
 import app.themashup.music.playback.PlaybackService
 import com.getcapacitor.BridgeActivity
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The only Activity. Responsibilities kept deliberately small:
@@ -105,19 +106,36 @@ class MainActivity : BridgeActivity() {
      */
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
-        val handledByWeb = bridge?.let { b ->
-            b.evaluateJavascript("window.__mashupBack && window.__mashupBack()") { result ->
-                if (result != "true") {
-                    // Nothing left: this is a real exit, not a missed navigation.
-                    runOnUiThread { finish() }
-                }
-            }
-            true
-        } ?: false
-
-        if (!handledByWeb) {
+        val web = bridge
+        if (web == null) {
+            // The bridge never came up, so nothing on the web side can be holding state.
             super.onBackPressed()
+            return
         }
+
+        // One finish per press, whichever path gets there first.
+        val settled = AtomicBoolean(false)
+        val finishOnce = Runnable { if (settled.compareAndSet(false, true)) finish() }
+
+        // `Bridge.eval` wraps the WebView call and marshals it onto the main thread itself; the
+        // WebView's own `evaluateJavascript` is not part of the bridge's public surface.
+        //
+        // The callback receives the JSON-ish string the WebView produces, so a JS `true` arrives
+        // as "true". Anything else — "false", "null", "" — means the web layer has nothing left to
+        // step back to, and finishing is the correct answer.
+        web.eval("window.__mashupBack && window.__mashupBack()") { result: String? ->
+            if (result != "true") {
+                // Nothing left: this is a real exit, not a missed navigation.
+                runOnUiThread(finishOnce)
+            }
+        }
+
+        // A press before the page finished loading has no handler installed yet, and the callback may
+        // never arrive at all — without this the press is silently swallowed and the app has no way
+        // out. Skewed long so a slow device still gets its chance to answer: a late arrival means a
+        // sluggish back press, an early one would mean the app quitting from a page that had
+        // somewhere to go.
+        window.decorView.postDelayed({ if (!settled.get()) runOnUiThread(finishOnce) }, 900)
     }
 
     override fun onDestroy() {
