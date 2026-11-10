@@ -1,25 +1,43 @@
 /**
- * Home. No shelf fetches upstream yet (that lands with library sync); instead it is useful from the
- * first second: continue listening, quick picks, and an honest status card when offline.
+ * Home.
+ *
+ * One rule divides Home from Library: **history and queue live in Library; Home proposes what to
+ * play next.** Re-listing what you already played makes the first screen a museum instead of a
+ * suggestion, and it is the single most common way a music app feels empty.
+ *
+ *   - Signed in to a Google account → recommendations, seeded from what you have actually played.
+ *   - Not signed in            → the empty state, honestly explaining why there is nothing here
+ *                                rather than showing invented content.
+ *
+ * The search affordance stays on Home in both cases: it is the one thing a music app must never
+ * make you hunt for.
  */
 
 import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import type { Track } from '@themashup/core';
 import { useApp } from '@/state/store';
 import { EmptyState, glide, snap } from '@/components/ui/primitives';
 import { MicIcon, PlayIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
-import { TrackRow } from '@/components/library/TrackRow';
-import { formatTime } from '@/components/ui/primitives';
 import { useContentBottom } from '@/hooks/useContentBottom';
+import { useRecommendations } from '@/hooks/useRecommendations';
+import { service } from '@/lib/service';
 
 export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Track[]) => void; onGoSearch: () => void }) {
   const paddingBottom = useContentBottom();
-  const history = useApp((s) => s.history);
-  const queue = useApp((s) => s.queue);
   const transportRoute = useApp((s) => s.transportRoute);
 
-  const continueList = [...history].slice(0, 8);
-  const recentQueue = queue.slice(0, 6);
+  // `hasAccount` reads an in-memory cookie, so it has to be sampled after mount; on the native
+  // build the sign-in sheet can also finish long after Home first rendered.
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    setSignedIn(service.hasAccount());
+    const onFocus = () => setSignedIn(service.hasAccount());
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
+  const { tracks: recommended, loading } = useRecommendations(signedIn);
 
   return (
     <div className="px-4 pt-3" style={{ paddingBottom }}>
@@ -67,65 +85,62 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
         </div>
       </motion.button>
 
-      {continueList.length ? (
-        <Section title="Continue listening">
-          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-            {continueList.map((t, i) => (
-              <motion.button
-                key={`${t.id}-${i}`}
-                type="button"
-                onClick={() => onPlay(t, continueList)}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ ...snap, delay: i * 0.02 }}
-                whileTap={{ scale: 0.96 }}
-                className="w-[136px] shrink-0 text-left"
-              >
-                <div className="relative aspect-square overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
-                  {t.thumbs[0] ? (
-                    <img src={t.thumbs[0].url} alt="" className="h-full w-full object-cover" loading="lazy" />
-                  ) : (
-                    <div className="grid h-full w-full place-items-center text-2xl text-[var(--color-text-3)]">♪</div>
-                  )}
-                  <span className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 backdrop-blur">
-                    <PlayIcon width={14} height={14} />
-                  </span>
-                </div>
-                <div className="mt-2 truncate text-[12.5px] font-medium">{t.title}</div>
-                <div className="truncate text-[11px] text-[var(--color-text-3)]">{t.artist}</div>
-              </motion.button>
-            ))}
-          </div>
+      {signedIn ? (
+        <Section title={recommended.length ? 'Made for you' : 'For you'}>
+          {recommended.length ? (
+            <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+              {recommended.map((t, i) => (
+                <motion.button
+                  key={`${t.id}-r${i}`}
+                  type="button"
+                  onClick={() => onPlay(t, recommended)}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...snap, delay: Math.min(i, 6) * 0.02 }}
+                  whileTap={{ scale: 0.96 }}
+                  className="w-[136px] shrink-0 text-left"
+                >
+                  <div className="relative aspect-square overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
+                    {t.thumbs[0] ? (
+                      <img src={t.thumbs[0].url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    ) : (
+                      <div className="grid h-full w-full place-items-center text-2xl text-[var(--color-text-3)]">♪</div>
+                    )}
+                    <span className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 backdrop-blur">
+                      <PlayIcon width={14} height={14} />
+                    </span>
+                  </div>
+                  <div className="mt-2 truncate text-[12.5px] font-medium">{t.title}</div>
+                  <div className="truncate text-[11px] text-[var(--color-text-3)]">{t.artist}</div>
+                </motion.button>
+              ))}
+            </div>
+          ) : (
+            // Loading and "nothing yet" get different copy. A spinner on a shelf that will end up
+            // empty is the most common lie a home screen tells.
+            <div className="rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_3%,transparent)] p-4 text-[12px] leading-relaxed text-[var(--color-text-3)]">
+              {loading
+                ? 'Reading your listening…'
+                : 'Play a few songs and this fills with suggestions built from them. Your history and queue are in Library.'}
+            </div>
+          )}
         </Section>
-      ) : null}
-
-      {recentQueue.length ? (
-        <Section title="In your queue">
-          {recentQueue.map((t, i) => (
-            <TrackRow key={`${t.id}-q${i}`} track={t} index={i} onPlay={() => onPlay(t, recentQueue)} />
-          ))}
-        </Section>
-      ) : null}
-
-      {!continueList.length && !recentQueue.length ? (
+      ) : (
         <div className="mt-6">
           <EmptyState
             icon={<SparkIcon width={30} height={30} />}
-            title="Nothing played yet"
-            detail="Search for a song, or paste a lyric you remember. Everything you play shows up here and teaches the on-device recommender."
+            title="Nothing to suggest yet"
+            detail="Recommendations come from your Google account, so the app can tell what fits your taste instead of guessing. Everything already on this device is in Library."
             action={{ label: 'Find something to play', onClick: onGoSearch }}
           />
-          <div className="mx-auto mt-2 max-w-sm rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_3%,transparent)] p-3 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
-            <strong className="text-[var(--color-text-2)]">Zero server:</strong> search, streaming, lyrics and
-            downloads all run in this tab. There is no account, no backend, and no analytics.
-          </div>
         </div>
-      ) : null}
+      )}
 
-      {queue.length ? (
-        <div className="mt-6 rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_3%,transparent)] p-3 text-[11.5px] text-[var(--color-text-3)]">
-          Queue · {queue.length} tracks ·{' '}
-          {formatTime(queue.reduce((n, t) => n + t.durationSec, 0))} total
+      {!signedIn ? (
+        <div className="mx-auto mt-2 max-w-sm rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_3%,transparent)] p-3 text-[11.5px] leading-relaxed text-[var(--color-text-3)]">
+          <strong className="text-[var(--color-text-2)]">Sign in from Settings</strong> to turn this into a
+          home screen that knows what you like. Nothing about your listening leaves the device: the
+          account is only used to ask for suggestions.
         </div>
       ) : null}
     </div>

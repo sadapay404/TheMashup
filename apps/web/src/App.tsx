@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Track } from '@themashup/core';
-import { store, useApp, currentTrack } from '@/state/store';
+import { store, useApp, currentTrack, navigate, goBack } from '@/state/store';
 import { usePlayer } from '@/hooks/usePlayer';
 import { service } from '@/lib/service';
 import { isDesktop, onDesktopAction, onWindowHidden } from '@/lib/desktop';
@@ -111,6 +111,33 @@ export default function App() {
     }));
   }, [track]);
 
+  /**
+   * Hardware back, driven from the native side.
+   *
+   * Order matters: an open surface is "deeper" than a page, so closing it is what back should do
+   * first. Only once nothing is open does back become a page step. Returning false means "nothing
+   * left" and lets the platform exit — no "press again to exit" prompt, which would just be an
+   * apology for navigation that should have worked.
+   */
+  useEffect(() => {
+    const onBack = (): boolean => {
+      const s = store.getState();
+      if (s.playerOpen) {
+        store.set({ playerOpen: false });
+        return true;
+      }
+      if (s.lyricsOpen) {
+        store.set({ lyricsOpen: false });
+        return true;
+      }
+      return goBack();
+    };
+    (window as unknown as { __mashupBack?: () => boolean }).__mashupBack = onBack;
+    return () => {
+      delete (window as unknown as { __mashupBack?: () => boolean }).__mashupBack;
+    };
+  }, []);
+
   // Keyboard shortcuts (desktop): space = play/pause, arrows = seek.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -164,7 +191,7 @@ export default function App() {
   // Autosave: throttled, flushed on hide/unload so a kill loses at most a few seconds.
   useEffect(() => startAutosave(store.getState, store.subscribe), []);
 
-  const goSearch = () => store.set({ route: 'search' });
+  const goSearch = () => navigate('search');
   const onPlay = (t: Track, list: Track[]) => player.playTrack(t, list);
 
   /**

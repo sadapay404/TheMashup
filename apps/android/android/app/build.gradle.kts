@@ -11,8 +11,15 @@ android {
         applicationId = "app.themashup.music"
         minSdk = rootProject.ext.get("minSdkVersion") as Int
         targetSdk = rootProject.ext.get("targetSdkVersion") as Int
-        versionCode = 3
-        versionName = "0.3.0"
+        // Derived from the tag, so a log or an installed APK can always be traced to a commit.
+        // These were hard-coded to 3 / "0.3.0", which meant every diagnostic report said
+        // "build: 0.3.0 (3)" no matter which APK produced it - genuinely ambiguous when several
+        // builds are in flight, and it cost time finding that out.
+        //
+        // MASHUP_VERSION_CODE / MASHUP_VERSION_NAME come from the CI tag (v0.3.0-apk.31 -> 31).
+        // Local builds fall back to 1 / "dev" so the project still assembles without them.
+        versionCode = (System.getenv("MASHUP_VERSION_CODE") ?: "1").toIntOrNull() ?: 1
+        versionName = System.getenv("MASHUP_VERSION_NAME") ?: "dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Keep the packaged web assets lean; the pattern mirrors Capacitor's own default.

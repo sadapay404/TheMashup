@@ -94,6 +94,32 @@ class MainActivity : BridgeActivity() {
         // here (as an earlier version did) would loop the intent back into the receiver forever.
     }
 
+    /**
+     * Hardware back.
+     *
+     * The web layer owns the navigation stack, so it decides first: it closes an open sheet or steps
+     * back through visited pages. Only when it reports nothing left to do does the activity finish.
+     *
+     * The previous build simply finished the activity from Home, so backing out of Settings closed
+     * the app instead of returning to the page before it.
+     */
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        val handledByWeb = bridge?.let { b ->
+            b.evaluateJavascript("window.__mashupBack && window.__mashupBack()") { result ->
+                if (result != "true") {
+                    // Nothing left: this is a real exit, not a missed navigation.
+                    runOnUiThread { finish() }
+                }
+            }
+            true
+        } ?: false
+
+        if (!handledByWeb) {
+            super.onBackPressed()
+        }
+    }
+
     override fun onDestroy() {
         // `isFinishing` separates a real exit from a configuration change or an activity that the
         // system reclaimed while the app stayed alive. Marking every onDestroy as clean would hide

@@ -4,8 +4,9 @@
  * Two states, and the transition between them is the entire interaction:
  *
  *   **Open**   — every destination is a full pill: icon, label, tappable. Normal navigation.
- *   **Compact**— a song is playing, so the dock leaves only the current destination plus faint
- *                stubs where the others were, and the song card takes the space it freed.
+ *   **Compact**— a song is playing, so the dock shows only the current destination and the song card
+ *                takes the space it freed. The other destinations are still there for the hold
+ *                gesture (and for assistive tech, via `DockStubs`), just not drawn.
  *
  * A hold springs it back open. While the thumb is down, sliding left and right switches pages,
  * one detent per destination. Releasing collapses it again: 3 s if the page did not change,
@@ -33,7 +34,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { store, useApp, type Route } from '@/state/store';
+import { store, useApp, navigate, type Route } from '@/state/store';
 import { ChevronDownIcon, DownloadIcon, HomeIcon, LibraryIcon, SearchIcon, SettingsIcon } from '@/components/ui/icons';
 import { haptic } from '@/lib/haptics';
 import { DOCK_H, DOCK_ITEM_H, DOCK_PADDING, dockBottom, dockBottomOverCard } from '@/lib/layout';
@@ -118,7 +119,7 @@ export function SmartDock() {
   const go = useCallback((id: Route) => {
     if (store.getState().route === id) return;
     haptic('toggle');
-    store.set({ route: id });
+    navigate(id);
   }, []);
 
   /**
@@ -320,9 +321,39 @@ export function SmartDock() {
           );
         }
 
-        // Compact and closed: the active destination stays a full pill; the others become narrow
-        // stubs that are still real buttons. A stub is deliberately tappable — a hold is a shortcut,
-        // never the only way to leave the page you are on.
+        // Compact and closed: ONLY the active destination is drawn. The user was explicit — one icon
+        // while a song is playing. The others keep their DOM slot and their `data-dock-item` hook,
+        // because the hold gesture measures against all five, but they are visually absent:
+        // `visibility: hidden` removes them from hit-testing and the accessibility tree without
+        // collapsing the flex gap that the gesture's geometry depends on.
+        //
+        // They cannot be removed from the tree entirely: `visibility: hidden` elements are not
+        // focusable, so a keyboard or screen-reader user would lose navigation the moment a song
+        // started. `DockStubs` below republishes the same five destinations as real, focusable,
+        // invisible buttons for those users, and `aria-hidden` here keeps the audible tree to one
+        // copy of each label.
+        if (!active) {
+          return (
+            <motion.button
+              key={id}
+              type="button"
+              data-dock-item={id}
+              aria-label={label}
+              aria-hidden
+              tabIndex={-1}
+              onClick={() => {
+                if (suppressClick.current) return;
+                navigate(id);
+              }}
+              layout
+              transition={SPRING}
+              style={{ height: DOCK_ITEM_H, visibility: 'hidden' }}
+              animate={{ width: 0, opacity: 0 }}
+              className="pointer-events-none relative overflow-hidden rounded-full"
+            />
+          );
+        }
+
         if (active) {
           return (
             <motion.button
@@ -399,6 +430,40 @@ export function SmartDock() {
           </motion.button>
         ) : null}
       </AnimatePresence>
+
+      {/*
+        The compact dock keeps its spare destinations in the accessibility tree without drawing them.
+
+        Showing one pill is a visual rule, not a navigational one: hiding the other four from
+        assistive tech would mean starting a song takes the whole app away from anyone using a
+        screen reader or keyboard. These are `sr-only` — laid out at 1px, still focusable, still
+        announced. Focusing one springs the dock open so a sighted keyboard user can see where they
+        are. The open dock draws all five itself, so this stands down to avoid reading each label
+        twice; the current page is the drawn pill and is skipped for the same reason.
+      */}
+      {compact && !open ? (
+        <div className="sr-only">
+          {ITEMS.map(({ id, label }) =>
+            id === route ? null : (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  if (store.getState().route !== id) navigate(id);
+                  setOpen(true);
+                }}
+                onFocus={() => {
+                  clearTimers();
+                  setOpen(true);
+                }}
+              >
+                {label}
+              </button>
+            ),
+          )}
+        </div>
+      ) : null}
     </nav>
   );
 }
+

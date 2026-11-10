@@ -78,14 +78,33 @@ describe('SmartDock', () => {
     }
   });
 
-  it('navigates on a plain tap of a stub while compact', () => {
+  it('does not lay invisible tap traps over the card while compact', () => {
     resetState();
     store.set({ queue: [track as never], index: 0, route: 'home' });
     render(<SmartDock />);
 
-    // The faint stubs are the thing the old version made unreachable. They must be tappable.
-    const search = screen.getByRole('button', { name: 'Go to Search' });
-    fireEvent.click(search);
+    // The compact dock gives its spare width to the song card. Leaving invisible buttons there
+    // would mean taps on the card's controls landed on the dock instead, so the hidden
+    // destinations must take no pointer events at all.
+    const dock = screen.getByRole('navigation', { name: 'Primary' });
+    const hidden = Array.from(dock.querySelectorAll('[data-dock-item]')).filter(
+      (el) => el.getAttribute('aria-current') !== 'page',
+    );
+    expect(hidden).toHaveLength(4);
+    for (const el of hidden) {
+      expect(el.getAttribute('aria-hidden')).toBe('true');
+      expect(el.className).toContain('pointer-events-none');
+    }
+  });
+
+  it('still navigates from the compact dock through the accessible layer', () => {
+    resetState();
+    store.set({ queue: [track as never], index: 0, route: 'home' });
+    render(<SmartDock />);
+
+    // One icon is drawn, but five destinations are offered: a screen reader or keyboard user is
+    // not locked out of the app because a song is playing.
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(store.getState().route).toBe('search');
   });
 
@@ -101,10 +120,14 @@ describe('SmartDock', () => {
     resetState();
     store.set({ queue: [track as never], index: 0, route: 'home' });
     render(<SmartDock />);
-    // aria-hidden or tabIndex=-1 here would mean a screen reader cannot reach navigation at all.
-    for (const label of ['Home', 'Go to Search', 'Go to Library', 'Go to Downloads', 'Go to Settings']) {
-      const el = screen.getByRole('button', { name: label });
-      expect(el.getAttribute('tabindex')).not.toBe('-1');
+    // Compact draws one pill, so the other four destinations are invisible — but they must still be
+    // announced, or starting a song would cut a screen-reader user off from navigation. Exactly one
+    // copy of each label: the drawing and the accessible layer must not both speak.
+    for (const label of ['Home', 'Search', 'Library', 'Downloads', 'Settings']) {
+      expect(screen.getAllByRole('button', { name: label })).toHaveLength(1);
+    }
+    for (const label of ['Search', 'Library', 'Downloads', 'Settings']) {
+      expect(screen.getByRole('button', { name: label }).closest('.sr-only')).not.toBeNull();
     }
   });
 });

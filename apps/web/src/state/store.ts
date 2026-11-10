@@ -74,6 +74,15 @@ export interface UserPlaylist {
 
 export interface AppState {
   route: Route;
+  /**
+   * Pages visited, oldest first. The current route is the last entry.
+   *
+   * The Android back button used to call `finish()` straight from Home, so backing out of Settings
+   * closed the app instead of returning to where the user was. A route change now records history and
+   * back pops it — which is what every other app on the device does, and needs no "press again to
+   * exit" toast to paper over the difference.
+   */
+  navHistory: Route[];
   playerOpen: boolean;
   lyricsOpen: boolean;
 
@@ -120,6 +129,7 @@ export interface AppState {
 
 const initialState: AppState = {
   route: 'home',
+  navHistory: ['home'],
   playerOpen: false,
   lyricsOpen: false,
 
@@ -201,6 +211,37 @@ class Store {
 }
 
 export const store = new Store();
+
+/**
+ * Go to a page, recording it in history.
+ *
+ * Every navigation must go through this rather than `store.set({ route })`; a direct set would move
+ * the page without recording how it was reached, and back would then skip it.
+ */
+export function navigate(route: Route): void {
+  store.set((s) =>
+    s.route === route
+      ? {}
+      : { route, navHistory: [...s.navHistory, route].slice(-20) },
+  );
+}
+
+/**
+ * Back one step.
+ *
+ * Returns false when there is nothing left to pop, which is the caller's signal that the platform
+ * default (leaving the app) is now correct. Deliberately no "press back again to exit": the user
+ * asked for that text not to appear, and it only exists to explain a behaviour that should not
+ * happen in the first place.
+ */
+export function goBack(): boolean {
+  const s = store.getState();
+  if (s.navHistory.length <= 1) return false;
+  const next = s.navHistory.slice(0, -1);
+  const route = next[next.length - 1] ?? 'home';
+  store.set({ navHistory: next, route });
+  return true;
+}
 
 /** Selector hook. `useApp(s => s.queue)` re-renders only when that slice changes. */
 export function useApp<T>(selector: (s: AppState) => T): T {

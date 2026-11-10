@@ -17,7 +17,7 @@ import { haptic } from '@/lib/haptics';
 import { TrackRow } from '@/components/library/TrackRow';
 import { useContentBottom } from '@/hooks/useContentBottom';
 
-type Tab = 'history' | 'likes' | 'playlists';
+type Tab = 'history' | 'queue' | 'likes' | 'playlists';
 
 export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => void }) {
   const paddingBottom = useContentBottom();
@@ -25,6 +25,8 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
   const history = useApp((s) => s.history);
   const likes = useApp((s) => s.likes);
   const userPlaylists = useApp((s) => s.playlists);
+  const queue = useApp((s) => s.queue);
+  const queueIndex = useApp((s) => s.index);
 
   const totalMinutes = Math.round(history.reduce((n, t) => n + t.durationSec, 0) / 60);
 
@@ -32,13 +34,14 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
     <div className="px-4 pt-3" style={{ paddingBottom }}>
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Library</h1>
       <p className="mt-1 text-[12px] text-[var(--color-text-3)]">
-        {history.length} tracks · {totalMinutes} min · stored on this device only
+        {history.length} played · {queue.length} in queue · {totalMinutes} min · on this device
       </p>
 
       <div className="mt-4 flex gap-1 rounded-full bg-[color-mix(in_oklab,var(--wash)_6%,transparent)] p-1">
         {(
           [
             ['history', 'History'],
+            ['queue', 'Queue'],
             ['likes', 'Likes'],
             ['playlists', 'Playlists'],
           ] as const
@@ -104,6 +107,26 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
               icon={<QueueIcon width={30} height={30} />}
               title="No playlists yet"
               detail="Open the menu on any song and choose a playlist, or make a new one there. Playlists only contain what you put in them."
+            />
+          )
+        ) : tab === 'queue' ? (
+          // Queue moved here from Home: it is a record of what you lined up, which is library
+          // material, not a suggestion about what to play next.
+          queue.length ? (
+            queue.map((t, i) => (
+              <TrackRow
+                key={`${t.id}-q${i}`}
+                track={t}
+                index={i}
+                onPlay={() => onPlay(t, queue)}
+                active={i === queueIndex}
+              />
+            ))
+          ) : (
+            <EmptyState
+              icon={<QueueIcon width={30} height={30} />}
+              title="The queue is empty"
+              detail="Playing a song fills the queue with the tracks that fit it. You can reorder or clear it from the player."
             />
           )
         ) : history.length ? (

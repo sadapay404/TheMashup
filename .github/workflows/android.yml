@@ -92,6 +92,22 @@ jobs:
           cat "$FILE"
 
       # `secrets` is unavailable in step-level `if:` — pass it through env and branch in shell.
+      # `v0.3.0-apk.31` -> code 31, name "0.3.0-apk.31". A branch build gets the run number, so two
+      # APKs can never share an identity.
+      - name: Derive version
+        id: ver
+        run: |
+          REF="${GITHUB_REF_NAME:-}"
+          TAGNUM="$(sed -n 's/.*apk\.\([0-9]*\).*/\1/p' <<< "$REF")"
+          if [ -n "$TAGNUM" ]; then
+            echo "code=$TAGNUM" >> "$GITHUB_OUTPUT"
+            echo "name=${REF#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "name=0.4.0-run.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
       - name: Decode signing keystore (optional)
         env:
           KEYSTORE_B64: ${{ secrets.MASHUP_KEYSTORE_BASE64 }}
@@ -107,6 +123,9 @@ jobs:
       - name: Assemble
         working-directory: apps/android/android
         env:
+          # Derived from the tag so every APK reports a distinguishable build.
+          MASHUP_VERSION_CODE: ${{ steps.ver.outputs.code }}
+          MASHUP_VERSION_NAME: ${{ steps.ver.outputs.name }}
           MASHUP_KEYSTORE_PASSWORD: ${{ secrets.MASHUP_KEYSTORE_PASSWORD }}
           MASHUP_KEY_ALIAS: ${{ secrets.MASHUP_KEY_ALIAS }}
           MASHUP_KEY_PASSWORD: ${{ secrets.MASHUP_KEY_PASSWORD }}

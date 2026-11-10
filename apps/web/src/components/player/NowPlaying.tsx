@@ -1,8 +1,8 @@
 /**
  * Full-screen player. Three faces on one card: Artwork · Queue · Lyrics.
  *
- * Motion: shares `layoutId="player-sheet"` with the mini-player so the transition is a genuine
- * shared-element melt rather than a generic slide. Downward drag dismisses (velocity-aware).
+ * Motion: rises from the card position with a transform-and-opacity spring only, so the transition
+ * costs no layout work. Downward drag dismisses (velocity-aware).
  */
 
 import { AnimatePresence, motion, useMotionValue, useTransform } from 'framer-motion';
@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@/state/store';
 import type { Lyrics, Track } from '@themashup/core';
 import { activeLineIndex, lineProgress } from '@themashup/core';
-import { formatTime, IconButton, melt, snap } from '@/components/ui/primitives';
+import { formatTime, IconButton, snap } from '@/components/ui/primitives';
 import { toggleLike } from '@/lib/signals';
 import {
   ChevronDownIcon,
@@ -82,8 +82,17 @@ export function NowPlaying({
 
   return (
     <motion.div
-      layoutId="player-sheet"
-      transition={melt}
+      // Opening: the sheet rises and the backdrop fades in. Both are transform/opacity only, so the
+      // compositor handles them and nothing forces layout on a mid-range phone.
+      //
+      // `layoutId` was removed with the card rewrite: it pointed at a component that no longer
+      // declares the matching id, so the shared-layout animation had nothing to morph from and
+      // opening looked like an instant swap. A deliberate slide reads better than a morph anyway.
+      initial={{ y: '12%', opacity: 0, scale: 0.98 }}
+      animate={{ y: 0, opacity: 1, scale: 1 }}
+      exit={{ y: '16%', opacity: 0, scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 32, mass: 0.9 }}
+      style={{ willChange: 'transform, opacity' }}
       className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-[var(--color-base)]"
       role="dialog"
       aria-modal="true"

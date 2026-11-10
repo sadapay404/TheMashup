@@ -1,7 +1,7 @@
 /** Floating glass nav pill (design system §4) — not a full-width bar, and safe-area aware. */
 
 import { motion } from 'framer-motion';
-import { useApp, store, type Route } from '@/state/store';
+import { useApp, navigate, type Route } from '@/state/store';
 import { DownloadIcon, HomeIcon, LibraryIcon, SearchIcon, SettingsIcon } from '@/components/ui/icons';
 import { snap } from '@/components/ui/primitives';
 import { haptic } from '@/lib/haptics';
@@ -31,7 +31,7 @@ export function NavPill() {
             type="button"
             onClick={() => {
               if (route !== id) haptic('navigation');
-              store.set({ route: id });
+              navigate(id);
             }}
             aria-label={label}
             aria-current={active ? 'page' : undefined}
