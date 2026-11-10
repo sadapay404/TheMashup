@@ -139,6 +139,13 @@ export function usePlayer() {
         return;
       }
 
+      // Every stream available was a preview clip. Play it — partial audio beats silence — but say
+      // so up front. An app that renders thirty seconds and then goes quiet without explanation is
+      // indistinguishable from one that cannot play anything, which is the report we are answering.
+      if (playable.preview) {
+        store.notify('Only a 30-second preview is available for this track right now.', 'info');
+      }
+
       // Native shell: Media3 owns playback so audio survives backgrounding + screen-off and
       // appears on the lockscreen. Falls back to the element if the plugin is absent.
       // A new track is only ever loaded in order to play it, so the native handover must start
