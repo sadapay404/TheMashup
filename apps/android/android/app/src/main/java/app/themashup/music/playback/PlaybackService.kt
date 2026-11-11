@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -271,10 +272,62 @@ internal object PlaybackBridge {
     @Volatile private var cachedDurationMs: Long = 0L
     @Volatile private var cachedIsPlaying: Boolean = false
 
+    /*
+     * When the cache was last refreshed, and whether a main-thread read is already in flight.
+     *
+     * `p.currentPosition` is a cheap in-memory field, but it may only be read on the thread that
+     * owns the player, so the read itself has to be posted. Coalescing means a 1 Hz poll costs one
+     * post per second no matter how many callers ask.
+     */
+    @Volatile private var cacheStampMs: Long = 0L
+    @Volatile private var readInFlight = false
+
     private fun snapshot(p: Player) {
         cachedPositionMs = p.currentPosition
         cachedDurationMs = p.duration.takeIf { it > 0 } ?: 0L
         cachedIsPlaying = p.isPlaying
+        cacheStampMs = SystemClock.elapsedRealtime()
+    }
+
+    /**
+     * True when the cache is stale enough to be worth refreshing.
+     *
+     * 250 ms is chosen so the UI's 1 Hz poll always sees fresh data while an event burst (a seek,
+     * a transition) still wins: the stamp is updated by [snapshot] too, so events suppress a
+     * redundant read.
+     */
+    private fun cacheIsStale(): Boolean =
+        SystemClock.elapsedRealtime() - cacheStampMs >= 250L
+
+    /**
+     * Refresh the position cache, off the caller's thread.
+     *
+     * THE BUG THIS FIXES — "the progress bar is stuck on 0:00".
+     *
+     * The cache was written *only* from a `Player.Listener` on playback-state, is-playing,
+     * discontinuity and item-transition events. Playback that is working perfectly fires none of
+     * those: the position advances continuously and ExoPlayer does not consider that an event. So
+     * `getState()` returned `positionMs = 0` once per second for the entire song while audio played
+     * normally.
+     *
+     * That single stale zero produced a second, much worse symptom. The JS stall watchdog in
+     * `usePlayer.ts` decides a stream has stalled when the polled position stops changing — correctly,
+     * because a real stall looks exactly like that. With the position pinned at 0 it could never
+     * change, so about 15 seconds into every track the watchdog "detected" a stall, and the recovery
+     * path reloaded the stream. That is the reported "plays for a few seconds, then says playback
+     * stalled and restarts".
+     */
+    fun refreshCache() {
+        if (!cacheIsStale()) return
+        if (readInFlight) return
+        readInFlight = true
+        main.post {
+            try {
+                player?.let { snapshot(it) }
+            } finally {
+                readInFlight = false
+            }
+        }
     }
 
     /**

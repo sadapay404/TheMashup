@@ -52,6 +52,8 @@ let nativeDisabled = false;
  * poll interval outlives any single effect run.
  */
 const nativeStall = new StallDetector(STALL_MS);
+/** One-time notice when the native transport reports no usable position. */
+let nativePositionWarned = false;
 
 export function usePlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -602,14 +604,39 @@ export function usePlayer() {
       if (!s.playing || s.loading) return;
 
       if (hasNativePlayback()) {
-        if (nativeStall.check(s.positionSec)) {
-          nativeStall.reset(s.positionSec);
-          const t = s.queue[s.index];
-          if (t) {
-            store.notify('Playback stalled — continuing from here…', 'info');
-            // Resume from the frozen position. Restarting a two-minute song at 1:50 because of a
-            // buffer dip is the difference between a player and a toy.
-            void load(t, s.positionSec);
+        /*
+         * The native stall detector is only trustworthy when the transport is reporting a position
+         * it actually measured.
+         *
+         * This cost a release. The Kotlin cache was updated only on player events, and a track that
+         * is playing normally fires none, so `getState()` returned positionMs = 0 forever. The
+         * detector saw a position that never moved, declared a stall, and the recovery reloaded the
+         * stream — every few seconds, for as long as the song lasted. The audio was fine the whole
+         * time; the instrument was broken.
+         *
+         * Two guards, so a broken instrument can never act again:
+         *  - a position of 0 while playing is treated as "no measurement", not as "stuck at the
+         *    start", and no stall is inferred from it;
+         *  - the detector is only reset when a real position arrives, so it cannot accumulate a
+         *    bogus stall window across a run of zero readings.
+         */
+        if (s.positionSec > 0) {
+          if (nativeStall.check(s.positionSec)) {
+            nativeStall.reset(s.positionSec);
+            const t = s.queue[s.index];
+            if (t) {
+              store.notify('Playback stalled — continuing from here…', 'info');
+              // Resume from the frozen position. Restarting a two-minute song at 1:50 because of a
+              // buffer dip is the difference between a player and a toy.
+              void load(t, s.positionSec);
+            }
+          }
+        } else {
+          // Report the instrument failure once per session instead of acting on it. Silence here
+          // would hide a genuinely stuck player; acting on it is what caused the restarts.
+          if (!nativePositionWarned) {
+            nativePositionWarned = true;
+            store.notify('Progress meter unavailable — playback continues.', 'info');
           }
         }
         return;

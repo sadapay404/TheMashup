@@ -114,6 +114,10 @@ class MashupPlayerPlugin : Plugin() {
 
     @PluginMethod
     fun getState(call: PluginCall) {
+        // Refresh first. The cache is only written on player *events*, and steady playback emits
+        // none, so without this the reported position was 0 for the whole song — which the JS stall
+        // watchdog correctly read as a stall, then "recovered" by restarting the track.
+        PlaybackBridge.refreshCache()
         val js = JSObject()
         js.put("positionMs", PlaybackBridge.positionMs())
         js.put("durationMs", PlaybackBridge.durationMs())
