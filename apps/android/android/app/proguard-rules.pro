@@ -36,13 +36,17 @@
 -dontwarn org.mozilla.javascript.tools.**
 -dontwarn org.schabi.newpipe.extractor.**
 
-# Rhino references the *desktop* JDK's scripting and bean APIs for pieces of its engine this app never
-# calls (`RhinoScriptEngine`, `JavaToJSONConverters`). Android has no javax.script and no java.beans,
-# so R8 reports them as missing and — because minification runs in full mode — fails the build rather
-# than the class load. R8 was the first thing to see this: the error surfaces only after Kotlin has
-# compiled cleanly, which is why it appeared one step later than the earlier failures.
+# Rhino 1.8.1 references desktop-JDK packages Android does not ship:
+#   javax.script  — its JSR-223 engine (RhinoScriptEngine, RhinoCompiledScript)
+#   java.beans    — bean conversion in JavaToJSONConverters
+#   jdk.dynalink  — its invokedynamic-based optimiser
+# None of these is reachable from NewPipeExtractor: it uses the interpreter, not the JSR-223 layer and
+# not the dynalink optimiser. R8 in full mode treats an unresolvable reference as an error, so each
+# package has to be declared rather than discovered one failed build at a time. This is the complete
+# set of JDK packages Rhino 1.8.1 references that Android lacks.
 -dontwarn javax.script.**
 -dontwarn java.beans.**
+-dontwarn jdk.dynalink.**
 
 # Keep line numbers so the on-device diagnostics ring buffer stays useful.
 -keepattributes SourceFile,LineNumberTable
