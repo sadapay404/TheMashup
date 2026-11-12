@@ -1,7 +1,13 @@
 # UI BRIEF 4 — status bar, search, notifications, downloads (APK 46)
 
 **Date:** 2026-11-12 · **Branch:** `arena/0f8a3444-themashup`
-**Base:** `a758235` (`v0.3.0-apk.45`) · **Target tag:** `v0.3.0-apk.46`
+**Base:** `a758235` (`v0.3.0-apk.45`) · **Shipped:** `v0.3.0-apk.49` · **Commit:** `b307df0`
+**Release:** https://github.com/sadapay404/TheMashup/releases/tag/v0.3.0-apk.49
+
+**Why 49 and not 46:** tags 46–48 belong to a *different* lineage (`arena/2732fac9-themashup`, which
+forked at `7a3a764` and does not contain apk.45). It raised the playback channel to DEFAULT and made
+`dockBottom()`'s compact branch meaningful; the channel work is superseded by `NotifyChannels` here,
+and `dockBottom`'s dead parameter is removed. 49 is the first free number on this branch.
 
 **Playback is frozen this round.** Transport, the resolver ladder, stalls and `usePlayer` logic were
 not touched. Nothing in this document claims playback is fixed; the device verdict on APK 45 is still
@@ -133,10 +139,28 @@ starts at a different track, the preference is remembered and not overwritten.
 
 ## 6. Verification
 
-`tsc` clean · **304 tests / 28 files** green · `npm run build` OK.
+`tsc` clean · **313 tests / 29 files** green · `npm run build` OK.
+Android run `43165681677` **success**; CI green.
 
-New: `src/test/safe-area.test.ts` (7) and `src/test/notifications.test.ts` (13).
+New: `src/test/safe-area.test.ts` (9), `src/test/notifications.test.ts` (13),
+`src/test/downloads-autoplay.test.tsx` (9).
 
-Kotlin has **not** been compiled locally — no Android SDK. The CI run for tag `v0.3.0-apk.46` is the
-first compile of `NotifyPlugin`, `NotifyChannels`, `UiPlugin` and the channel-id changes. If it fails,
-read the compile error and fix forward; do not revert the feature.
+Two CI rounds were burned on defects that a local Kotlin/`aapt2` pass would have caught, because this
+sandbox has no Android SDK:
+
+- `values/styles.xml`: a `--` inside an XML comment is a **resource-compile error**, not a warning. A
+  comment that quoted `--safe-t` killed the whole build.
+- `NotifyPlugin`: `try { … } catch { null }` as an entire expression body is rejected with "Expecting
+  exception variable declaration". Needs `catch (t: Throwable)`.
+
+Both fixed in `7229afe` and `b307df0`. **The rule for the next round: never put `--` in an XML comment,
+and always bind a catch variable in Kotlin.**
+
+## 7. What is still unverified
+
+- Device verdict on playback from apk.45 onward: **unknown**. Nothing in this round changes the
+  transport, so it neither helps nor hurts; do not describe it as fixed.
+- The notification shade behaviour, the status-bar separator, and Downloads autoplay are all
+  **first device tests** on apk.49.
+- Install over an older TheMashup will fail with "App not installed" (per-runner debug key). Uninstall
+  first, or add `MASHUP_KEYSTORE_BASE64`.
