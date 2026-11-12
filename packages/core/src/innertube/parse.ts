@@ -471,9 +471,18 @@ export function pickAudioUrl(
   const free = playable.filter((f) => !f.premiumOnly);
   const pool = free.length ? free : playable;
 
-  // Does the client that produced this response require a stream PoToken? If so the server may cut
-  // us off after roughly a megabyte, and the cheapest stream is the one that plays longest.
-  const gated = PROFILES[info.profile as ProfileName]?.needsStreamPoToken ?? true;
+  /*
+   * Does the client that produced this response require a stream PoToken? If so the server may cut us
+   * off after roughly a megabyte, and the cheapest stream is the one that plays longest.
+   *
+   * An unknown profile is *not* assumed gated when it is a native one. `native:*` comes from the
+   * on-device extractor, which only offers clients it can serve in full; treating it as gated made the
+   * picker prefer the lowest bitrate for the one resolver that can actually deliver quality. The
+   * fallback of `true` still applies to any genuinely unrecognised InnerTube profile, because for those
+   * the cautious assumption is the right one.
+   */
+  const profile = PROFILES[info.profile as ProfileName];
+  const gated = profile ? profile.needsStreamPoToken : !info.profile.startsWith('native:');
 
   const byAffinity = (a: AudioFormat, b: AudioFormat) => {
     // Full-length before preview, always: a cheap clip is still a clip.

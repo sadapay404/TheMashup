@@ -104,6 +104,18 @@ describe('streamInfoFromNative', () => {
     expect(streamInfoFromNative('vid', progressive()).profile).toBe('native:newpipe');
   });
 
+  it('is not treated as token-gated, so it keeps the quality the extractor delivered', () => {
+    // `native:*` is not in PROFILES. The default for an unknown profile is "assume gated", which makes
+    // the picker choose the cheapest stream — wrong here, because the whole point of the native rung is
+    // that it can serve the full file.
+    const info = streamInfoFromNative(
+      'vid',
+      progressive({ itag: 251, kbps: 160, mime: 'audio/webm', url: 'https://example.test/hi' }),
+    );
+    expect(info.profile.startsWith('native:')).toBe(true);
+    expect(pickAudioUrl(info, 213)?.url).toBe('https://example.test/hi');
+  });
+
   it('carries the video-track caveat into the profile string instead of hiding it', () => {
     // The extractor could not separate audio and handed back the muxed video track. It plays, but the
     // UI must not describe it as a normal audio stream.
