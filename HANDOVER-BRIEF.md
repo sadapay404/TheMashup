@@ -1,8 +1,21 @@
 # TheMashup — full handover brief
 
 **Written by the outgoing agent. Read this whole file before touching code.**
-**Date:** 2026-11-08 · **Repo:** `sadapay404/TheMashup` · **Branch:** `arena/2732fac9-themashup`
-**HEAD:** `0cdb893` · **Tag:** `v0.3.0-apk.38` · **Delivered APK:** `app-standard-release.apk` (3,637,923 B)
+**Date:** 2026-11-08 · **Repo:** `sadapay404/TheMashup`
+**Original branch/tag:** `arena/2732fac9-themashup` · `v0.3.0-apk.38`
+
+> **SUPERSEDED IN PART — see `PLAYBACK-BRIEF-3.md` (2026-11-12) before acting on anything below.**
+>
+> `v0.3.0-apk.45` is the first build in this project whose GPL flavour **compiles**, and the first
+> whose release contains it. It changes the picture in three ways this document predates:
+>
+> 1. The native extractor is now actually reachable from JS (`MashupExtractor` plugin). Before, it was
+>    installed and never called.
+> 2. There is **no PoToken generation**, and there cannot be: v0.27.1's `setPoTokenProvider` is a
+>    documented no-op. Any plan here that depends on minting PoTokens is void.
+> 3. Two APKs are published per tag; only `app-withNativeExtractor-release.apk` can play a whole song.
+>
+> The rest of this file — the network model, the InnerTube findings, the standing rules — still holds.
 
 ---
 

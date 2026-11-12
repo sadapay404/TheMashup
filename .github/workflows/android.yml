@@ -119,6 +119,10 @@ jobs:
             echo "MASHUP_KEYSTORE_PATH=$RUNNER_TEMP/themashup.jks" >> "$GITHUB_ENV"
             echo "✓ signing keystore decoded"
           else
+            # Say it loudly. The debug key is generated per machine, so an APK signed with it will not
+            # install over one built on a different runner ("App not installed", no explanation). If
+            # the release already has an APK, the cause is almost certainly this line, so name it.
+            echo "::warning title=Unsigned release::No MASHUP_KEYSTORE_BASE64 secret — this APK is signed with a per-runner debug key and will NOT install over a previous build. Add the keystore secret to fix." 
             echo "ℹ no keystore secret — building with the debug key"
           fi
 
