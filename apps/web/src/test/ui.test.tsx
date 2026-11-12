@@ -92,14 +92,10 @@ describe('Component contracts', () => {
       <SongCard
         track={track}
         playing
-        progress={0.4}
         onToggle={onToggle}
         onOpen={() => undefined}
         onClose={() => undefined}
         onDownload={() => undefined}
-        onSleepTimer={() => undefined}
-        sleepTimerActive={false}
-        sleepTimerMs={0}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }));

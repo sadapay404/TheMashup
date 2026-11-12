@@ -767,9 +767,25 @@ internal object PlaybackBridge {
         PlaybackService.current?.refreshNotification(startInForeground = true)
     }
     fun seekTo(ms: Long) {
-        // Optimistic cache update so a JS read straight after a seek is not stale for a frame.
-        cachedPositionMs = ms.coerceAtLeast(0L)
-        onMain { it.seekTo(ms) }
+        /*
+         * Two writes, and the second one is the one that matters.
+         *
+         * The optimistic update stops a `getState()` that overlaps the seek from reporting the old
+         * offset. But `getState()` calls `refreshCache()`, which does a `snapshot()` on the player —
+         * and if ExoPlayer has not processed the seek yet, that snapshot writes the OLD position back
+         * over this one. The player then reports a position the user never asked for, the UI follows
+         * it, and the next resume reloads from there. From the outside that is "I can't skip into the
+         * middle of a song".
+         *
+         * `seekTo` is applied on the main thread, so the snapshot queued after it observes the moved
+         * playhead and agrees with the optimistic value instead of fighting it.
+         */
+        val target = ms.coerceAtLeast(0L)
+        cachedPositionMs = target
+        onMain { p ->
+            p.seekTo(target)
+            snapshot(p)
+        }
     }
     fun setVolume(v: Float) = onMain { it.volume = v.coerceIn(0f, 1f) }
     fun setRate(r: Float) = onMain { it.setPlaybackSpeed(r.coerceIn(0.5f, 3f)) }

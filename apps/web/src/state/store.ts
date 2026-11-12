@@ -123,11 +123,6 @@ export interface AppState {
    */
   shuffleBeforeDownloads: boolean | null;
   rate: number;
-  /** Sleep timer (OuterTune feature): milliseconds remaining, 0 means off. */
-  sleepTimerMs: number;
-  /** Whether the sleep timer is armed. */
-  sleepTimerActive: boolean;
-
   stream: StreamInfo | null;
   streamError: string | null;
 
@@ -176,8 +171,6 @@ const initialState: AppState = {
   queueOrigin: 'library',
   shuffleBeforeDownloads: null,
   rate: 1,
-  sleepTimerMs: 0,
-  sleepTimerActive: false,
 
   stream: null,
   streamError: null,

@@ -13,10 +13,9 @@ import { service } from '@/lib/service';
 import {
   isNative,
   nativeAccountStatus,
-  nativeAccounts,
   nativeBootMark,
   nativeCookie,
-  nativeRequestAccountsPermission,
+  nativePickAccount,
   nativeSignIn,
   nativeSignInAs,
   onNativeEvent,
@@ -94,10 +93,6 @@ export function SettingsScreen() {
   const [signedIn, setSignedIn] = useState(service.hasAccount());
   const [signingIn, setSigningIn] = useState(false);
   const [accountMsg, setAccountMsg] = useState<string | null>(null);
-  // The device's Google identities. Empty is a legitimate state (browser build, permission refused,
-  // or a phone with no Google account) and is what selects the WebView fallback.
-  const [accounts, setAccounts] = useState<{ name: string; type: string }[]>([]);
-  const [showPicker, setShowPicker] = useState(false);
 
   const refreshAccount = async () => {
     if (isNative()) {
@@ -116,7 +111,6 @@ export function SettingsScreen() {
     // Mount-only: `refreshAccount` is recreated each render but only touches state, and re-running
     // this on every render would poll the native plugin on every keystroke elsewhere on the page.
     void refreshAccount();
-    void nativeAccounts().then((r) => setAccounts(r.accounts));
   }, []);
 
   /*
@@ -137,10 +131,11 @@ export function SettingsScreen() {
   /**
    * Start sign-in.
    *
-   * Picker first, page second. If the phone knows about a Google account, the user picks it and the
-   * native side signs in as that identity — no "Sign in with Google" page, which is exactly the flow
-   * the user asked to be rid of. The WebView is now only for the case where the device has no
-   * account to offer, or the user explicitly asks for a different one.
+   * One tap opens the *system* account picker, which already knows every Google account on the phone.
+   * The user picks one, and the native side signs in as that identity — no login form to type into and
+   * no hand-built list that Google would refuse to populate. If the picker is cancelled or absent,
+   * nothing happens: silently opening a web page would be the "it just goes to YT Music" behaviour the
+   * user rejected.
    */
   const doSignIn = async () => {
     setAccountMsg(null);
@@ -153,26 +148,13 @@ export function SettingsScreen() {
       return;
     }
 
-    const discovered = await nativeAccounts();
-    setAccounts(discovered.accounts);
-    if (discovered.needsPermission) {
-      // Offering an empty list would look broken. Ask once, plainly, and say where the switch is.
-      await nativeRequestAccountsPermission();
-      setAccountMsg(
-        'Allow “Accounts on this device” for TheMashup, then tap again — or use the Google page instead.',
-      );
-      return;
-    }
-    if (discovered.accounts.length === 0) {
-      await openWebSignIn();
-      return;
-    }
-    setShowPicker(true);
+    const email = await nativePickAccount();
+    if (!email) return; // cancelled — the screen is exactly as it was
+    await signInAs(email);
   };
 
-  /** The old flow, unchanged, now reached deliberately. */
+  /** The WebView flow, kept for devices with no account picker and for a different identity. */
   const openWebSignIn = async () => {
-    setShowPicker(false);
     setSigningIn(true);
     await nativeSignIn();
     // The WebView may still be open; poll briefly so the row updates the moment it closes.
@@ -188,7 +170,6 @@ export function SettingsScreen() {
 
   /** One tap on a device account. */
   const signInAs = async (email: string) => {
-    setShowPicker(false);
     setSigningIn(true);
     setAccountMsg(`Signing in as ${email}…`);
     await nativeSignInAs(email);
@@ -429,51 +410,37 @@ export function SettingsScreen() {
         <Row label="Account" value={signedIn ? 'Signed in' : 'Anonymous'} />
         <div className="mt-2 px-1">
           {/*
-            The account picker.
+            Sign in.
 
-            This is the answer to "shows all my logged-in Gmails, I click one and it logins without
-            opening YT Music". The list is the device's own accounts, so there is nothing to type and
-            no page that can strand the user. Each row is a real 44px target rather than a chip.
+            One button, which opens the *system* account picker. That picker is the only thing on a
+            modern Android that can list Google accounts: the app cannot enumerate them itself (Google
+            returns an empty list without its own consent flow) and asking for GET_ACCOUNTS only
+            produces a confusing "Contacts" row in Settings. Letting the OS draw the list also means
+            the user sees their real, current accounts — and taps one, rather than typing.
+
+            While the picker or the Google page is up, the button becomes the status line.
           */}
-          {showPicker && !signedIn ? (
-            <div className="rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_4.5%,transparent)] p-1.5">
-              <p className="px-2.5 pb-1.5 pt-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-3)]">
-                Choose an account
-              </p>
-              <ul>
-                {accounts.map((a) => (
-                  <li key={a.name}>
-                    <button
-                      type="button"
-                      onClick={() => void signInAs(a.name)}
-                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-left active:bg-[color-mix(in_oklab,var(--wash)_8%,transparent)]"
-                    >
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklab,var(--accent)_18%,transparent)] text-[12px] font-bold text-[var(--accent)]">
-                        {a.name.slice(0, 1).toUpperCase()}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{a.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+          <div className="flex gap-1.5">
               <button
                 type="button"
-                onClick={() => void openWebSignIn()}
-                className="mt-1 w-full rounded-xl px-2.5 py-2.5 text-left text-[11.5px] font-medium text-[var(--color-text-3)]"
+                onClick={() => (signedIn ? doSignOut() : void doSignIn())}
+                disabled={signingIn}
+                className="flex-1 rounded-2xl bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] py-2.5 text-[12.5px] font-semibold disabled:opacity-60"
               >
-                Use a different account…
+                {signingIn ? 'Waiting for Google…' : signedIn ? 'Sign out' : 'Sign in with Google'}
               </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => (signedIn ? doSignOut() : void doSignIn())}
-              disabled={signingIn}
-              className="w-full rounded-2xl bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] py-2.5 text-[12.5px] font-semibold disabled:opacity-60"
-            >
-              {signingIn ? 'Waiting for Google…' : signedIn ? 'Sign out' : 'Sign in with Google'}
-            </button>
-          )}
+              {!signedIn ? (
+                <button
+                  type="button"
+                  onClick={() => void openWebSignIn()}
+                  disabled={signingIn}
+                  aria-label="Sign in with a different account using the Google page"
+                  className="shrink-0 rounded-2xl bg-[color-mix(in_oklab,var(--wash)_6%,transparent)] px-3 py-2.5 text-[11.5px] font-medium text-[var(--color-text-2)] disabled:opacity-60"
+                >
+                  Other…
+                </button>
+              ) : null}
+          </div>
           {accountMsg ? (
             <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-3)]">{accountMsg}</p>
           ) : null}

@@ -76,6 +76,16 @@ function restoreOnce(): void {
 }
 restoreOnce();
 
+/**
+ * Route swap.
+ *
+ * A tween, not a spring, and 170 ms rather than the old settle-by-decay. A spring has no defined end:
+ * it is "done" when the decay passes a threshold, and on a slow frame that reads as the app thinking.
+ * A short tween is predictable, and because the two screens now overlap (see the AnimatePresence
+ * comment) the whole switch is over in about the time the exit alone used to take.
+ */
+const routeTransition = { duration: 0.17, ease: [0.32, 0.72, 0, 1] } as const;
+
 export default function App() {
   const route = useApp((s) => s.route);
   const playerOpen = useApp((s) => s.playerOpen);
@@ -83,8 +93,6 @@ export default function App() {
   const queue = useApp((s) => s.queue);
   const index = useApp((s) => s.index);
   const playing = useApp((s) => s.playing);
-  const positionSec = useApp((s) => s.positionSec);
-  const durationSec = useApp((s) => s.durationSec);
 
   const player = usePlayer();
   const [download, setDownload] = useState<Track | null>(null);
@@ -276,7 +284,6 @@ export default function App() {
   /** Open the download sheet for any track, from any surface. */
   const onDownload = (t: Track) => setDownload(t);
 
-  const progress = durationSec > 0 ? positionSec / durationSec : 0;
   // A toast must clear the dock and, when one is showing, the song card below it. The old fixed
   // 148px only cleared the dock, so notifications landed on top of the card's transport row.
   const hasCard = index >= 0 && queue.length > 0;
@@ -295,10 +302,17 @@ export default function App() {
 
           - The base is the accent wash already used by every glass surface, so it belongs to the theme
             instead of fighting it — it tints toward the album-art accent like the rest of the chrome.
-          - It blurs what scrolls under it, so content passing beneath reads as *behind* the bar rather
-            than clipped by it. That is what makes it feel like part of the interface.
           - It fades out rather than ending on a hard edge: the tint dissolves into the page, so there is
             no visible seam to call "out of place".
+          - It fades *in* from the top too, so the darkest part sits where the system icons are and the
+            band has no boundary of its own.
+
+          It used to carry `backdrop-filter: blur(18px)` as well. That was dropped on performance
+          grounds: a backdrop blur on a fixed, full-width element forces the compositor to re-sample
+          everything scrolling underneath it every frame, and on a mid-range phone that alone is a
+          measurable cost during a scroll. The gradient is opaque enough at the top (where the status
+          icons sit) that the blur was contributing almost nothing visually — it was paying a per-frame
+          price for a few percent of tint.
           - The hairline is drawn as a soft gradient that is strongest in the middle and vanishes at both
             ends, which is the same motif the dock and the song card use.
 
@@ -309,15 +323,13 @@ export default function App() {
         className="pointer-events-none fixed inset-x-0 top-0 z-0"
         style={{ height: 'var(--safe-t)' }}
       >
-        {/* The tinted, blurred layer. `backdrop-filter` is what makes it sit *over* the page. */}
+        {/* The tinted layer. */}
         <div
           className="absolute inset-x-0 top-0"
           style={{
             height: 'calc(var(--safe-t) + 6px)',
             background:
               'linear-gradient(to bottom, color-mix(in oklab, var(--accent) 14%, var(--color-void)) 0%, color-mix(in oklab, var(--accent) 8%, var(--color-void)) 62%, transparent 100%)',
-            backdropFilter: 'blur(18px) saturate(150%)',
-            WebkitBackdropFilter: 'blur(18px) saturate(150%)',
           }}
         />
         {/* The seam between system chrome and app content: soft at the edges, present in the middle. */}
@@ -334,13 +346,28 @@ export default function App() {
 
       {/* Route content */}
       <main className="relative flex-1">
-        <AnimatePresence mode="wait" initial={false}>
+        {/*
+          `mode="popLayout"`, not the default "sync" and certainly not "wait".
+
+          "wait" holds the outgoing screen until its exit animation finishes and only then mounts the
+          incoming one, so every tab press costs exit + enter in series — about 180 ms of literally
+          nothing on screen before the new page starts appearing. That is the "loading times between
+          pages" complaint: the data is already in memory, the delay was entirely animation
+          choreography. Overlapping the two halves the perceived cost, and a shorter travel with a
+          smaller fade means the crossfade is not muddy.
+
+          `popLayout` (not `sync`) is what makes the overlap safe: Framer takes the outgoing screen out
+          of the layout flow as it animates, so the two do not sit stacked and shove the page around
+          mid-swap. `initial={false}` keeps the very first paint instant.
+        */}
+        <AnimatePresence mode="popLayout" initial={false}>
           <motion.div
             key={route}
-            initial={{ opacity: 0, y: 14, scale: 0.99 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.99 }}
-            transition={glide}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={routeTransition}
+            className="relative"
             onAnimationComplete={() => setRouteFade((n) => n + 1)}
           >
             {route === 'home' ? (
@@ -380,26 +407,10 @@ export default function App() {
           <SongCard
             track={track}
             playing={playing}
-            progress={progress}
             onToggle={() => void player.setPlaying(!playing)}
             onOpen={() => store.set({ playerOpen: true })}
             onClose={() => void player.stop()}
             onDownload={() => setDownload(track)}
-            onSleepTimer={() => {
-              const s = store.getState();
-              const next = s.sleepTimerActive
-                ? s.sleepTimerMs === 900000
-                  ? 0
-                  : s.sleepTimerMs === 1800000
-                    ? 2700000
-                    : s.sleepTimerMs === 2700000
-                      ? 3600000
-                      : 900000
-                : 900000;
-              store.set({ sleepTimerMs: next, sleepTimerActive: next > 0 });
-            }}
-            sleepTimerActive={store.getState().sleepTimerActive}
-            sleepTimerMs={store.getState().sleepTimerMs}
           />
         ) : null}
       </AnimatePresence>

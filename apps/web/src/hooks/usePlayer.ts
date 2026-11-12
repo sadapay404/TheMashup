@@ -67,6 +67,14 @@ let nativePositionWarned = false;
  *
  * Defined once and used everywhere: eight copies of a nearly-right condition is how that survived.
  */
+/**
+ * How long a seek owns the playhead before the poller may speak again.
+ *
+ * Long enough for ExoPlayer to actually move on a slow connection (a seek into unbuffered audio is
+ * itself a network request), short enough that the progress bar never visibly freezes.
+ */
+const SEEK_SETTLE_MS = 1200;
+
 function elementOwnsPlayback(el: HTMLAudioElement | null, nativeAvailable: boolean): boolean {
   return Boolean(el && !el.hasAttribute('src') && nativeAvailable);
 }
@@ -85,6 +93,20 @@ export function usePlayer() {
    * render when it changes.
    */
   const prefetchedUrl = useRef<string | null>(null);
+  /**
+   * When the user last asked to move the playhead, and where to.
+   *
+   * The 1 Hz native poll asks Media3 for its position and writes it into the store. A seek is
+   * asynchronous: the JS call resolves before ExoPlayer has actually moved, and the player may still
+   * be buffering at the old offset when the next poll lands. That poll then wrote the OLD position
+   * back over the target, and — once the UI's `positionSec` had been reset — the next `load()` used
+   * the stale value as its resume point. The report was "if I want to listen from mid, it won't let
+   * me and starts from 0:00", which is exactly this: the seek is issued, then overwritten.
+   *
+   * For [SEEK_SETTLE_MS] after a seek the poller keeps its mouth shut, so the value the user chose
+   * is the one that survives.
+   */
+  const seekGuard = useRef<{ at: number; target: number } | null>(null);
   const fadeTimer = useRef<number | null>(null);
 
   const queue = useApp((s) => s.queue);
@@ -604,8 +626,12 @@ export function usePlayer() {
   const seek = useCallback((sec: number) => {
     const el = audioRef.current;
     if (elementOwnsPlayback(el, hasNativePlayback())) {
-      void nativeSeek(Math.round(sec * 1000));
-      store.set({ positionSec: sec });
+      const clamped = Math.max(0, sec);
+      // Recorded before the call, not after: the rejection path must still suppress the poller, and
+      // the poll that races the seek can land while the invoke is in flight.
+      seekGuard.current = { at: Date.now(), target: clamped };
+      void nativeSeek(Math.round(clamped * 1000));
+      store.set({ positionSec: clamped });
       return;
     }
     if (!el || !Number.isFinite(el.duration)) return;
@@ -700,32 +726,6 @@ export function usePlayer() {
     };
   }, [ensureAudio, load, next]);
 
-  // Sleep timer (OuterTune feature): counts down every second and pauses playback when it
-  // expires. Works with both native and WebView playback because it acts on the transport
-  // directly rather than on store state alone.
-  useEffect(() => {
-    let alive = true;
-    const id = window.setInterval(() => {
-      const s = store.getState();
-      if (!s.sleepTimerActive || s.sleepTimerMs <= 0 || !s.playing) return;
-
-      const next = s.sleepTimerMs - 1000;
-      if (next <= 0) {
-        store.set({ sleepTimerMs: 0, sleepTimerActive: false });
-        if (hasNativePlayback()) {
-          void nativePause();
-        } else {
-          const el = ensureAudio();
-          el.pause();
-        }
-        store.notify('Sleep timer — playback stopped.', 'info');
-        return;
-      }
-      store.set({ sleepTimerMs: next });
-    }, 1000);
-    return () => { alive = false; window.clearInterval(id); };
-  }, [ensureAudio]);
-
   // Native transport polling (Media3 is the source of truth once handed off).
   useEffect(() => {
     if (!hasNativePlayback()) return;
@@ -734,13 +734,36 @@ export function usePlayer() {
       if (!alive) return;
       const s = store.getState();
       if (!s.playing) return;
+
+      /*
+       * Do not let a slow poll undo a seek.
+       *
+       * `nativeState()` round-trips to Media3, so its answer describes the player as it was when the
+       * call was made, not as it is now. If the user scrubbed during that window, writing the answer
+       * back teleports the playhead to where the song used to be — pressing play again then reloads
+       * from that old offset, which the user experiences as "it starts from 0:00" (an early seek) or
+       * "it jumped forward again" (a late one).
+       *
+       * The guard is a window, not a lock: after a second the player has certainly caught up, and a
+       * permanently suppressed poll would freeze the bar.
+       */
+      const guard = seekGuard.current;
+      const settling = guard !== null && Date.now() - guard.at < SEEK_SETTLE_MS;
+
       const st = await nativeState();
-      if (st && alive) {
-        store.set({
-          positionSec: st.positionMs / 1000,
-          durationSec: st.durationMs > 0 ? st.durationMs / 1000 : s.durationSec,
-        });
+      if (!st || !alive) return;
+
+      if (settling) {
+        // Duration is still safe to take — it never depends on where the playhead is.
+        if (st.durationMs > 0) store.set({ durationSec: st.durationMs / 1000 });
+        return;
       }
+      if (guard !== null) seekGuard.current = null;
+
+      store.set({
+        positionSec: st.positionMs / 1000,
+        durationSec: st.durationMs > 0 ? st.durationMs / 1000 : s.durationSec,
+      });
     };
     const id = window.setInterval(() => void tick(), 1000);
     const offEnded = onNativeEvent('ended', () => next(true));
@@ -994,6 +1017,10 @@ export function usePlayer() {
     // silently discarded and every resumed song restarted from zero. Seek the service directly.
     if (elementOwnsPlayback(el, hasNativePlayback())) {
       const id = window.setTimeout(() => {
+        // Marked so the poller cannot undo it in the 350 ms after the service is told where to go.
+        // Without this, a track resumed at 2:30 would report 0:00 until the next poll, and the
+        // progress bar visibly snapped back to the start on every resume.
+        seekGuard.current = { at: Date.now(), target: saved };
         void nativeSeek(Math.round(saved * 1000));
         store.set({ positionSec: saved });
       }, 350);

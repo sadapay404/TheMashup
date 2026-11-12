@@ -18,7 +18,7 @@
  * falls back to its empty state. Recommendations are a nicety, never an error dialog.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Track } from '@themashup/core';
 import { useApp } from '@/state/store';
 import { service } from '@/lib/service';
@@ -75,7 +75,18 @@ export function useRecommendations(enabled: boolean): RecommendationState {
    * mattered, so it decides the order. A quieter "less like this" leaves a negative weight and
    * pushes that artist to the back instead of banning it — one skip is not a verdict.
    */
-  const seeds: Track[] = (() => {
+  /*
+   * Memoised, not recomputed per render.
+   *
+   * This walks the whole play history, sorts it by affinity, and builds a set — on every render of
+   * the Home screen. Home re-renders on each store change (a route swap, a toast, a download
+   * progress tick), so a few hundred plays turned into a few hundred sorts, and the seed *identity*
+   * changed each time, which defeated the downstream key comparison as well.
+   *
+   * The dependency is the two inputs the computation actually reads. `affinity` is replaced rather
+   * than mutated by the store, so reference equality is the right test.
+   */
+  const seeds: Track[] = useMemo(() => {
     const weightOf = (t: Track) =>
       affinity.artists[t.artistId ?? t.artist] ?? 0;
     const ranked = [...history].sort((a, b) => weightOf(b) - weightOf(a));
@@ -90,7 +101,7 @@ export function useRecommendations(enabled: boolean): RecommendationState {
       if (picked.length >= MAX_SEEDS) break;
     }
     return picked;
-  })();
+  }, [history, affinity]);
 
   // Refetch when the seed set changes, not on every play: replaying the same artist must not
   // re-issue three network calls.

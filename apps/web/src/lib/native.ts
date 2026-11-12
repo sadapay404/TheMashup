@@ -379,40 +379,26 @@ export async function nativeSignIn(): Promise<boolean> {
   }
 }
 
-/** One Google identity present on the device. `name` is the address, as AccountManager reports it. */
-export interface NativeAccount {
-  name: string;
-  type: string;
-}
-
-export interface AccountsResult {
-  accounts: NativeAccount[];
-  /** True when the app may not enumerate yet (GET_ACCOUNTS is runtime from API 30). */
-  needsPermission: boolean;
-}
-
 /**
- * The device's signed-in Google accounts.
+ * Show the system account picker and wait for the user's choice.
  *
- * Returns an empty list rather than throwing when the plugin is absent or refuses: the caller's job is
- * to decide between the picker and the WebView fallback, and both are legitimate. A thrown error here
- * would turn "this is a browser" into an error state on a screen that is otherwise fine.
+ * Resolves `null` when the picker was cancelled, when there is no native shell, or when the device
+ * has no account picker at all — three cases the caller handles identically: fall back to the
+ * WebView flow. There is no permission involved; the *system* owns the list, which is the only way
+ * to show Google accounts on a modern Android.
  */
-export async function nativeAccounts(): Promise<AccountsResult> {
-  if (!plugin('MashupAccount')) return { accounts: [], needsPermission: false };
+export async function nativePickAccount(): Promise<string | null> {
+  if (!plugin('MashupAccount')) return null;
   try {
-    const res = (await invoke('MashupAccount', 'accounts')) as {
-      accounts?: { name?: string; type?: string }[];
-      needsPermission?: boolean;
+    const res = (await invoke('MashupAccount', 'pickAccount')) as {
+      email?: string;
+      cancelled?: boolean;
+      started?: boolean;
     };
-    return {
-      accounts: (res.accounts ?? [])
-        .map((a) => ({ name: String(a?.name ?? ''), type: String(a?.type ?? '') }))
-        .filter((a) => a.name.includes('@')),
-      needsPermission: Boolean(res.needsPermission),
-    };
+    if (res.cancelled || !res.email || !res.email.includes('@')) return null;
+    return res.email;
   } catch {
-    return { accounts: [], needsPermission: false };
+    return null;
   }
 }
 
@@ -426,19 +412,6 @@ export async function nativeSignInAs(email: string): Promise<boolean> {
   }
 }
 
-/** Open the OS page where GET_ACCOUNTS can be granted. Resolves false on a browser. */
-export async function nativeRequestAccountsPermission(): Promise<boolean> {
-  if (!plugin('MashupAccount')) return false;
-  try {
-    const res = (await invoke('MashupAccount', 'requestAccountsPermission')) as {
-      granted?: boolean;
-      openedSettings?: boolean;
-    };
-    return Boolean(res.granted);
-  } catch {
-    return false;
-  }
-}
 
 export async function nativeCookie(): Promise<string | null> {
   try {

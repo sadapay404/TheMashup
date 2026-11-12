@@ -1,21 +1,19 @@
 package app.themashup.music.auth
 
-import android.accounts.Account
 import android.accounts.AccountManager
 import android.app.Dialog
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.result.ActivityResult
 import app.themashup.music.playback.NativeEvents
-import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
+import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 
 /**
@@ -31,11 +29,9 @@ import com.getcapacitor.annotation.CapacitorPlugin
  * What the app actually needs is not a token — it is the `music.youtube.com` session cookie, because
  * every InnerTube request is signed from it with SAPISIDHASH. So there are two ways to obtain one:
  *
- *  1. **[accounts] — the picker the user asked for.** Enumerate the Google accounts already on the
- *     device with `AccountManager` and show them as a list. Picking one signs in against that identity
- *     with no typing and no "which account?" Google page. On API 30+ this only returns accounts the
- *     user has already granted to this app (`GET_ACCOUNTS` is a runtime permission from 30 onward),
- *     which is what makes the list short and correct rather than a dump of everything on the phone.
+ *  1. **[pickAccount] — the picker the user asked for.** The *system* account picker lists every
+ *     Google account signed in on the phone; tapping one returns its address. No permission, no
+ *     contact access, no hand-rolled list that Google would refuse to populate.
  *
  *  2. **[signIn] — the fallback.** If the picker finds nothing, the WebView flow runs exactly as
  *     before. It is slower and it is the one the user called "opens the YT Music website in a
@@ -67,64 +63,75 @@ class AccountPlugin : Plugin() {
     private val store by lazy { SecureStore(getContext()) }
 
     /**
-     * The Google accounts already signed in on this device.
+     * Show the system's own account picker.
      *
-     * This is the whole point of the picker: the user should not have to type a password into a
-     * WebView that then strands them on google.com. `AccountManager` knows which identities the phone
-     * already trusts, so the app can offer them and sign in as one of them.
+     * ### Why this and not a hand-rolled list
      *
-     * ### Why the result can legitimately be empty
+     * The previous version enumerated `AccountManager.getAccountsByType("com.google")` and drew its
+     * own list. That cannot work on a modern Android, for two independent reasons:
      *
-     * From API 30, `GET_ACCOUNTS` is a runtime permission and `getAccountsByType("com.google")`
-     * returns only accounts this app has been **granted** — a deliberate privacy change, not a bug.
-     * The caller therefore treats an empty list as "ask for the WebView fallback", never as an error.
-     * `getAccountsByTypeAndFeatures` with the `service_yt` feature additionally excludes accounts that
-     * do not have YouTube provisioned at all, which is the vast majority of work profiles.
+     *  1. `GET_ACCOUNTS` is a runtime permission from API 30, and the Settings UI files it under the
+     *     **Contacts** group — so there was no "Accounts on this device" row for the user to find,
+     *     which is exactly what the screenshots showed.
+     *  2. Even *with* the permission granted, from Android 8 Google stopped letting ordinary apps
+     *     enumerate its accounts. `getAccountsByType` returns an empty array unless the user has
+     *     already granted this specific app visibility through Google's own consent flow. So the
+     *     list would have been empty on a phone with three Google accounts on it.
+     *
+     * `AccountManager.newChooseAccountIntent` is the supported answer: the *system* renders the
+     * picker, every signed-in Google account is listed, no permission is required, and the result is
+     * the account the user tapped. That satisfies "show me my Gmails, I tap one" without asking for
+     * contact access or guessing at Google's gating.
+     *
+     * The call resolves only when the picker closes, through [accountPicked]: the JS side awaits it
+     * and treats `null` as "nothing chosen", which keeps the caller's flow linear.
      */
     @PluginMethod
-    fun accounts(call: PluginCall) {
-        val ctx = getContext()
-        val result = JSObject()
-
-        if (!hasAccountsPermission()) {
-            // Not a failure: the JS layer asks for the permission and calls again.
-            result.put("accounts", JSArray())
-            result.put("needsPermission", true)
-            call.resolve(result)
+    fun pickAccount(call: PluginCall) {
+        if (getActivity() == null) {
+            call.reject("no activity")
             return
         }
-
-        val list = JSArray()
         try {
-            val am = AccountManager.get(ctx)
-            // `service_yt` = the account has YouTube provisioned. Requesting it here is what keeps
-            // a corporate/exchange Google account (which exists, but has no YouTube) out of the list.
-            val found: Array<Account> = am.getAccountsByTypeAndFeatures(
-                GOOGLE_ACCOUNT_TYPE,
-                arrayOf(FEATURE_SERVICE_YT),
+            val intent = AccountManager.newChooseAccountIntent(
                 null,
                 null,
-            )?.result ?: emptyArray()
-            for (a in found) {
-                list.put(
-                    JSObject()
-                        .put("name", a.name)
-                        .put("type", a.type),
-                )
-            }
+                arrayOf(GOOGLE_ACCOUNT_TYPE),
+                null,
+                null,
+                null,
+                null,
+            )
+            startActivityForResult(call, intent, "accountPicked")
         } catch (t: Throwable) {
-            // A device that refuses enumeration is entitled to: report the empty list so the JS layer
-            // falls back to the WebView, instead of surfacing a scary native error for a lost cause.
-            android.util.Log.w(TAG, "account enumeration failed", t)
+            // A device with no account picker (some AOSP builds) must not dead-end the user: the
+            // caller falls back to the WebView flow.
+            android.util.Log.w(TAG, "account picker unavailable", t)
+            call.resolve(JSObject().put("started", false))
         }
-
-        result.put("accounts", list)
-        result.put("needsPermission", false)
-        call.resolve(result)
     }
 
     /**
-     * Sign in as one of [accounts] — without opening a login page.
+     * The account the user chose in the system picker.
+     *
+     * Capacitor routes the `startActivityForResult` result here by name. A cancelled picker is not an
+     * error — the user simply changed their mind — so it resolves `{ email: null }` rather than
+     * rejecting, and the UI says nothing about it.
+     */
+    @ActivityCallback
+    fun accountPicked(call: PluginCall?, result: ActivityResult?) {
+        if (call == null) return
+        val uri = result?.data?.data
+        val email = uri?.lastPathSegment?.trim().orEmpty()
+        if (result?.resultCode != android.app.Activity.RESULT_OK || email.isEmpty()) {
+            call.resolve(JSObject().put("cancelled", true))
+            return
+        }
+        call.resolve(JSObject().put("email", email).put("cancelled", false))
+    }
+
+    /**
+     * Sign in as a chosen identity — without opening a login form.
      *
      * The selected identity is baked into Google's *silent* sign-in URL (`passive=true` plus
      * `Email=`), so Google authenticates against the identity the phone already holds and redirects
@@ -181,33 +188,44 @@ class AccountPlugin : Plugin() {
             var captured = false
 
             wv.webViewClient = object : WebViewClient() {
+                /**
+                 * Harvest the session cookie as soon as Google has minted it.
+                 *
+                 * The old hook only ran on `onPageFinished`, and only *acted* on a YouTube page — so
+                 * the user was carried all the way to music.youtube.com, watched the web app boot, and
+                 * only then did the dialog close. That is the "it opens YT music and never comes back"
+                 * complaint. The cookie we need is set by Google's own consent page, which finishes
+                 * long before YouTube does, so finishing there removes the whole detour: the dialog
+                 * closes on the page where the user actually clicked "Allow", and TheMashup is in
+                 * front again a moment later.
+                 */
                 override fun onPageFinished(view: WebView, url: String?) {
-                    // Google bounces through youtube.com before the music origin. Watching only the
-                    // music origin meant this never fired — the cookie exists before that hop.
                     val finished = url ?: return
                     if (captured) return
-                    val onGoogleVideo = finished.startsWith("https://www.youtube.com") ||
-                        finished.startsWith("https://music.youtube.com") ||
-                        finished.startsWith("https://accounts.google.com")
-                    if (onGoogleVideo) {
-                        if (finished.startsWith("https://music.youtube.com")) {
-                            view.evaluateJavascript("window.yt && yt.config_ && yt.config_.VISITOR_DATA") { v ->
-                                val visitor = v?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
-                                if (visitor != null) store.putVisitorData(visitor)
-                            }
+
+                    // Cookie first, on every hop. `accounts.google.com` is deliberately included now:
+                    // by the time a page there has *finished* loading, any SAPISID it set belongs to
+                    // the session the user just approved. The old exclusion existed to protect a
+                    // half-typed login form, which is no longer the last page of this flow.
+                    val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com")
+                    val ready = cookie != null && cookie.contains("SAPISID")
+
+                    if (finished.startsWith("https://music.youtube.com")) {
+                        view.evaluateJavascript("window.yt && yt.config_ && yt.config_.VISITOR_DATA") { v ->
+                            val visitor = v?.trim('"')?.takeIf { it.isNotBlank() && it != "null" }
+                            if (visitor != null) store.putVisitorData(visitor)
                         }
-                        val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com")
-                        // Only finish on a YouTube page: the Google login form can transiently expose
-                        // an unrelated SAPISID cookie, and tearing the WebView down there aborts the
-                        // sign-in the user is still typing into.
-                        if (cookie != null && cookie.contains("SAPISID") && !finished.startsWith("https://accounts.google.com")) {
-                            captured = true
-                            store.putCookie(cookie)
-                            CookieManager.getInstance().flush()
-                            NativeEvents.post("accountSignedIn", mapOf("hasCookie" to true))
-                            AccountHost.dismiss()
-                            webView = null
-                        }
+                    }
+
+                    if (ready) {
+                        captured = true
+                        store.putCookie(cookie!!)
+                        CookieManager.getInstance().flush()
+                        NativeEvents.post("accountSignedIn", mapOf("hasCookie" to true))
+                        // Dismiss on the main thread; onPageFinished already runs there, but the
+                        // explicit post keeps this safe if that ever stops being true.
+                        AccountHost.dismiss()
+                        webView = null
                     }
                 }
             }
@@ -270,45 +288,9 @@ class AccountPlugin : Plugin() {
         call.resolve(JSObject().put("cookie", store.cookie() ?: ""))
     }
 
-    /**
-     * Whether this process may enumerate accounts.
-     *
-     * Below API 30 `GET_ACCOUNTS` is granted at install time; from 30 it is a runtime permission the
-     * user can refuse. Checked rather than assumed, because an unguarded call returns an empty list
-     * and the picker would silently look empty on a device that actually has accounts.
-     */
-    private fun hasAccountsPermission(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return true
-        return getContext().checkSelfPermission(android.Manifest.permission.GET_ACCOUNTS) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-    }
-
-    /** Ask for `GET_ACCOUNTS`; the JS layer calls `accounts` again when this returns. */
-    @PluginMethod
-    fun requestAccountsPermission(call: PluginCall) {
-        if (hasAccountsPermission()) {
-            call.resolve(JSObject().put("granted", true))
-            return
-        }
-        // The activity result route would need a `@Permission` alias and an annotation processor
-        // round; a plain intent to the app's own settings page is smaller and cannot hang, which is
-        // the failure mode this codebase has already been bitten by with alias-based requests.
-        try {
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.fromParts("package", getContext().packageName, null)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            getContext().startActivity(intent)
-            call.resolve(JSObject().put("granted", false).put("openedSettings", true))
-        } catch (t: Throwable) {
-            call.resolve(JSObject().put("granted", false).put("openedSettings", false))
-        }
-    }
-
     companion object {
         private const val TAG = "MashupAccount"
         private const val GOOGLE_ACCOUNT_TYPE = "com.google"
-        private const val FEATURE_SERVICE_YT = "service_yt"
 
         /**
          * `ltmpl=music` renders the phone-friendly music flow; `continue` returns to the music origin
@@ -329,6 +311,13 @@ class AccountPlugin : Plugin() {
          */
         fun silentSignInUrl(email: String): String {
             val encoded = Uri.encode(email)
+            /*
+             * `continue` points at YouTube's signin handler, which is what actually mints the
+             * YouTube Music SAPISID. It then redirects onward to music.youtube.com — but by that
+             * point the cookie exists and `onPageFinished` has already closed the dialog, so the
+             * user never sees the web app boot. That redirect is unavoidable (it is where the
+             * cookie is created) and now harmless.
+             */
             return "https://accounts.google.com/ServiceLogin?ltmpl=music&service=youtube&passive=true" +
                 "&Email=$encoded" +
                 "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26next%3D" +

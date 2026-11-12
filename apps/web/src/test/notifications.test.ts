@@ -86,7 +86,7 @@ describe('which messages are worth a notification', () => {
   it('keeps a micro-confirmation as a toast only', () => {
     // "Added to queue" is feedback, not news. Pushing every one into the shade is how an app teaches
     // its users to swipe notifications away without reading them.
-    for (const text of ['Added to your likes', 'Shuffled', 'Sleep timer: 15 min']) {
+    for (const text of ['Added to your likes', 'Shuffled']) {
       expect(deservesNotification('success', text)).toBe(false);
     }
     expect(deservesNotification('info', 'Via corsproxy.io')).toBe(false);

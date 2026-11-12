@@ -131,7 +131,7 @@ describe('SongCard', () => {
   it('renders the track and opens the player from the title', () => {
     const onOpen = vi.fn();
     render(
-      <SongCard track={track as never} playing={false} progress={0} onToggle={vi.fn()} onOpen={onOpen} onClose={vi.fn()} onDownload={vi.fn()} onSleepTimer={vi.fn()} sleepTimerActive={false} sleepTimerMs={0} />,
+      <SongCard track={track as never} playing={false} onToggle={vi.fn()} onOpen={onOpen} onClose={vi.fn()} onDownload={vi.fn()} />,
     );
     expect(screen.getByText('Jhol')).toBeTruthy();
     // Artwork and title both open the player, so both carry the same label by intent.
@@ -148,14 +148,10 @@ describe('SongCard', () => {
       <SongCard
         track={track as never}
         playing
-        progress={0.5}
         onToggle={onToggle}
         onOpen={vi.fn()}
         onClose={onClose}
         onDownload={onDownload}
-        onSleepTimer={vi.fn()}
-        sleepTimerActive={false}
-        sleepTimerMs={0}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
@@ -167,10 +163,14 @@ describe('SongCard', () => {
   });
 
   it('clamps progress instead of overflowing the hairline', () => {
+    // The hairline now subscribes to the store itself, so the overrun is staged there rather than
+    // passed as a prop. A stale duration must not paint past the end of the card.
+    store.set({ positionSec: 400, durationSec: 100 });
     const { container } = render(
-      <SongCard track={track as never} playing progress={4} onToggle={vi.fn()} onOpen={vi.fn()} onClose={vi.fn()} onDownload={vi.fn()} onSleepTimer={vi.fn()} sleepTimerActive={false} sleepTimerMs={0} />,
+      <SongCard track={track as never} playing onToggle={vi.fn()} onOpen={vi.fn()} onClose={vi.fn()} onDownload={vi.fn()} />,
     );
     const bar = container.querySelector<HTMLElement>('.bg-\\[var\\(--accent\\)\\]');
     expect(bar?.style.width).toBe('100%');
+    store.set({ positionSec: 0, durationSec: 0 });
   });
 });

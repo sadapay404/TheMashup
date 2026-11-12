@@ -31,8 +31,14 @@ describe('status-bar separator', () => {
     expect(block).toContain('color-mix');
   });
 
-  it('blurs what scrolls under it, so it reads as a layer rather than a bar', () => {
-    expect(block).toContain('backdropFilter');
+  it('does not pay for a backdrop blur over scrolling content', () => {
+    /*
+     * Reversed deliberately. The first version blurred its backdrop, which reads well in a
+     * screenshot and costs the compositor a full re-sample of everything scrolling underneath on
+     * every frame — on the status bar, of all places, which never moves. Removed for smoothness; the
+     * gradient is opaque enough where the icons sit that the blur added almost nothing.
+     */
+    expect(block).not.toContain('backdropFilter');
   });
 
   it('fades to transparent instead of ending on a hard edge', () => {

@@ -24,36 +24,53 @@ import { motion, useMotionValue, useTransform } from 'framer-motion';
 import type { Track } from '@themashup/core';
 import { CloseIcon, DownloadIcon, PauseIcon, PlayIcon } from '@/components/ui/icons';
 import { CARD_H, cardBottom } from '@/lib/layout';
+import { useApp } from '@/state/store';
 import { snap } from '@/components/ui/primitives';
 
 /** Drag this far up, or flick this fast, and the full player opens. */
 const DRAG_OPEN_PX = 64;
 const DRAG_OPEN_VELOCITY = 500;
 
+/**
+ * The card's progress hairline, as its own subscriber.
+ *
+ * `positionSec` changes every second while a song plays. When `App` subscribed to it, the *whole*
+ * shell — route tree, AnimatePresence, dock, every screen's props — re-rendered once a second on a
+ * phone, which is the stutter the user described as "lags a bit even though it is a simple app".
+ * Pulling the subscription down to the one element that draws it means a tick repaints four pixels
+ * of border instead of reconciling the app.
+ */
+function ProgressHairline() {
+  const positionSec = useApp((s) => s.positionSec);
+  const durationSec = useApp((s) => s.durationSec);
+  const progress = durationSec > 0 ? positionSec / durationSec : 0;
+  // Clamped: a stale duration (or a stream that renegotiates mid-song) must never overflow the card.
+  const pct = Math.max(0, Math.min(1, progress)) * 100;
+  return (
+    <div className="pointer-events-none absolute inset-x-2.5 bottom-0 h-[2px] overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--wash)_11%,transparent)]">
+      <div
+        className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-200 ease-linear"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
 export function SongCard({
   track,
   playing,
-  progress,
   onToggle,
   onOpen,
   onClose,
   onDownload,
-  onSleepTimer,
-  sleepTimerActive,
-  sleepTimerMs,
 }: {
   track: Track;
   playing: boolean;
-  progress: number;
   onToggle: () => void;
   onOpen: () => void;
   onClose: () => void;
   /** Opens the quality sheet. Kept as a prop so the card owns no download logic itself. */
   onDownload: () => void;
-  /** Cycles the sleep timer (OuterTune feature). */
-  onSleepTimer: () => void;
-  sleepTimerActive: boolean;
-  sleepTimerMs: number;
 }) {
   const dragY = useMotionValue(0);
   // Upward drag reads as "lifting the card towards the full player".
@@ -61,7 +78,6 @@ export function SongCard({
   const hint = useTransform(dragY, [0, -DRAG_OPEN_PX], [0, 1]);
 
   const art = track.thumbs[0]?.url ?? track.thumbs[track.thumbs.length - 1]?.url;
-  const pct = Math.max(0, Math.min(1, progress));
 
   return (
     <motion.div
@@ -138,17 +154,6 @@ export function SongCard({
       >
         <DownloadIcon width={17} height={17} />
       </motion.button>
-      <motion.button
-        type="button"
-        onClick={onSleepTimer}
-        whileTap={{ scale: 0.9 }}
-        transition={snap}
-        aria-label={sleepTimerActive ? 'Sleep timer on' : 'Sleep timer'}
-        className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-2)]"
-      >
-        <span className="text-xs">{sleepTimerActive ? '😴' : '💤'}</span>
-      </motion.button>
-
       {/*
         End the song outright. Deliberately its own control rather than a long-press or a menu item:
         when someone wants the music to stop they are usually already annoyed, and making them hunt
@@ -165,13 +170,8 @@ export function SongCard({
         <CloseIcon width={16} height={16} />
       </motion.button>
 
-      {/* Progress hairline, flush with the card's bottom edge. */}
-      <div className="pointer-events-none absolute inset-x-2.5 bottom-0 h-[2px] overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--wash)_11%,transparent)]">
-        <div
-          className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-200 ease-linear"
-          style={{ width: `${pct * 100}%` }}
-        />
-      </div>
+      {/* Progress hairline, flush with the card's bottom edge. Subscribes on its own. */}
+      <ProgressHairline />
 
       {/* A grab hint that appears only once the card is actually being lifted. */}
       <motion.div
