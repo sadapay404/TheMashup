@@ -230,29 +230,82 @@ export class MusicService {
   }
 
   /** Search. Never returns an error for "no network" — returns an empty result plus a route note. */
-  async search(query: string, filter: SearchFilter = 'all'): Promise<{ ok: boolean; result: SearchResult; route: string; error?: AppError }> {
-    // 1. Provider first in the browser (CORS-safe), InnerTube first on native.
-    const order: Array<'provider' | 'innertube'> = this.native ? ['innertube', 'provider'] : ['provider', 'innertube'];
+  async search(
+    query: string,
+    filter: SearchFilter = 'all',
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; result: SearchResult; route: string; error?: AppError }> {
+    /*
+     * Both strategies race, not queue.
+     *
+     * The old code awaited them in sequence: on native that meant InnerTube first, and only if it
+     * came back empty was the public-mirror ladder tried — ten community instances, each with its own
+     * nine-second timeout, tried one after another. On a mobile network where the mirrors are
+     * blocked (which is the common case here, and the reason the error copy already mentions it) a
+     * single search could block for a minute before showing anything.
+     *
+     * Racing changes the failure mode from "slow and maybe empty" to "as fast as the best route".
+     * The first *successful* answer wins; a rejection or an empty result just leaves the other
+     * strategy running. Whichever loses is abandoned via its own AbortSignal, so it stops costing
+     * bandwidth instead of running to completion for nobody.
+     */
+    const native = this.native;
+    // InnerTube direct is the better route on native (no CORS, real PoTokens). In a browser the
+    // public mirrors are, because InnerTube has no CORS headers. Racing makes the order a hint.
+    const first: 'provider' | 'innertube' = native ? 'innertube' : 'provider';
 
-    for (const step of order) {
-      if (step === 'provider') {
-        const result = await this.provider.search(query);
-        if (result.sections.length) {
-          this.lastRoute = `public API · ${this.provider.lastUsed ?? 'unknown'}`;
-          return { ok: true, result, route: this.lastRoute };
-        }
-      } else {
-        try {
-          const res = await this.innertube.search(query, filter);
-          const parsed = parseSearch(res.json);
-          if (parsed.sections.length) {
-            this.lastRoute = 'InnerTube direct';
-            return { ok: true, result: parsed, route: this.lastRoute };
-          }
-        } catch {
-          /* fall through to the next strategy */
-        }
+    const controllers = [new AbortController(), new AbortController()];
+    const stopAll = () => controllers.forEach((c) => c.abort());
+    const onOuterAbort = () => stopAll();
+    signal?.addEventListener('abort', onOuterAbort, { once: true });
+
+    type Attempt = { ok: true; result: SearchResult; route: string } | { ok: false };
+
+    const runInnertube = async (own: AbortController): Promise<Attempt> => {
+      try {
+        const res = await this.innertube.search(query, filter, undefined, own.signal);
+        const parsed = parseSearch(res.json);
+        if (parsed.sections.length) return { ok: true, result: parsed, route: 'InnerTube direct' };
+        return { ok: false };
+      } catch {
+        return { ok: false };
       }
+    };
+
+    const runProvider = async (own: AbortController): Promise<Attempt> => {
+      // The mirror ladder itself is bounded now; pass the signal so an abandoned race really stops.
+      const result = await this.provider.search(query, own.signal);
+      if (result.sections.length) {
+        return { ok: true, result, route: `public API · ${this.provider.lastUsed ?? 'unknown'}` };
+      }
+      return { ok: false };
+    };
+
+    const attempts: Record<'provider' | 'innertube', (own: AbortController) => Promise<Attempt>> = {
+      innertube: runInnertube,
+      provider: runProvider,
+    };
+    const order: Array<'provider' | 'innertube'> = [first, first === 'provider' ? 'innertube' : 'provider'];
+
+    const outcome = await Promise.any(
+      order.map((name, i) =>
+        attempts[name](controllers[i]!)
+          .then((r) => {
+            if (r.ok) return r;
+            throw new Error('empty');
+          })
+          .catch((e) => {
+            throw e;
+          }),
+      ),
+    ).catch(() => null);
+
+    signal?.removeEventListener('abort', onOuterAbort);
+    stopAll();
+
+    if (outcome && outcome.ok) {
+      this.lastRoute = outcome.route;
+      return { ok: true, result: outcome.result, route: outcome.route };
     }
 
     return {

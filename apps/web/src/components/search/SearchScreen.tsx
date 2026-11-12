@@ -113,6 +113,16 @@ export function SearchScreen({
 
   useEffect(() => {
     let cancelled = false;
+    /*
+     * A real abort, not just a flag.
+     *
+     * `cancelled` stops this component from *setting state* for a stale query, but the request kept
+     * running to completion — spending the shared transport budget and a rate-limit token. Type
+     * "atif aslam" and five keystrokes' worth of searches were still executing while the sixth
+     * waited its turn, which is why the results felt like they arrived in slow motion. The signal
+     * lets the transport drop the work instead of queueing behind it.
+     */
+    const abort = new AbortController();
     if (debounced.trim().length < 2) {
       setResults([]);
       setPlaylists([]);
@@ -137,7 +147,7 @@ export function SearchScreen({
       }
 
       setLyricResults(null);
-      const res = await service.search(debounced, filter);
+      const res = await service.search(debounced, filter, abort.signal);
       if (cancelled) return;
       if (!res.ok) {
         setError(res.error?.message ?? 'Search is unavailable right now.');
@@ -162,6 +172,7 @@ export function SearchScreen({
     void run();
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [debounced, filter, lyricMode]);
 

@@ -49,6 +49,15 @@ export const DEFAULT_INSTANCES: PublicApiInstance[] = [
 const TIMEOUT_MS = 9000;
 
 /**
+ * How long the *whole* mirror ladder may take. See `search()` for why this exists: ten instances at
+ * nine seconds each is a minute and a half of a frozen screen.
+ */
+const LADDER_BUDGET_MS = 8000;
+
+/** How many mirrors to try simultaneously before falling back to the rest in order. */
+const RACE_WIDTH = 3;
+
+/**
  * Piped's `proxyUrl` is frequently a *relative* path (`/videoplayback?...`), because the instance
  * serves the media from its own origin. Assigning it straight into `urls[]` produced a URL that the
  * browser resolved against the app itself, so every stream 404'd. Absolute URLs are passed through.
@@ -210,23 +219,76 @@ export class PublicApiProvider {
     return first ? [first, ...alive.filter((i) => i.id !== this.preferred)] : alive;
   }
 
+  /**
+   * Search every mirror until one answers, inside a fixed budget.
+   *
+   * There are ten community instances in the default list and each had a nine-second timeout, tried
+   * strictly in order. On a network that blocks them — which is the norm on the mobile connections
+   * this app targets — a miss meant ninety seconds of a spinning search box before the UI could even
+   * say "not found". Two changes fix that:
+   *
+   *   - the ladder stops at `LADDER_BUDGET_MS`, whatever is left untried, so a search always resolves
+   *     inside a few seconds;
+   *   - the first three instances are raced rather than sequenced, so one slow host does not hold up
+   *     a healthy one. After the race the remaining instances are tried in order if the budget
+   *     allows, which keeps the deep fallback without paying for it up front.
+   */
   async search(query: string, signal?: AbortSignal): Promise<SearchResult> {
-    for (const inst of this.ordered()) {
+    const started = Date.now();
+    const limit = new AbortController();
+    const budget = setTimeout(() => limit.abort(), LADDER_BUDGET_MS);
+    const onOuter = () => limit.abort();
+    signal?.addEventListener('abort', onOuter, { once: true });
+
+    const combined = limit.signal;
+    const remaining = () => LADDER_BUDGET_MS - (Date.now() - started);
+
+    const attempt = async (inst: PublicApiInstance): Promise<SearchResult | null> => {
       try {
         const result =
           inst.kind === 'piped'
-            ? await this.searchPiped(inst, query, signal)
-            : await this.searchInvidious(inst, query, signal);
+            ? await this.searchPiped(inst, query, combined)
+            : await this.searchInvidious(inst, query, combined);
         if (result.sections.length) {
           this.preferred = inst.id;
           this.lastUsed = inst.id;
           return result;
         }
+        return null;
       } catch {
         this.dead.set(inst.id, Date.now());
+        return null;
       }
+    };
+
+    try {
+      const ordered = this.ordered();
+
+      // Race the head of the list: this is what turns "wait for the slow one" into "use the fast one".
+      const head = ordered.slice(0, RACE_WIDTH);
+      const tail = ordered.slice(RACE_WIDTH);
+
+      if (head.length) {
+        const winner = await Promise.any(
+          head.map(async (inst) => {
+            const r = await attempt(inst);
+            if (!r) throw new Error('no result');
+            return r;
+          }),
+        ).catch(() => null);
+        if (winner) return winner;
+      }
+
+      for (const inst of tail) {
+        if (remaining() <= 0 || signal?.aborted) break;
+        const r = await attempt(inst);
+        if (r) return r;
+      }
+      return { sections: [] };
+    } finally {
+      clearTimeout(budget);
+      signal?.removeEventListener('abort', onOuter);
     }
-    return { sections: [] };
   }
 
   private async searchPiped(inst: PublicApiInstance, query: string, signal?: AbortSignal): Promise<SearchResult> {

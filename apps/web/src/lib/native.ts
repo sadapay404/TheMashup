@@ -389,25 +389,47 @@ export async function nativeSignIn(): Promise<boolean> {
 }
 
 /**
+ * The result of asking the system to pick an account.
+ *
+ * This is a three-way answer now, because the old two-way one (`email | null`) encoded a real bug:
+ * "the device has no picker" and "the user changed their mind" both collapsed to `null`, and the
+ * caller returned silently for both. On a phone where the picker could not open, the sign-in button
+ * therefore did *nothing at all* — the reported symptom.
+ */
+export type PickAccountResult =
+  | { kind: 'picked'; email: string }
+  | { kind: 'cancelled' }
+  | { kind: 'unavailable'; message: string };
+
+/**
  * Show the system account picker and wait for the user's choice.
  *
- * Resolves `null` when the picker was cancelled, when there is no native shell, or when the device
- * has no account picker at all — three cases the caller handles identically: fall back to the
- * WebView flow. There is no permission involved; the *system* owns the list, which is the only way
- * to show Google accounts on a modern Android.
+ * Never returns a silent failure. If the picker cannot be shown, the result says `unavailable` so
+ * the caller can fall back to the Google page instead of leaving the user staring at a dead button.
  */
-export async function nativePickAccount(): Promise<string | null> {
-  if (!plugin('MashupAccount')) return null;
+export async function nativePickAccount(): Promise<PickAccountResult> {
+  if (!plugin('MashupAccount')) {
+    return { kind: 'unavailable', message: 'Sign-in needs the Android build.' };
+  }
   try {
     const res = (await invoke('MashupAccount', 'pickAccount')) as {
       email?: string;
       cancelled?: boolean;
       started?: boolean;
+      reason?: string;
+      message?: string;
     };
-    if (res.cancelled || !res.email || !res.email.includes('@')) return null;
-    return res.email;
-  } catch {
-    return null;
+
+    if (res.email && res.email.includes('@')) return { kind: 'picked', email: res.email };
+    // A cancelled picker is a deliberate act by the user — stay silent, change nothing.
+    if (res.cancelled) return { kind: 'cancelled' };
+    // Everything else means we could not put a picker on screen. Say so, and let the caller act.
+    return {
+      kind: 'unavailable',
+      message: res.message ?? 'This device has no account picker.',
+    };
+  } catch (e) {
+    return { kind: 'unavailable', message: e instanceof Error ? e.message : 'Account picker failed.' };
   }
 }
 

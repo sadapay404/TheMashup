@@ -73,6 +73,68 @@ export interface TransportHealth {
 
 const TIMEOUT_MS = 12_000;
 
+/**
+ * How long a *single* route may take before the chain gives up on it and tries the next.
+ *
+ * Nine seconds is deliberately below the twelve-second socket timeout: a route that has not answered
+ * by then is almost certainly going to fail, and the user is watching a spinner while it decides.
+ * Waiting for the full socket timeout on the first route was a large part of "search takes a long
+ * time" — the fast route never got a turn.
+ */
+const ROUTE_TIMEOUT_MS = 6_500;
+
+/**
+ * The whole ladder's wall-clock budget.
+ *
+ * Without this the chain was a sum of worst cases: N routes × 12 s socket timeout, one after
+ * another, before it would admit defeat. With four routes that is nearly a minute of a frozen search
+ * box on a bad mobile network — and on native the first route (`nativeHttp`) had **no timeout at all**,
+ * so a hung socket blocked the entire ladder indefinitely. A search must resolve, success or failure,
+ * inside one human attention span.
+ */
+const CHAIN_BUDGET_MS = 11_000;
+
+/**
+ * A deadline for one chain traversal.
+ *
+ * `expired` is checked between attempts so a slow-but-successful route is still allowed to finish
+ * inside its own timeout, while a *sequence* of slow routes stops at the budget instead of adding up.
+ */
+function deadline(ms: number): { readonly expired: boolean; remaining(): number } {
+  const end = Date.now() + ms;
+  return {
+    get expired() {
+      return Date.now() >= end;
+    },
+    remaining: () => Math.max(0, end - Date.now()),
+  };
+}
+
+/**
+ * Race a promise against a timer.
+ *
+ * Used for the native route, which is a bridge call into the host shell — there is no `fetch` to
+ * abort and no socket the app owns, so the only way to bound it is to stop *waiting* for it. The
+ * underlying request may still be in flight; that is fine, it is discarded, and it is strictly
+ * better than a UI that never resolves.
+ */
+function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  if (ms <= 0) return Promise.reject(new Error(`${label}: budget exhausted`));
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}: timed out after ${ms} ms`)), ms);
+    work.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -123,6 +185,12 @@ export class TransportChain {
     const bucket = this.bucketFor('global');
     await bucket.take();
 
+    /*
+     * An aborted request is a *superseded* one — a keystroke replaced it — not a network fault. It
+     * must not spend the ladder, and above all it must not be mistaken for "the network is down".
+     */
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+
     const attempts: Array<() => Promise<RawResponse>> = [];
     const order = this.orderedRoutes();
 
@@ -136,16 +204,35 @@ export class TransportChain {
       throw { k: 'Network', retryable: true, cause: 'offline', message: 'No route available' } satisfies AppError;
     }
 
+    /*
+     * One budget for the whole ladder, not one per route.
+     *
+     * The previous code awaited each route in turn with the full socket timeout, so a bad network
+     * could mean minutes before Search said anything. Now the ladder stops as soon as the budget is
+     * gone and reports what it has — a fast honest failure instead of a slow guaranteed one.
+     */
+    const limit = deadline(CHAIN_BUDGET_MS);
     let lastError: unknown;
+
     for (const attempt of attempts) {
+      if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+      if (limit.expired) break;
       try {
-        const res = await attempt();
+        const res = await withTimeout(attempt(), Math.min(ROUTE_TIMEOUT_MS, limit.remaining()), 'route');
         return res;
       } catch (e) {
+        // A superseded request stops here: the caller no longer wants this answer.
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
         lastError = e;
       }
     }
-    throw lastError;
+
+    throw lastError ?? {
+      k: 'Network',
+      retryable: true,
+      cause: 'timeout',
+      message: 'Every route was too slow to answer.',
+    } satisfies AppError;
   };
 
   /** Same chain, but returns a Result instead of throwing (used at UI boundaries). */
@@ -203,7 +290,12 @@ export class TransportChain {
       // A missing capability, not a network fault: retrying will never help.
       throw { k: 'Capability', retryable: false, missing: 'native-http', message: 'native transport not installed' } satisfies AppError;
     }
-    return this.native(req, signal);
+    /*
+     * The native route is a bridge call with no AbortSignal of its own, and it used to have no
+     * timeout — a hung socket on the host side blocked the whole ladder forever, which is the worst
+     * possible failure for a search box. Bound it like any other route.
+     */
+    return withTimeout(this.native(req, signal), ROUTE_TIMEOUT_MS, 'native');
   }
 
   private async direct(req: InnerTubeRequest, signal?: AbortSignal): Promise<RawResponse> {
@@ -211,6 +303,7 @@ export class TransportChain {
       req.url,
       { method: req.method, headers: req.headers, body: JSON.stringify(req.body) },
       signal,
+      ROUTE_TIMEOUT_MS,
     );
     return readResponse(res);
   }
@@ -232,7 +325,7 @@ export class TransportChain {
     if (relay.mode === 'get-url') {
       const target = encodeURIComponent(req.url);
       const url = relay.template.replace('{url}', target);
-      const res = await fetchWithTimeout(url, { method: 'GET' }, signal);
+      const res = await fetchWithTimeout(url, { method: 'GET' }, signal, ROUTE_TIMEOUT_MS);
       return readResponse(res);
     }
 
@@ -242,6 +335,7 @@ export class TransportChain {
       url,
       { method: 'POST', headers: safeHeaders, body: JSON.stringify(req.body) },
       signal,
+      ROUTE_TIMEOUT_MS,
     );
     return readResponse(res);
   }

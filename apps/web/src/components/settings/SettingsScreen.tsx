@@ -131,11 +131,13 @@ export function SettingsScreen() {
   /**
    * Start sign-in.
    *
-   * One tap opens the *system* account picker, which already knows every Google account on the phone.
-   * The user picks one, and the native side signs in as that identity — no login form to type into and
-   * no hand-built list that Google would refuse to populate. If the picker is cancelled or absent,
-   * nothing happens: silently opening a web page would be the "it just goes to YT Music" behaviour the
-   * user rejected.
+   * One tap opens the *system* account picker. If this device cannot show one — no account
+   * activity, an OEM that stripped it, a build where the plugin is missing — the Google sign-in page
+   * opens instead. That fallback is the point: the previous version treated "picker unavailable" as
+   * "user cancelled" and returned silently, so on exactly those devices the button did nothing and
+   * there was no way to sign in at all.
+   *
+   * Nothing here can dead-end without telling the user why.
    */
   const doSignIn = async () => {
     setAccountMsg(null);
@@ -148,9 +150,25 @@ export function SettingsScreen() {
       return;
     }
 
-    const email = await nativePickAccount();
-    if (!email) return; // cancelled — the screen is exactly as it was
-    await signInAs(email);
+    setSigningIn(true);
+    setAccountMsg('Opening your accounts…');
+    const picked = await nativePickAccount();
+
+    if (picked.kind === 'picked') {
+      await signInAs(picked.email);
+      return;
+    }
+
+    if (picked.kind === 'cancelled') {
+      // The user closed the picker. Reset quietly; nothing was wrong.
+      setSigningIn(false);
+      setAccountMsg(null);
+      return;
+    }
+
+    // No picker on this device. Open the Google page rather than leaving a dead button.
+    setAccountMsg(`${picked.message} Opening the Google sign-in page instead…`);
+    await openWebSignIn();
   };
 
   /** The WebView flow, kept for devices with no account picker and for a different identity. */

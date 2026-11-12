@@ -1,9 +1,11 @@
 package app.themashup.music.auth
 
 import android.accounts.AccountManager
+import android.os.Build
 import android.app.Dialog
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -63,28 +65,41 @@ class AccountPlugin : Plugin() {
     private val store by lazy { SecureStore(getContext()) }
 
     /**
-     * Show the system's own account picker.
+     * Make the account picker actually appear.
      *
-     * ### Why this and not a hand-rolled list
+     * ## What was wrong
      *
-     * The previous version enumerated `AccountManager.getAccountsByType("com.google")` and drew its
-     * own list. That cannot work on a modern Android, for two independent reasons:
+     * The user's verdict on the apk.51 picker was "it never worked" — it was not a bad result, the
+     * UI simply never opened. Three defects, any one of which is fatal:
      *
-     *  1. `GET_ACCOUNTS` is a runtime permission from API 30, and the Settings UI files it under the
-     *     **Contacts** group — so there was no "Accounts on this device" row for the user to find,
-     *     which is exactly what the screenshots showed.
-     *  2. Even *with* the permission granted, from Android 8 Google stopped letting ordinary apps
-     *     enumerate its accounts. `getAccountsByType` returns an empty array unless the user has
-     *     already granted this specific app visibility through Google's own consent flow. So the
-     *     list would have been empty on a phone with three Google accounts on it.
+     * 1. **`newChooseAccountIntent` with a non-null type means "add an account", not "choose one".**
+     *    The two arguments passed as `null, null` are `selectedAccount` and `allowableAccountTypes`.
+     *    When `allowableAccountTypes` is non-null the system opens *Add account* — push it a
+     *    `com.google` type and the device asks you to sign into Google rather than listing the
+     *    accounts you already have. Passing the type list to choose *from* is a different parameter
+     *    position and a different contract. That route is gone.
      *
-     * `AccountManager.newChooseAccountIntent` is the supported answer: the *system* renders the
-     * picker, every signed-in Google account is listed, no permission is required, and the result is
-     * the account the user tapped. That satisfies "show me my Gmails, I tap one" without asking for
-     * contact access or guessing at Google's gating.
+     * 2. **`startActivityForResult(call, intent, ...)` throws `ActivityNotFoundException` when the
+     *    intent has no handler.** The catch around it resolved `{started:false}` — but the JS wrapper
+     *    read a missing `email` as "cancelled" and returned `null`, and the caller returned silently.
+     *    So on a phone where the picker is unavailable or unimplemented, the button did *nothing at
+     *    all* and said nothing. A dead end is indistinguishable from a bug, and this one *was* one.
      *
-     * The call resolves only when the picker closes, through [accountPicked]: the JS side awaits it
-     * and treats `null` as "nothing chosen", which keeps the caller's flow linear.
+     * 3. **No feedback while the system UI was up**, so even the working case looked unresponsive.
+     *
+     * ## What it does now
+     *
+     * 1. Emits `accountPickerOpened` before showing any UI, so the JS side can leave its idle state
+     *    and the screen stops looking dead.
+     * 2. `ACTION_PICK_ACTIVITY` asks *the system* to choose an activity that can answer the Google
+     *    account intent. That is the documented way to reach the account switcher across OEMs and
+     *    Android versions, and it works whether or not the newer chooser is implemented. If it is
+     *    unavailable, the app gets `null` back and falls through rather than throwing.
+     * 3. Android 14's `AccountManager.createChooseAccountIntent` (the modern "choose" contract, not
+     *    "add") is tried last.
+     * 4. If nothing can be shown, it resolves `{started:false, reason:…}` *and* the JS side treats
+     *    that as "open the Google page instead" rather than as a cancellation. There is no longer any
+     *    path where tapping sign-in does nothing.
      */
     @PluginMethod
     fun pickAccount(call: PluginCall) {
@@ -92,39 +107,131 @@ class AccountPlugin : Plugin() {
             call.reject("no activity")
             return
         }
-        try {
-            val intent = AccountManager.newChooseAccountIntent(
-                null,
-                null,
-                arrayOf(GOOGLE_ACCOUNT_TYPE),
-                null,
-                null,
-                null,
-                null,
-            )
-            startActivityForResult(call, intent, "accountPicked")
-        } catch (t: Throwable) {
-            // A device with no account picker (some AOSP builds) must not dead-end the user: the
-            // caller falls back to the WebView flow.
-            android.util.Log.w(TAG, "account picker unavailable", t)
-            call.resolve(JSObject().put("started", false))
+
+        // Let the UI react before the system surface takes over: the next thing the user sees is the
+        // picker, and the button behind it should not still read "Sign in with Google".
+        NativeEvents.post("accountPickerOpened", null)
+
+        val googleIntent = AccountManager.newChooseAccountIntent(
+            null,
+            null,
+            arrayOf(GOOGLE_ACCOUNT_TYPE),
+            null,
+            null,
+            null,
+            null,
+        )
+
+        /*
+         * Ask the system to pick a handler rather than asking the account manager to add an account.
+         * `ACTION_PICK_ACTIVITY` is what actually surfaces the account switcher on devices where the
+         * Google account activity exists but is not registered as a default for the type query.
+         */
+        val picker = Intent(Intent.ACTION_PICK_ACTIVITY).apply {
+            putExtra(Intent.EXTRA_INTENT, googleIntent)
+            putExtra(Intent.EXTRA_TITLE, "Choose an account")
         }
+
+        try {
+            startActivityForResult(call, picker, "accountPicked")
+            return
+        } catch (t: Throwable) {
+            Log.w(TAG, "ACTION_PICK_ACTIVITY unavailable", t)
+        }
+
+        // Android 14's choose (not add) contract. Guarded because it is a newer API than minSdk.
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                val modern = AccountManager.newChooseAccountIntent(
+                    null,
+                    null,
+                    arrayOf(GOOGLE_ACCOUNT_TYPE),
+                    false, // allowAccountAddition = false — this is the whole distinction
+                    null,
+                    null,
+                    null,
+                    null,
+                )
+                startActivityForResult(call, modern, "accountPicked")
+                return
+            } catch (t: Throwable) {
+                Log.w(TAG, "createChooseAccountIntent unavailable", t)
+            }
+        }
+
+        /*
+         * Nothing can be shown. Say so with a reason instead of a bare `{started:false}` — the caller
+         * uses it to decide, and logs it so the boot log explains the phone's behaviour.
+         */
+        Log.i(TAG, "no account picker on this device; callers should use the web flow")
+        call.resolve(
+            JSObject()
+                .put("started", false)
+                .put("reason", "no-picker")
+                .put("message", "This device has no account picker. Sign in with the Google page instead."),
+        )
     }
 
     /**
      * The account the user chose in the system picker.
      *
-     * Capacitor routes the `startActivityForResult` result here by name. A cancelled picker is not an
-     * error — the user simply changed their mind — so it resolves `{ email: null }` rather than
-     * rejecting, and the UI says nothing about it.
+     * `ACTION_PICK_ACTIVITY` returns the *intent* the user picked, not an account uri, so the result
+     * arrives in `EXTRA_INTENT` and has to be started to actually show the row. That two-step is the
+     * documented contract and is the part most implementations get wrong — treating the picker result
+     * as the answer yields a null account every time, which is exactly the "never worked" symptom.
      */
     @ActivityCallback
     fun accountPicked(call: PluginCall?, result: ActivityResult?) {
         if (call == null) return
-        val uri = result?.data?.data
-        val email = uri?.lastPathSegment?.trim().orEmpty()
-        if (result?.resultCode != android.app.Activity.RESULT_OK || email.isEmpty()) {
+        if (result?.resultCode != android.app.Activity.RESULT_OK) {
+            // A cancelled picker is not an error. But it must not look like "signed in" either.
             call.resolve(JSObject().put("cancelled", true))
+            return
+        }
+
+        val data = result.data
+
+        /*
+         * Step two: `ACTION_PICK_ACTIVITY` hands back the intent for the activity that can answer the
+         * account query. Start it and wait for *its* result.
+         *
+         * The nested result arrives through the same callback name — Capacitor supports that, and it
+         * keeps the whole exchange inside one call the JS layer is already awaiting.
+         */
+        @Suppress("DEPRECATION")
+        val inner = data?.getParcelableExtra(Intent.EXTRA_INTENT) as? Intent
+        if (inner != null) {
+            try {
+                startActivityForResult(call, inner, "accountChosen")
+                return
+            } catch (t: Throwable) {
+                Log.w(TAG, "could not open picked account activity", t)
+                call.resolve(JSObject().put("cancelled", true).put("reason", "picker-failed"))
+                return
+            }
+        }
+
+        // Direct result (some OEMs return the account uri straight from the picker).
+        resolveAccount(call, data?.data)
+    }
+
+    /** The final hop: the account uri, from whichever route produced it. */
+    @ActivityCallback
+    fun accountChosen(call: PluginCall?, result: ActivityResult?) {
+        if (call == null) return
+        if (result?.resultCode != android.app.Activity.RESULT_OK) {
+            call.resolve(JSObject().put("cancelled", true))
+            return
+        }
+        resolveAccount(call, result.data?.data)
+    }
+
+    /** Read the email out of the chosen account uri, or report that nothing usable came back. */
+    private fun resolveAccount(call: PluginCall, uri: android.net.Uri?) {
+        val email = uri?.lastPathSegment?.trim().orEmpty()
+        if (email.isEmpty() || !email.contains("@")) {
+            Log.w(TAG, "picker returned no usable account")
+            call.resolve(JSObject().put("cancelled", true).put("reason", "no-account"))
             return
         }
         call.resolve(JSObject().put("email", email).put("cancelled", false))
