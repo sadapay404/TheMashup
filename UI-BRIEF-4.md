@@ -267,14 +267,57 @@ memoised on `[history, affinity]`.
 
 ---
 
+## 5d. The apk.52 reports
+
+**"The playback slider still has that silly issue."** apk.51's arbitration was real but treated only
+half the problem. Three defects, each sufficient on its own:
+
+1. `ExoPlayer.seekTo()` is a **no-op unless the player has a prepared timeline**. A drag that arrived
+   while the track was still resolving was accepted by the UI and silently discarded by the player —
+   thumb moved, audio did not. The target is now parked in `pendingSeekMs` and applied on
+   `STATE_READY`.
+2. Native mode never wrote the resume store. Only the audio element's `timeupdate` called
+   `persistProgress`, so any reload after a scrub resumed from an older position. `seek()` now forces
+   the write, bypassing the 4 s throttle that exists for timeupdate traffic.
+3. Pointer capture was taken on `e.target` — a 4 px track or the thumb. When that child re-rendered
+   mid-drag the capture died and the thumb stopped following. Now captured on the container, with one
+   shared geometry helper for preview and commit (they were two copies that had drifted).
+
+Also `nativeResume()` returned `true` unconditionally, which made the cold-start recovery branch in
+`setPlaying` dead code. It now reports whether a media item existed.
+
+**"The recommendation should come from YT music … not the category I like."** The local engine seeded
+radios from tracks played *in this app*, so it could only recombine what had already been played here.
+It had no way to distinguish a ghazal mood from a filmi one — exactly the reported gap. YouTube
+already models that; the app was guessing instead of asking.
+
+`service.homeFeed()` now calls `browse('FEmusic_home')` with the `WEB_REMIX` profile and the account
+cookie — the same personalized page music.youtube.com serves — and `parseHomeFeed` turns it into named
+shelves. **Shelf titles are passed through verbatim**, never mapped onto a fixed enum, so a rename
+upstream changes a heading instead of silently emptying Home. A signed-out session returns `[]`
+rather than YouTube's generic charts, which know nothing about the user.
+
+Local seeding survives as a fallback for an account whose feed is genuinely empty, labelled
+"Picked for you" — deliberately not dressed up as a YouTube shelf name, because a made-up "Mixed for
+you" that is really three local radios merged would misrepresent where the music came from.
+
+Parser gaps found by fixture test and fixed: `musicTwoRowItemRenderer` keeps its video id on the
+item's `navigationEndpoint`, not in `playlistItemData`, so every card row parsed as "not a song" and a
+card-only shelf vanished; and playlist/album cards have no video id, so they are dropped rather than
+turned into a guessed first track.
+
+---
+
 ## 6. Verification
 
-`tsc` clean · **342 tests / 35 files** green · `npm run build` OK.
-Android run `43176761724` **success** (apk.51, first attempt — no Kotlin round lost).
+`tsc` clean · **352 tests / 36 files** green · `npm run build` OK.
+Android run `43182800620` **success** (apk.52, first attempt). Assets 3,664,254 B and 4,359,653 B.
+
+apk.51: **342 tests / 35 files**, run `43176761724` **success**.
 Every CI step green, including "Verify APK integrity".
 
-New in apk.51: `account-picker.test.ts` (6), `seek-arbitration.test.ts` (5),
-`responsiveness.test.ts` (5).
+New in apk.52: `home-feed.test.ts` (6); `seek-arbitration.test.ts` grown 5 → 8.
+New in apk.51: `account-picker.test.ts` (6), `responsiveness.test.ts` (5).
 apk.50: `separator.test.ts` (6), `search-slogan.test.ts` (3), `dock-icon-only.test.ts` (4).
 
 New: `src/test/safe-area.test.ts` (9), `src/test/notifications.test.ts` (13),
