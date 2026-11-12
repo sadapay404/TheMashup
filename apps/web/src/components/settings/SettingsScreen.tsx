@@ -26,6 +26,8 @@ import {
 import { ChevronDownIcon, SparkIcon } from '@/components/ui/icons';
 import { CrashReport } from '@/components/settings/CrashReport';
 import { useContentBottom } from '@/hooks/useContentBottom';
+import { notificationsAvailable } from '@/lib/notifications';
+import { screenTop } from '@/lib/layout';
 
 type CheckState = 'idle' | 'run' | 'pass' | 'fail' | 'warn' | 'skipped';
 interface CheckRow {
@@ -57,6 +59,12 @@ export function SettingsScreen() {
       id: 'account',
       label: 'Google account',
       detail: 'Checked below in the Account section',
+      state: 'idle',
+    },
+    {
+      id: 'notifications',
+      label: 'Notifications',
+      detail: 'Whether the app can reach the notification shade',
       state: 'idle',
     },
   ]);
@@ -261,6 +269,19 @@ export function SettingsScreen() {
         ? 'Android shell detected — background playback and lockscreen should work'
         : 'Not available in a browser: audio stops when the tab is backgrounded, and there are no lockscreen controls',
     );
+    // Notification delivery is a capability, not a nicety: without it a download that finishes while
+    // the app is closed leaves no trace. Reported honestly instead of assumed.
+    const canNotify = await notificationsAvailable();
+    update(
+      'notifications',
+      canNotify ? 'pass' : isNative() ? 'fail' : 'warn',
+      canNotify
+        ? 'Shade reachable — downloads, playback and alerts will be delivered'
+        : isNative()
+          ? 'Blocked by the system — Android Settings → Apps → TheMashup → Notifications'
+          : 'Android build only',
+    );
+
     update(
       'account',
       service.hasAccount() ? 'pass' : 'warn',
@@ -325,7 +346,7 @@ export function SettingsScreen() {
   };
 
   return (
-    <div className="px-4 pt-3" style={{ paddingBottom }}>
+    <div className="px-4" style={{ paddingBottom, paddingTop: screenTop() }}>
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Settings</h1>
 
       <Section title="Playback" summary={`Volume ${Math.round(volume * 100)}% · speed ${rate}×`}>

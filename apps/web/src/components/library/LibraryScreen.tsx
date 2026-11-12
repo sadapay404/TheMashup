@@ -16,6 +16,7 @@ import { playlistTracks } from '@/lib/playlists';
 import { haptic } from '@/lib/haptics';
 import { TrackRow } from '@/components/library/TrackRow';
 import { useContentBottom } from '@/hooks/useContentBottom';
+import { screenTop } from '@/lib/layout';
 
 type Tab = 'history' | 'queue' | 'likes' | 'playlists';
 
@@ -31,7 +32,7 @@ export function LibraryScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) =>
   const totalMinutes = Math.round(history.reduce((n, t) => n + t.durationSec, 0) / 60);
 
   return (
-    <div className="px-4 pt-3" style={{ paddingBottom }}>
+    <div className="px-4" style={{ paddingBottom, paddingTop: screenTop() }}>
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Library</h1>
       <p className="mt-1 text-[12px] text-[var(--color-text-3)]">
         {history.length} played · {queue.length} in queue · {totalMinutes} min · on this device

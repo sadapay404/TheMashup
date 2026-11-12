@@ -103,7 +103,7 @@ export function AddToSheet({
         transition={glide}
         role="dialog"
         aria-label={`Add ${track.title}`}
-        className="fixed inset-x-0 bottom-0 z-[71] mx-auto max-h-[72dvh] max-w-2xl overflow-y-auto rounded-t-[26px] border-t border-[var(--hairline)] bg-[var(--color-void)] px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4"
+        className="fixed inset-x-0 bottom-0 z-[71] mx-auto max-h-[72dvh] max-w-2xl overflow-y-auto rounded-t-[26px] border-t border-[var(--hairline)] bg-[var(--color-void)] px-4 pb-[calc(var(--safe-b)+16px)] pt-4"
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">

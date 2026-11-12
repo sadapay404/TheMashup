@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Android 10+ only.
+
+      Android 10 introduced "enforced contrast" for translucent system bars: the platform paints an
+      opaque scrim behind the status and navigation bars unless the app opts out. With the app drawing
+      edge-to-edge, that scrim is drawn ON TOP of the page — a grey band over the separator and over the
+      dock, which reads as the app being cut off rather than as a system bar.
+
+      Declared here rather than in `values/styles.xml` because the attributes do not exist below API 29
+      and an unqualified reference is a link error against the minimum SDK.
+    -->
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/mashup_void</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+    </style>
+
+    <style name="AppTheme.NoActionBarLaunch" parent="AppTheme">
+        <item name="android:windowBackground">@drawable/splash</item>
+    </style>
+</resources>

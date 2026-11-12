@@ -19,6 +19,9 @@ import { setHapticsEnabled, setHapticSettings, haptic } from '@/lib/haptics';
 import { themeMeta } from '@/lib/theme';
 import { Boundary } from '@/components/shell/Boundary';
 import { SmartDock } from '@/components/shell/SmartDock';
+import { toastBottom } from '@/lib/layout';
+import { takePendingRoute } from '@/lib/notifications';
+import { watchSafeArea } from '@/lib/safe-area';
 import { SongCard } from '@/components/player/SongCard';
 import { NowPlaying } from '@/components/player/NowPlaying';
 import { DownloadSheet } from '@/components/player/DownloadSheet';
@@ -157,6 +160,39 @@ export default function App() {
     };
   }, []);
 
+  /**
+   * Measure the real system bars once the shell mounts.
+   *
+   * `env(safe-area-inset-top)` reports 0 in this WebView, which is what put the title under the
+   * clock. The measurement replaces the CSS fallback with the device's true geometry and re-runs on
+   * rotation, where a notched phone in landscape has a different top inset.
+   */
+  useEffect(() => watchSafeArea(), []);
+
+  /**
+   * Notification taps.
+   *
+   * A notification that opens the app on Home is a dead end — the user tapped "Downloaded: 12 tracks"
+   * and wants the Downloads screen. The route is read on mount (cold start) and on every resume (tap
+   * while running, and taps that arrive while the page was frozen in the background).
+   */
+  useEffect(() => {
+    const applyRoute = (r: string) => {
+      const known = ['home', 'search', 'library', 'downloads', 'settings'] as const;
+      if ((known as readonly string[]).includes(r)) {
+        navigate(r as (typeof known)[number]);
+      }
+    };
+    void takePendingRoute(applyRoute);
+    const onResume = () => void takePendingRoute(applyRoute);
+    document.addEventListener('resume', onResume);
+    document.addEventListener('visibilitychange', onResume);
+    return () => {
+      document.removeEventListener('resume', onResume);
+      document.removeEventListener('visibilitychange', onResume);
+    };
+  }, []);
+
   // Keyboard shortcuts (desktop): space = play/pause, arrows = seek.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -232,9 +268,34 @@ export default function App() {
   const onDownload = (t: Track) => setDownload(t);
 
   const progress = durationSec > 0 ? positionSec / durationSec : 0;
+  // A toast must clear the dock and, when one is showing, the song card below it. The old fixed
+  // 148px only cleared the dock, so notifications landed on top of the card's transport row.
+  const hasCard = index >= 0 && queue.length > 0;
 
   return (
     <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col">
+      {/*
+        The separator.
+
+        The app is edge-to-edge, so the status bar is drawn over the page. This strip is the physical
+        boundary between the two: it holds the page background at full opacity for the height of the
+        system bar, so the clock and the battery read as *the system's* band rather than as part of
+        whatever the screen happens to be showing behind them, and no content is ever positioned in it.
+
+        It is `fixed` and `pointer-events-none` so it costs no layout, and it is drawn *under* the
+        screens (`-z-10` relative to no stacking context) but above the page wash. Screens add their own
+        `screenTop()` padding inside it; this is the visible line between the layers, not the spacing.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 z-0"
+        style={{ height: 'var(--safe-t)' }}
+      >
+        <div className="h-full w-full bg-[var(--color-void)]" />
+        {/* The hairline that actually draws the separation. */}
+        <div className="absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(90deg,transparent,color-mix(in_oklab,var(--wash)_18%,transparent)_18%,color-mix(in_oklab,var(--wash)_18%,transparent)_82%,transparent)]" />
+      </div>
+
       {/* Route content */}
       <main className="relative flex-1">
         <AnimatePresence mode="wait" initial={false}>
@@ -357,7 +418,8 @@ export default function App() {
             transition={glide}
             role="status"
             aria-live="polite"
-            className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+148px)] z-[70] mx-auto w-fit max-w-[92vw] rounded-full border border-[var(--hairline)] bg-[var(--color-raised)]/95 px-4 py-2.5 text-[12.5px] shadow-xl backdrop-blur"
+            style={{ bottom: toastBottom(hasCard) }}
+            className="pointer-events-none fixed inset-x-0 z-[70] mx-auto w-fit max-w-[92vw] rounded-full border border-[var(--hairline)] bg-[var(--color-raised)]/95 px-4 py-2.5 text-[12.5px] shadow-xl backdrop-blur"
           >
             <span
               className={

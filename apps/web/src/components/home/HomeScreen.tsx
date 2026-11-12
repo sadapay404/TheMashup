@@ -20,6 +20,7 @@ import { useApp } from '@/state/store';
 import { EmptyState, glide, snap } from '@/components/ui/primitives';
 import { MicIcon, PlayIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
 import { useContentBottom } from '@/hooks/useContentBottom';
+import { screenTop } from '@/lib/layout';
 import { useRecommendations } from '@/hooks/useRecommendations';
 import { service } from '@/lib/service';
 
@@ -40,7 +41,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
   const { tracks: recommended, loading } = useRecommendations(signedIn);
 
   return (
-    <div className="px-4 pt-3" style={{ paddingBottom }}>
+    <div className="px-4" style={{ paddingBottom, paddingTop: screenTop() }}>
       <motion.header initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={glide}>
         <div className="flex items-center justify-between">
           <div>

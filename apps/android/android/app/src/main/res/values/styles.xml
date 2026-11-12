@@ -11,6 +11,20 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
+        <!--
+          Draw into the cutout area.
+
+          Without this, Android 9+ letterboxes the window below the punch-hole on some OEM skins, which
+          pushes the whole WebView down and produces a black band exactly where the separator is
+          supposed to be. `shortEdges` lets the page paint the notch region itself — the CSS reserves
+          `--safe-t` for the bar, so nothing important is ever *in* the hole.
+        -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <!--
+          Keep the navigation bar transparent; the app pads its own bottom controls by --safe-b.
+          These two attributes only exist on API 29+, and `values/` is compiled against the minimum SDK
+          too — they live in `values-v29/styles.xml` instead of being flagged here.
+        -->
     </style>
 
     <style name="AppTheme.NoActionBarLaunch" parent="AppTheme">

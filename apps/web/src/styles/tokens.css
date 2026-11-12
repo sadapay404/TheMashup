@@ -48,6 +48,16 @@
   --blur: 28px;
 
   --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  /*
+   * The status bar. `max()` on purpose: a WebView that reports no inset gets the reserved bar, and a
+   * device with a taller notch still wins. See lib/layout.ts for why this cannot be left to
+   * `env()` alone — Capacitor reports nothing, so the content slid under the clock.
+   */
+  --safe-t: max(env(safe-area-inset-top, 0px), 28px);
+  /* Height of the separator strip above the app's own header. */
+  --status-gap: 8px;
   --nav-h: 64px;
   --mini-h: 64px;
   /* Bottom padding for screens comes from lib/layout via useContentBottom(), not from a
@@ -167,8 +177,22 @@ html {
   text-rendering: optimizeLegibility;
 }
 
+/*
+ * `overflow-x: clip` on the scroller.
+ *
+ * Full-bleed animated surfaces (the artwork drifting, the hero field rising out of the centre) can push
+ * a few pixels past the viewport for one frame; without this the whole page becomes horizontally
+ * pan-able, and a sideways flick during a vertical scroll leaves the app visibly off-centre. `clip`
+ * rather than `hidden` because `hidden` would make `body` a scroll container and break `position:
+ * sticky` for the search header.
+ */
+html {
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
+  overflow-x: clip;
   font-family: var(--font-sans);
   /* Theme-aware: `var(--color-void)` is the theme ground, so this works on paper too. */
   background:
@@ -176,6 +200,9 @@ body {
     var(--color-void);
   min-height: 100dvh;
   overscroll-behavior-y: none;
+  /* The viewport must also respect the notch; `--safe-t` is the measured value, this is the backup
+     for the frame before lib/safe-area runs. */
+  padding: 0 var(--safe-r) 0 var(--safe-l);
 }
 
 /* Scrollbars: thin, unobtrusive, invisible until hover. */

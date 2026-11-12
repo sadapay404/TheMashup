@@ -21,7 +21,7 @@ export function NavPill() {
   return (
     <nav
       aria-label="Primary"
-      className="glass fixed inset-x-0 bottom-[max(10px,env(safe-area-inset-bottom))] z-50 mx-auto flex w-fit items-center gap-1 rounded-full p-1.5 shadow-[0_16px_40px_-18px_rgba(0,0,0,0.9)]"
+      className="glass fixed inset-x-0 bottom-[max(10px,var(--safe-b))] z-50 mx-auto flex w-fit items-center gap-1 rounded-full p-1.5 shadow-[0_16px_40px_-18px_rgba(0,0,0,0.9)]"
     >
       {ITEMS.map(({ id, label, Icon }) => {
         const active = route === id;

@@ -12,6 +12,12 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <!--
+      The system bars are drawn over the page, so their colours are fixed to the ground rather than to
+      the browser's default UI. `theme-color` above already sets the status bar on Android; this is what
+      stops a light theme from flashing a white bar over the dark shell on first paint.
+    -->
+    <meta name="color-scheme" content="dark" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

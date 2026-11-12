@@ -39,6 +39,7 @@ import { haptic } from '@/lib/haptics';
 import { batchProgress, cancelPlaylist } from '@/lib/playlist';
 import { cancelDownload, clearFinishedDownloads, removeDownload, retryDownload } from '@/lib/downloader';
 import { useContentBottom } from '@/hooks/useContentBottom';
+import { screenTop } from '@/lib/layout';
 
 const SECTIONS: { id: MediaKind; label: string }[] = [
   { id: 'music', label: 'Songs' },
@@ -92,7 +93,7 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
   };
 
   return (
-    <div className="px-4 pt-3" style={{ paddingBottom }}>
+    <div className="px-4" style={{ paddingBottom, paddingTop: screenTop() }}>
       <h1 className="font-[family-name:var(--font-display)] text-[32px] leading-none">Downloads</h1>
       <p className="mt-1 text-[12px] text-[var(--color-text-3)]">
         {downloads.filter((d) => d.state === 'done').length} stored ·{' '}

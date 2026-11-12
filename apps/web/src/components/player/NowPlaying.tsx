@@ -125,7 +125,7 @@ export function NowPlaying({
           if (info.offset.y > 120 || info.velocity.y > 700) onHide();
           dragY.set(0);
         }}
-        className="gpu relative flex items-center justify-between px-4 pb-1 pt-[max(12px,env(safe-area-inset-top))]"
+        className="gpu relative flex items-center justify-between px-4 pb-1 pt-[max(12px,var(--safe-t))]"
       >
         {/*
           Two different intentions, two different controls.
@@ -138,7 +138,7 @@ export function NowPlaying({
         <IconButton label="Hide player" onClick={onHide} size="sm">
           <ChevronDownIcon width={22} height={22} />
         </IconButton>
-        <div className="pointer-events-none absolute left-1/2 top-[max(14px,env(safe-area-inset-top))] h-1 w-10 -translate-x-1/2 rounded-full bg-[color-mix(in_oklab,var(--wash)_22%,transparent)]" />
+        <div className="pointer-events-none absolute left-1/2 top-[max(14px,var(--safe-t))] h-1 w-10 -translate-x-1/2 rounded-full bg-[color-mix(in_oklab,var(--wash)_22%,transparent)]" />
         <div className="flex items-center gap-1">
           <IconButton label="Why this track" onClick={() => onWhy(track)} size="sm">
             <SparkIcon width={19} height={19} />
@@ -168,8 +168,10 @@ export function NowPlaying({
             {face === id ? (
               <motion.span
                 layoutId="face-pill"
-                className="absolute inset-0 rounded-full bg-[color-mix(in_oklab,var(--wash)_11%,transparent)]"
-                transition={snap}
+                // A little undershoot: the pill arrives, settles, and the text follows it. Without the
+                // overshoot the switch reads as a redraw rather than a movement.
+                transition={{ type: 'spring', stiffness: 480, damping: 30, mass: 0.7 }}
+                className="absolute inset-0 rounded-full bg-[color-mix(in_oklab,var(--wash)_13%,transparent)] shadow-[inset_0_1px_0_color-mix(in_oklab,var(--wash)_10%,transparent)]"
               />
             ) : null}
             <span className={face === id ? 'relative z-10 text-[var(--color-text)]' : 'relative z-10'}>{label}</span>
@@ -191,6 +193,11 @@ export function NowPlaying({
             >
               <motion.div
                 style={{ scale: artScale }}
+                // A slow lift-and-settle on each new track. Transform only, so it costs the compositor
+                // nothing on a mid-range phone and cannot reflow the controls below it.
+                initial={{ opacity: 0, y: 18, scale: 0.94, rotate: -0.6 }}
+                animate={{ opacity: 1, y: 0, scale: 1, rotate: 0 }}
+                transition={{ type: 'spring', stiffness: 200, damping: 26, mass: 1.1 }}
                 className="aspect-square w-full max-w-[min(78vw,340px)] overflow-hidden rounded-[28px] shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)]"
               >
                 {art ? (
@@ -273,7 +280,7 @@ export function NowPlaying({
       </div>
 
       {/* Controls */}
-      <div className="px-6 pb-[max(18px,env(safe-area-inset-bottom))]">
+      <div className="px-6 pb-[max(18px,var(--safe-b))]">
         {streamError ? (
           <div className="mb-2 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 px-3 py-2 text-[12px] text-[var(--color-danger)]">
             {streamError}
@@ -294,11 +301,25 @@ export function NowPlaying({
             <motion.button
               type="button"
               onClick={onToggle}
-              whileTap={{ scale: 0.92 }}
-              transition={snap}
+              // Press down, spring back past rest, settle. The overshoot is what makes a tap feel like a
+              // physical button rather than a rectangle changing colour.
+              whileTap={{ scale: 0.9 }}
+              whileHover={{ scale: 1.04 }}
+              transition={{ type: 'spring', stiffness: 600, damping: 22, mass: 0.6 }}
               aria-label={playing ? 'Pause' : 'Play'}
               className="relative grid h-16 w-16 place-items-center rounded-full bg-[var(--accent)] text-[var(--on-accent)] shadow-[0_16px_40px_-14px_var(--accent-glow)]"
             >
+              {/* The halo breathes only while audio is actually playing, so the button states are
+                  distinguishable at a glance without reading the icon. */}
+              {playing && !loading ? (
+                <motion.span
+                  aria-hidden
+                  className="absolute inset-0 rounded-full border border-[var(--accent)]"
+                  initial={{ opacity: 0.5, scale: 1 }}
+                  animate={{ opacity: 0, scale: 1.5 }}
+                  transition={{ duration: 1.9, repeat: Infinity, ease: 'easeOut' }}
+                />
+              ) : null}
               {loading ? (
                 <motion.span
                   className="absolute inset-0 rounded-full border-2 border-black/20 border-t-black/70"

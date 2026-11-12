@@ -17,13 +17,14 @@ import { looksLikeLyrics } from '@themashup/core';
 import { service } from '@/lib/service';
 import { downloadPlaylist } from '@/lib/playlist';
 import { store } from '@/state/store';
-import { Chip, EmptyState, Skeleton, snap } from '@/components/ui/primitives';
-import { DownloadIcon, MicIcon, QueueIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
+import { Chip, EmptyState, Skeleton, glide, snap } from '@/components/ui/primitives';
+import { CloseIcon, DownloadIcon, MicIcon, QueueIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
 import { TrackRow } from '@/components/library/TrackRow';
 import { useDebounced } from '@/hooks/useDebounced';
 import { describeLink, parseLink } from '@/lib/link';
 import { haptic } from '@/lib/haptics';
 import { useContentBottom } from '@/hooks/useContentBottom';
+import { screenTop, stickyTop } from '@/lib/layout';
 
 const FILTERS: Array<{ id: SearchFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -55,6 +56,20 @@ export function SearchScreen({
   const [searched, setSearched] = useState(false);
   const [routeNote, setRouteNote] = useState<string>('');
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  /*
+   * `engaged` drives the whole hero → header transition.
+   *
+   * False is the "nothing has happened yet" state: the field sits in the optical centre of the screen
+   * where a thumb reaches it, with the product's invitation above it. True is the working state: the
+   * bar is pinned under the status bar and the results own the screen.
+   *
+   * Entering is triggered by focus *or* by there being a query, so a paste from the OS share sheet —
+   * which fills the field without focusing it — still lifts the bar rather than leaving the field in
+   * the middle of the screen behind a list of results.
+   */
+  const [engaged, setEngaged] = useState(false);
+  const showHero = !engaged && !query;
 
   const debounced = useDebounced(query, 320);
   // A pasted link is not a search. Detecting it in the field means the user does not have to find a
@@ -211,79 +226,196 @@ export function SearchScreen({
     }
   };
 
+  /*
+   * The search field, in both of its lives.
+   *
+   * It is one input — not two that swap — so focus, the caret position and the on-screen keyboard are
+   * preserved across the move. The movement is a `layout` animation on the container plus a spring on
+   * the width and the corner radius, all transform/opacity work on the compositor.
+   */
+  const field = (
+    <div className="relative">
+      <motion.div
+        // The glow is only meaningful while searching; in the hero state the invitation is the focus.
+        animate={{ opacity: engaged ? 1 : 0.55 }}
+        transition={{ duration: 0.25 }}
+        className="pointer-events-none absolute -inset-px rounded-[20px] bg-[linear-gradient(115deg,color-mix(in_oklab,var(--accent)_55%,transparent),transparent_45%,color-mix(in_oklab,var(--accent-2)_45%,transparent))] blur-[10px]"
+      />
+      <SearchIcon
+        width={19}
+        height={19}
+        className={`pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${
+          engaged ? 'text-[var(--accent)]' : 'text-[var(--color-text-3)]'
+        }`}
+      />
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          if (e.target.value) setEngaged(true);
+        }}
+        onFocus={() => {
+          haptic('tap');
+          setEngaged(true);
+        }}
+        onKeyDown={(e) => {
+          // Escape backs out of a search that has not produced anything yet, instead of leaving an
+          // empty pinned bar occupying the top of the screen.
+          if (e.key === 'Escape' && !query) (e.target as HTMLInputElement).blur();
+        }}
+        placeholder={engaged ? 'Search' : 'Songs, artists, or a lyric you remember…'}
+        aria-label="Search"
+        autoComplete="off"
+        spellCheck={false}
+        enterKeyHint="search"
+        className={`relative h-[52px] w-full rounded-[18px] border bg-[color-mix(in_oklab,var(--wash)_6%,transparent)] pl-11 text-[15px] text-[var(--color-text)] outline-none transition-[border-color,background-color,box-shadow] duration-200 placeholder:text-[var(--color-text-3)] ${
+          engaged
+            ? 'border-[var(--accent)]/45 pr-[4.5rem] shadow-[0_10px_30px_-16px_var(--accent-glow)]'
+            : 'border-[var(--hairline)] pr-4'
+        }`}
+      />
+      <AnimatePresence>
+        {query ? (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={snap}
+            onClick={() => {
+              setQuery('');
+              inputRef.current?.focus();
+            }}
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 grid h-9 min-w-9 -translate-y-1/2 place-items-center rounded-full bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] px-2.5 text-[11.5px] font-semibold text-[var(--color-text-2)]"
+          >
+            <CloseIcon width={15} height={15} />
+          </motion.button>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+
   return (
-    <div className="px-4 pt-2" style={{ paddingBottom }}>
-      {/* Search field */}
-      <div className="sticky top-0 z-10 -mx-4 px-4 pb-3 pt-1 backdrop-blur-xl">
-        <div className="relative">
-          <SearchIcon
-            width={19}
-            height={19}
-            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-text-3)]"
-          />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Songs, artists, or a lyric you remember…"
-            aria-label="Search"
-            autoComplete="off"
-            spellCheck={false}
-            className="h-12 w-full rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_6%,transparent)] pl-11 pr-[4.5rem] text-[15px] text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-3)] focus:border-[var(--accent)]/60 focus:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)]"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery('');
-                inputRef.current?.focus();
-              }}
-              className="absolute right-2 top-1/2 flex h-8 -translate-y-1/2 items-center rounded-full px-2.5 text-xs font-medium text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
-            >
-              Clear
-            </button>
-          ) : null}
-        </div>
+    <div className="px-4" style={{ paddingBottom, paddingTop: showHero ? 0 : screenTop() }}>
+      {/*
+        The hero, and the field inside it.
 
-        {/* Link paste. Appears only when the field actually contains a link, so it never adds noise
-            to normal searching. */}
-        <AnimatePresence>
-          {pasted && query.trim().length > 10 ? (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden"
-            >
-              <div className="mt-2 flex items-center gap-2 rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] px-3 py-2">
-                <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--color-text-2)]">
-                  {pasted.kind === 'unsupported' ? pasted.reason : `Open ${describeLink(pasted)}`}
-                </span>
-                {pasted.kind === 'unsupported' ? null : (
-                  <button
-                    type="button"
-                    onClick={() => void openLink()}
-                    disabled={linkBusy}
-                    className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-1.5 text-[11.5px] font-semibold text-[var(--on-accent)] disabled:opacity-60"
-                  >
-                    {linkBusy ? 'Opening…' : pasted.kind === 'playlist' ? 'Open playlist' : 'Play it'}
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+        There is exactly ONE search input in this screen. It lives in a container that is vertically
+        centred while the page is untouched and pinned under the status bar once it is engaged; the
+        container moves, the input never remounts. That is what keeps the caret, the selection and the
+        on-screen keyboard alive across the transition — swapping two inputs looked identical in a
+        screenshot and felt broken in the hand, because focusing the second one dismissed and re-opened
+        the keyboard.
 
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
-          {!lyricMode
-            ? FILTERS.map((f) => (
-                <Chip key={f.id} active={filter === f.id} onClick={() => setFilter(f.id)}>
-                  {f.label}
-                </Chip>
-              ))
-            : null}
+        The centring is expressed as padding on the hero block rather than as a second layout, so the
+        only thing that changes between the two states is one spring on `paddingTop` and the opacity of
+        the invitation above it.
+      */}
+      <motion.div
+        initial={false}
+        animate={{
+          // Centre the field in the space above the dock, then move it to the top.
+          paddingTop: showHero ? 'calc(38dvh - var(--safe-t))' : '0px',
+        }}
+        transition={{ type: 'spring', stiffness: 300, damping: 32, mass: 0.9 }}
+      >
+        {/* The invitation. It takes the space above the field and gets out of the way when the field
+            starts being used; its height is kept by the wrapper so the field does not jump. */}
+        <motion.div
+          initial={false}
+          animate={{
+            opacity: showHero ? 1 : 0,
+            height: showHero ? 'auto' : 0,
+            marginBottom: showHero ? 28 : 0,
+            y: showHero ? 0 : -12,
+          }}
+          transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
+          className="overflow-hidden"
+          aria-hidden={!showHero}
+        >
+          <div className="flex flex-col items-center pb-1 text-center">
+            <span className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)]">
+              <SearchIcon width={26} height={26} />
+            </span>
+            <h1 className="font-[family-name:var(--font-display)] text-[30px] leading-none tracking-tight">
+              Find anything
+            </h1>
+            <p className="mt-2 max-w-[19rem] text-[12.5px] leading-relaxed text-[var(--color-text-3)]">
+              A song, an artist, or the half-remembered lyric you have been humming all day.
+            </p>
+          </div>
+        </motion.div>
+
+        <div
+          className="sticky z-20 -mx-4 px-4 backdrop-blur-xl"
+          style={{
+            top: showHero ? 0 : stickyTop(),
+            background: showHero ? 'transparent' : 'color-mix(in oklab, var(--color-void) 72%, transparent)',
+          }}
+        >
+          <div className={showHero ? 'pb-4' : 'pb-2 pt-2'}>
+            {field}
+          </div>
+
+          {/* Link paste. Only when the field actually contains a link, so it never adds noise to a
+              normal search. */}
+          <AnimatePresence>
+            {pasted && query.trim().length > 10 ? (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="mb-2 flex items-center gap-2 rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] px-3 py-2">
+                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--color-text-2)]">
+                    {pasted.kind === 'unsupported' ? pasted.reason : `Open ${describeLink(pasted)}`}
+                  </span>
+                  {pasted.kind === 'unsupported' ? null : (
+                    <button
+                      type="button"
+                      onClick={() => void openLink()}
+                      disabled={linkBusy}
+                      className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-1.5 text-[11.5px] font-semibold text-[var(--on-accent)] disabled:opacity-60"
+                    >
+                      {linkBusy ? 'Opening…' : pasted.kind === 'playlist' ? 'Open playlist' : 'Play it'}
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+
+          {/* Filters belong to the working state: showing them above an untouched, empty field invited
+              taps on a control that had nothing to filter yet. */}
+          <AnimatePresence initial={false}>
+            {!showHero ? (
+              <motion.div
+                key="filters"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="flex gap-2 overflow-x-auto pb-2 [scrollbar-width:none]">
+                  {!lyricMode
+                    ? FILTERS.map((f) => (
+                        <Chip key={f.id} active={filter === f.id} onClick={() => setFilter(f.id)}>
+                          {f.label}
+                        </Chip>
+                      ))
+                    : null}
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
-      </div>
+      </motion.div>
+
+      {/* A little air between the pinned field and the first row. */}
+      <div className="h-1" />
 
       {/* Mode banner */}
       <AnimatePresence>

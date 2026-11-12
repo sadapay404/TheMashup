@@ -86,4 +86,23 @@ export function applyTheme(id: ThemeId, amoled: boolean): void {
   // Tells the browser whether native widgets (scrollbars, form controls, focus rings) should render
   // dark. Without this, a light theme shows dark scrollbars and unreadable autofill.
   root.style.colorScheme = meta.dark ? 'dark' : 'light';
+
+  /*
+   * The system bar follows the theme.
+   *
+   * `theme-color` is what Android paints the status bar with on a WebView that draws edge-to-edge. The
+   * page background changes with the theme — `paper` is a genuine light theme — so a hardcoded
+   * `#07070a` in index.html left a black bar over a cream app the moment the user picked it. The bar is
+   * transparent in styles.xml, so this is the colour that shows through the separator strip.
+   */
+  const ground = getComputedStyle(root).getPropertyValue('--color-void').trim();
+  if (ground) {
+    let tag = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!tag) {
+      tag = document.createElement('meta');
+      tag.name = 'theme-color';
+      document.head.appendChild(tag);
+    }
+    tag.content = ground;
+  }
 }

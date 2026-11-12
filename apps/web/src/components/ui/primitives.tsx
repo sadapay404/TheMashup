@@ -202,7 +202,7 @@ export function Sheet({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="fixed inset-x-0 bottom-0 z-[61] mx-auto max-w-2xl rounded-t-[26px] border-t border-[var(--hairline)] bg-[var(--color-void)] px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4"
+        className="fixed inset-x-0 bottom-0 z-[61] mx-auto max-w-2xl rounded-t-[26px] border-t border-[var(--hairline)] bg-[var(--color-void)] px-4 pb-[calc(var(--safe-b)+16px)] pt-4"
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="truncate pr-3 text-[14px] font-semibold">{title}</h2>
