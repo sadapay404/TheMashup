@@ -1,7 +1,10 @@
 package app.themashup.music.playback
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
@@ -11,9 +14,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit as JTimeUnit
 import androidx.annotation.OptIn
+import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -25,6 +27,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.MediaNotification
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -58,6 +62,11 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
+        // Create the notification channel before the session comes up so Media3 can post the
+        // playback foreground notification immediately. Android 8+ requires a channel; on older
+        // releases this is a no-op.
+        createNotificationChannel()
+
         // The class contract says every entry point is defensive, but onCreate was the exception -
         // and onCreate is the one place a throw is unrecoverable: the exception is raised on the main
         // thread inside a *bound service*, so the caller's try/catch around bindService cannot see it
@@ -71,6 +80,21 @@ class PlaybackService : MediaSessionService() {
             mediaSession = null
             PlaybackBridge.detach()
         }
+    }
+
+    /** Create the playback notification channel (Android 8+). Copied from the OuterTune pattern. */
+    private fun createNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = NotificationChannel(
+            NOTIFICATION_CHANNEL_ID,
+            NOTIFICATION_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Playback controls for TheMashup"
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+        }
+        nm.createNotificationChannel(channel)
     }
 
     private fun startSession() {
@@ -150,6 +174,17 @@ class PlaybackService : MediaSessionService() {
             .setCallback(SessionCallback())
             .build()
 
+        // Wire up the notification provider so Media3 posts the foreground playback notification
+        // with the shade and lockscreen controls. Pattern copied from OuterTune's MusicService and
+        // LibreTube's NowPlayingNotification.
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this)
+                .setNotificationId(1)
+                .setChannelId(NOTIFICATION_CHANNEL_ID)
+                .setChannelName(NOTIFICATION_CHANNEL_NAME)
+                .build()
+        )
+
         PlaybackBridge.attach(player)
     }
 
@@ -185,6 +220,10 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val TAG = "MashupPlayback"
+
+        /** Notification channel id for the playback foreground notification. */
+        const val NOTIFICATION_CHANNEL_ID = "app.themashup.music.playback"
+        const val NOTIFICATION_CHANNEL_NAME = "Playback"
 
         /** Custom session commands exposed as notification buttons. */
         const val CMD_TOGGLE_SHUFFLE = "cmd_toggle_shuffle"
