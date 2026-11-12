@@ -43,7 +43,11 @@ class NativeExtractorImpl : StreamExtractor {
          * Call once from [MainActivity] after the delegate is installed. Provides the Context
          * needed to create the hidden WebView for BotGuard PoToken generation, and installs the
          * PoToken provider with NewPipeExtractor.
+         *
+         * @JvmStatic so [MainActivity] can reach it via reflection
+         * (Class.forName(...).getMethod("initialize", Context::class.java)).
          */
+        @JvmStatic
         fun initialize(context: Context) {
             appContext = context
             installPoTokenProviderLocked()
