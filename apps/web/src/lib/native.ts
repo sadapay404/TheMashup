@@ -171,7 +171,7 @@ export async function nativeState(): Promise<{ positionMs: number; durationMs: n
  *
  * Resolution order in [MusicService.resolveStream] is: this, then InnerTube client profiles, then the
  * public mirrors, then the direct downloader. It is first because it is the only rung that produces a
- * URL with a real PoToken — and a token-gated URL dies after roughly a megabyte, which the listener
+ * URL that is not token-gated — a gated URL dies after roughly a megabyte, which the listener
  * experiences as the song stopping a third of the way in.
  *
  * Both calls are capability-detected. In the standard APK the plugin is absent, `installed` is false,

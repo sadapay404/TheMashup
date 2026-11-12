@@ -334,9 +334,11 @@ export class MusicService {
    *
    * The order is not arbitrary — it is the whole fix for "the song stops after thirty seconds":
    *
-   *  1. **Native extractor** (GPL APK only). The only rung that can mint stream PoTokens, and the only
-   *     one whose client table is maintained by someone who tests against YouTube daily. It is first
-   *     because it is the only path that returns *whole files*.
+   *  1. **Native extractor** (GPL APK only). It does not mint PoTokens — NewPipeExtractor v0.27.1
+   *     deliberately uses only clients that do not need one — but it is the only rung whose client
+   *     table is maintained by someone who tests against YouTube daily, and the only one that performs
+   *     the signature deciphering some clients require. It is first because it is the only path that
+   *     returns *whole files*.
    *  2. **InnerTube client profiles.** Cheap, no dependency, and works when a client happens to be
    *     token-free today. Every rung here that needs a PoToken returns a URL that serves ~1 MB and
    *     then 403s, so a "success" from these clients is not evidence of playable audio — see

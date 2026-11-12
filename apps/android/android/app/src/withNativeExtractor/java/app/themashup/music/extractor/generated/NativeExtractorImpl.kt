@@ -10,9 +10,7 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.localization.Localization
-import org.schabi.newpipe.extractor.services.youtube.PoTokenProvider
 import org.schabi.newpipe.extractor.exceptions.ExtractionException
-import org.schabi.newpipe.extractor.services.youtube.YoutubeStreamExtractor
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import java.io.IOException
@@ -33,18 +31,17 @@ import java.util.concurrent.TimeUnit
  *
  * What it is for:
  *
- * YouTube hands out media URLs that are only valid for about a megabyte unless the request carries a
- * stream PoToken. NewPipeExtractor knows which clients YouTube currently accepts and how to ask for
- * those URLs; it also knows how to perform the signature deciphering that some of them require. The
- * app cannot do either from the WebView, which is why every previous release died at roughly thirty
- * seconds.
+ * YouTube hands out media URLs that stop serving after roughly a megabyte unless the client is one it
+ * trusts. NewPipeExtractor knows which clients YouTube currently accepts and how to ask them for a
+ * full-length URL; it also performs the signature deciphering some of them require. The app cannot do
+ * either from the WebView, which is why every previous release died at roughly thirty seconds.
  *
- * PoToken note: SABR/streaming tokens need Google's BotGuard JavaScript. This class does **not**
- * claim to mint them. NewPipeExtractor is given a token provider only when one is explicitly
- * installed (`setPoTokenProvider`); that is a separate, optional piece of work and its absence is
- * reported honestly rather than papered over. What NewPipeExtractor *does* give us unconditionally
- * is correct client selection, real itags, signature-deciphering results, and a maintained table of
- * what YouTube is currently serving — none of which this app had.
+ * PoToken note: v0.27.1's `setPoTokenProvider` is a documented no-op ("the extractor doesn't use any
+ * client supporting poTokens until SABR support is added"), so this class does not pretend to mint
+ * tokens for it. What the extractor gives us instead is the thing that actually matters: correct
+ * client selection, real itags, signature-deciphering, and a maintained table of what YouTube is
+ * currently serving — none of which this app had, and the reason the browser-side ladder could only
+ * ever serve about a megabyte of audio.
  *
  * Licence: GPL-3.0-or-later. This class is reached by name ("Class.forName") from the standard
  * flavour, never by import, so the default APK never links it. `initialize(Context)` is
@@ -59,14 +56,19 @@ class NativeExtractorImpl : StreamExtractor {
         private val initialised = AtomicBoolean(false)
 
         /**
-         * Optional BotGuard provider.
+         * There is deliberately no PoToken provider here.
          *
-         * Installed from [initialize] only when a provider class is present. Nothing is invented
-         * here: if there is no provider, no token is requested and NewPipeExtractor uses the clients
-         * that do not need one.
+         * NewPipeExtractor v0.27.1 does not use PoTokens yet:
+         * `YoutubeStreamExtractor.setPoTokenProvider(...)` is documented as doing nothing "as the
+         * extractor doesn't use any client supporting poTokens until SABR support is added". So a
+         * provider would have to be installed with no effect — and the previous attempt at one cost
+         * three builds: it overrode a four-method interface that is now one method, and imported two
+         * libraries this module does not depend on.
+         *
+         * The practical consequence, stated plainly: the extractor picks clients it can actually use
+         * without a token. That is what makes a full-length URL possible at all, and it is why this
+         * build plays whole songs while the browser-side ladder serves ~30 seconds.
          */
-        @Volatile
-        private var poTokenProviderInstalled = false
 
         /**
          * Called once from `app.themashup.music.MainActivity` by reflection:
@@ -100,10 +102,8 @@ class NativeExtractorImpl : StreamExtractor {
             if (initialised.get()) return
             try {
                 NewPipe.init(OkHttpDownloader(), Localization.DEFAULT)
-                installPoTokenProviderIfAvailable(context)
-                // The downloader is process-wide and does not need the Context itself; it is taken so
-                // the signature can also serve a PoToken provider that does (a hidden WebView needs
-                // an Activity/Application context). Kept in the signature deliberately.
+                // `context` is part of the reflective contract in MainActivity (`initialize(Context)`)
+                // and is the hook a future provider would need; the downloader itself is process-wide.
                 Log.d(TAG, "init context: ${context.javaClass.simpleName}")
                 initialised.set(true)
                 Log.i(TAG, "NewPipeExtractor initialised")
@@ -114,47 +114,45 @@ class NativeExtractorImpl : StreamExtractor {
         }
 
         /**
-         * Install a BotGuard PoToken provider **if one was compiled into this flavour**.
+         * Called once from `app.themashup.music.MainActivity` by reflection:
+         * `Class.forName(...).getMethod("initialize", Context::class.java).invoke(null, activity)`.
          *
-         * The provider lives in `app.themashup.music.playback.poToken`. It is looked up
-         * reflectively so this file keeps compiling on its own: a provider that is absent, or one
-         * whose API drifted, must degrade to "no PoToken" rather than to a class-loading crash in
-         * the extractor.
+         * `@JvmStatic` is required for that reflection to find a static method.
          *
-         * This is deliberately defensive. Earlier releases tried to call into the provider directly
-         * and the *whole* enhanced flavour failed to compile, which is how five builds in a row were
-         * lost without a single one reaching the device.
+         * Must never throw: it is invoked from `MainActivity.onCreate` through reflection, where an
+         * exception would be swallowed by the caller's catch — and then every later resolve would fail
+         * for a reason nothing recorded. A failure is logged and left for `resolve` to report.
          */
-        private fun installPoTokenProviderIfAvailable(context: Context) {
-            if (poTokenProviderInstalled) return
+        @JvmStatic
+        fun initialize(context: Context) {
             try {
-                val cls = Class.forName("app.themashup.music.playback.poToken.PoTokenGenerator")
-                val instance = cls.getDeclaredConstructor().newInstance()
-                if (instance is PoTokenProvider) {
-                    /*
-                     * Give it a Context *before* installing it.
-                     *
-                     * `PoTokenGenerator` needs one to create its hidden WebView, and it is constructed
-                     * reflectively here, so nothing else will hand it one. A provider without a
-                     * Context answers null for every request — which looks exactly like "YouTube does
-                     * not want a token today" and would have made this whole path silently inert.
-                     * Looked up by reflection too, so this file keeps compiling if the provider's API
-                     * drifts: a missing setter is a warning, not a broken enhanced flavour.
-                     */
-                    runCatching {
-                        cls.getMethod("setAppContext", Context::class.java).invoke(instance, context)
-                    }.onFailure {
-                        Log.w(TAG, "PoToken provider has no setAppContext(Context): ${it.message}")
-                    }
-                    YoutubeStreamExtractor.setPoTokenProvider(instance)
-                    poTokenProviderInstalled = true
-                    Log.i(TAG, "PoToken provider installed")
-                } else {
-                    Log.w(TAG, "PoToken provider is not a PoTokenProvider; continuing without tokens")
-                }
+                ensureInitialised(context)
             } catch (t: Throwable) {
-                // Not fatal by design: NewPipeExtractor still resolves with the token-free clients.
-                Log.w(TAG, "No PoToken provider (${t.javaClass.simpleName}: ${t.message})")
+                Log.e(TAG, "initialise failed; native resolution will report unavailable", t)
+            }
+        }
+
+        /**
+         * Install the OkHttp-backed downloader and localization once per process.
+         *
+         * NewPipeExtractor is a process-wide singleton (`NewPipe.init`), so this is guarded rather
+         * than run per play. A failure here is logged and rethrown: without a downloader every
+         * extraction fails immediately, and silently swallowing that would make the app report "no
+         * stream" for a reason that has nothing to do with YouTube.
+         */
+        @Synchronized
+        private fun ensureInitialised(context: Context) {
+            if (initialised.get()) return
+            try {
+                NewPipe.init(OkHttpDownloader(), Localization.DEFAULT)
+                // `context` is part of the reflective contract in MainActivity (`initialize(Context)`)
+                // and is the hook a future provider would need; the downloader itself is process-wide.
+                Log.d(TAG, "init context: ${context.javaClass.simpleName}")
+                initialised.set(true)
+                Log.i(TAG, "NewPipeExtractor initialised")
+            } catch (t: Throwable) {
+                Log.e(TAG, "NewPipeExtractor initialisation failed", t)
+                throw t
             }
         }
     }
