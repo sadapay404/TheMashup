@@ -14,6 +14,7 @@ import { formatTime, IconButton, snap } from '@/components/ui/primitives';
 import { toggleLike } from '@/lib/signals';
 import {
   ChevronDownIcon,
+  CloseIcon,
   DownloadIcon,
   HeartIcon,
   MicIcon,
@@ -33,6 +34,7 @@ type Face = 'art' | 'queue' | 'lyrics';
 export function NowPlaying({
   track,
   onClose,
+  onHide,
   onToggle,
   onNext,
   onPrev,
@@ -42,7 +44,10 @@ export function NowPlaying({
   onSelectQueue,
 }: {
   track: Track;
+  /** Stop and clear — the X, and an explicit downward fling past the threshold. */
   onClose: () => void;
+  /** Hide the sheet but keep playing — the chevron. */
+  onHide: () => void;
   onToggle: () => void;
   onNext: () => void;
   onPrev: () => void;
@@ -115,18 +120,33 @@ export function NowPlaying({
         dragElastic={{ top: 0, bottom: 0.4 }}
         style={{ y: dragY }}
         onDragEnd={(_, info) => {
-          if (info.offset.y > 120 || info.velocity.y > 700) onClose();
+          // A drag is navigation, not destruction: flicking the sheet down hides it and leaves the
+          // music alone. Stopping is the X's job, and only the X's.
+          if (info.offset.y > 120 || info.velocity.y > 700) onHide();
           dragY.set(0);
         }}
         className="gpu relative flex items-center justify-between px-4 pb-1 pt-[max(12px,env(safe-area-inset-top))]"
       >
-        <IconButton label="Close player" onClick={onClose} size="sm">
+        {/*
+          Two different intentions, two different controls.
+
+          The chevron used to *stop* playback — so collapsing the player to browse the library killed
+          the song, which is the opposite of what a downward chevron means everywhere else. It now
+          hides the sheet and keeps playing; the X beside it is the explicit "stop and clear", which
+          is the action the user asked for and which the song card also carries.
+        */}
+        <IconButton label="Hide player" onClick={onHide} size="sm">
           <ChevronDownIcon width={22} height={22} />
         </IconButton>
         <div className="pointer-events-none absolute left-1/2 top-[max(14px,env(safe-area-inset-top))] h-1 w-10 -translate-x-1/2 rounded-full bg-[color-mix(in_oklab,var(--wash)_22%,transparent)]" />
-        <IconButton label="Why this track" onClick={() => onWhy(track)} size="sm">
-          <SparkIcon width={19} height={19} />
-        </IconButton>
+        <div className="flex items-center gap-1">
+          <IconButton label="Why this track" onClick={() => onWhy(track)} size="sm">
+            <SparkIcon width={19} height={19} />
+          </IconButton>
+          <IconButton label="Stop and close the player" onClick={onClose} size="sm">
+            <CloseIcon width={19} height={19} />
+          </IconButton>
+        </div>
       </motion.div>
 
       {/* Face switcher */}

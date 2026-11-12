@@ -22,10 +22,16 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.session.CommandButton
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
@@ -106,7 +112,14 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true) // unplugging headphones pauses, as users expect
             .setWakeMode(C.WAKE_MODE_NETWORK)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this)))
+            /*
+             * Header-aware data source.
+             *
+             * A natively resolved URL carries its own request headers (Referer / User-Agent). Without
+             * them the CDN answers 403, which the UI can only report as "playback failed". See
+             * [MediaItemHeaders].
+             */
+            .setMediaSourceFactory(DefaultMediaSourceFactory(MediaItemHeaders.defaultFactory(this)))
             .build()
 
         player.setPauseAtEndOfMediaItems(false)
@@ -170,17 +183,46 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(sessionActivity)
             .setCallback(SessionCallback())
+            /*
+             * The notification's buttons come from this layout, not from the player's commands.
+             *
+             * Media3 only ever puts play/pause, previous and next in the shade by default, and next
+             * and previous are *dimmed* whenever the player holds a single item — which it always
+             * does here, because the JS queue owns track ordering. The result was a notification
+             * with one working button, which is the "notification must carry many controls" report.
+             *
+             * Adding a custom layout is not enough on its own: the same commands must also be
+             * advertised as available session commands in [SessionCallback.onConnect], or the
+             * buttons render but do nothing when tapped.
+             */
+            .setCustomLayout(notificationControls())
             .build()
 
-        // Wire up the notification provider so Media3 posts the foreground playback notification
-        // with the shade and lockscreen controls. Pattern copied from OuterTune's MusicService and
-        // LibreTube's NowPlayingNotification.
+        /*
+         * The foreground notification.
+         *
+         * `DefaultMediaNotificationProvider` supplies the standard transport row (previous / play-
+         * pause / next) plus every valid button from the session's custom layout — which is where
+         * shuffle, repeat, like and stop come from. Those buttons exist in the shade only because
+         * `setCustomLayout` above put them there and `onConnect` advertised their commands.
+         *
+         * The channel name comes from resources; the id matches the one created in
+         * [createNotificationChannel] so the notification lands on the channel the user already saw
+         * (and any importance they chose for it survives).
+         */
+        /*
+         * The compact (collapsed) row is prev / play-pause / next already: Media3 fills it from the
+         * player commands when no custom button claims index slots. The extended row is the same three
+         * plus our four custom buttons. That is the "many controls" the user asked for, and it needs no
+         * subclass to achieve — overriding `addNotificationActions` for it would have been work with
+         * no visible difference.
+         */
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider.Builder(this)
                 .setNotificationId(1)
                 .setChannelId(NOTIFICATION_CHANNEL_ID)
                 .setChannelName(R.string.notification_channel_name)
-                .build()
+                .build(),
         )
 
         PlaybackBridge.attach(player)
@@ -223,6 +265,12 @@ class PlaybackService : MediaSessionService() {
         const val NOTIFICATION_CHANNEL_ID = "app.themashup.music.playback"
         const val NOTIFICATION_CHANNEL_NAME = "Playback"
 
+        /** Custom notification actions. Declared here so layout and handler cannot disagree. */
+        const val ACTION_SHUFFLE = "app.themashup.music.SHUFFLE"
+        const val ACTION_REPEAT = "app.themashup.music.REPEAT"
+        const val ACTION_LIKE = "app.themashup.music.LIKE"
+        const val ACTION_STOP = "app.themashup.music.STOP"
+
         /**
          * Connection used by [app.themashup.music.MainActivity] to bring the session up before the
          * first play. Kept trivial on purpose: the bridge is a global object, so all we need is the
@@ -237,6 +285,63 @@ class PlaybackService : MediaSessionService() {
                 PlaybackBridge.detach()
             }
         }
+    }
+
+    /**
+     * The custom controls this app adds to the media notification.
+     *
+     * Media3 renders whatever the session advertises, so these are declared **once** here and used in
+     * two places that must agree:
+     *   - `MediaSession.Builder.setCustomLayout` — puts the button in the shade;
+     *   - `SessionCallback.onConnect` — advertises the matching session command, without which the
+     *     button is drawn but a tap does nothing.
+     *
+     * Actions are prefixed `app.themashup.music.` because they travel through the legacy
+     * MediaSessionCompat path under a PendingIntent; an unprefixed action risks colliding with a
+     * command another app sends to us.
+     */
+    private fun customCommand(action: String) = SessionCommand(action, Bundle.EMPTY)
+
+    private fun notificationControls(): List<CommandButton> = listOf(
+        CommandButton.Builder()
+            .setSessionCommand(customCommand(ACTION_SHUFFLE))
+            .setIconResId(R.drawable.ic_notif_shuffle)
+            .setDisplayName(getString(R.string.notif_shuffle))
+            .build(),
+        CommandButton.Builder()
+            .setSessionCommand(customCommand(ACTION_REPEAT))
+            .setIconResId(R.drawable.ic_notif_repeat)
+            .setDisplayName(getString(R.string.notif_repeat))
+            .build(),
+        CommandButton.Builder()
+            .setSessionCommand(customCommand(ACTION_LIKE))
+            .setIconResId(R.drawable.ic_notif_like)
+            .setDisplayName(getString(R.string.notif_like))
+            .build(),
+        CommandButton.Builder()
+            .setSessionCommand(customCommand(ACTION_STOP))
+            .setIconResId(R.drawable.ic_notif_stop)
+            .setDisplayName(getString(R.string.notif_stop))
+            .build(),
+    )
+
+    /**
+     * The same actions, as commands the session will actually accept.
+     *
+     * Started from the *default* session commands and extended with ours. There is no
+     * `SessionCommands.Builder.addAllSessionCommands()` in media3 1.3.1 — that method exists on
+     * `ConnectionResult.Builder`, which is a different builder — so the previous version of this
+     * function did not compile. Building from [MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS]
+     * is the equivalent and does not depend on a member that is not there.
+     */
+    private fun customSessionCommands(): SessionCommands {
+        val builder = SessionCommands.Builder()
+            .addSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.commands)
+        for (button in notificationControls()) {
+            val cmd = button.sessionCommand ?: continue
+            builder.add(cmd)
+        }
+        return builder.build()
     }
 
     private inner class SessionCallback : MediaSession.Callback {
@@ -269,7 +374,64 @@ class PlaybackService : MediaSessionService() {
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailablePlayerCommands(playerCommands)
+                // Custom buttons are inert unless their commands are advertised here as well.
+                .setAvailableSessionCommands(customSessionCommands())
                 .build()
+        }
+
+        /**
+         * A tap on one of the notification's custom buttons.
+         *
+         * Shuffle / repeat / like are *state* questions and the JS layer owns that state, so the tap
+         * is forwarded to it as an event and the UI updates there. Stop is different: it must also
+         * clear the player and take the notification away, which only the service can do, so it is
+         * handled here and mirrored to JS so the page does not keep showing a track that is gone.
+         */
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            when (customCommand.customAction) {
+                ACTION_SHUFFLE -> NativeEvents.post("toggleShuffle", null)
+                ACTION_REPEAT -> NativeEvents.post("toggleRepeat", null)
+                ACTION_LIKE -> NativeEvents.post("toggleLike", null)
+                ACTION_STOP -> {
+                    PlaybackBridge.stop()
+                    NativeEvents.post("stopped", null)
+                }
+                else -> return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+            }
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+
+        /**
+         * The path a request from a *controller* actually takes.
+         *
+         * `PlaybackBridge.play()` sets the item on the player directly, which bypasses this. But
+         * resumption from the notification or a Bluetooth headset — and any future
+         * `MediaController.setMediaItems` — arrives here, and an empty list would be handed to the
+         * player unchanged: no media item, no playback, no error. Delegating to `onAddMediaItems`
+         * keeps one implementation of "what counts as playable".
+         */
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            // `onAddMediaItems` answers with a future of the *list*; the wrapper that supplies the
+            // start position is a second, separate step. Returning the list future directly is a type
+            // error, not a shortcut.
+            return Futures.transform(
+                onAddMediaItems(mediaSession, controller, mediaItems),
+                { list ->
+                    MediaSession.MediaItemsWithStartPosition(list, startIndex, startPositionMs)
+                },
+                MoreExecutors.directExecutor(),
+            )
         }
 
         /**
@@ -281,9 +443,9 @@ class PlaybackService : MediaSessionService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
-        ): com.google.common.util.concurrent.ListenableFuture<MutableList<MediaItem>> {
+        ): ListenableFuture<MutableList<MediaItem>> {
             val resolved = mediaItems.filter { it.localConfiguration?.uri != null }
-            return com.google.common.util.concurrent.Futures.immediateFuture(resolved.toMutableList())
+            return Futures.immediateFuture(resolved.toMutableList())
         }
     }
 }
@@ -483,6 +645,13 @@ internal object PlaybackBridge {
         artUrl: String?,
         durationMs: Long,
         shouldPlay: Boolean = true,
+        /**
+         * Request headers the media URL needs, if the resolver reported any.
+         *
+         * Registered before the item is handed to the player so the very first request already has
+         * them; a header registered afterwards would arrive after the 403 it was meant to prevent.
+         */
+        headers: Map<String, String> = emptyMap(),
     ) {
         // CRITICAL: `player ?: return` used to fail silently when the service was not bound yet,
         // which made the first play of every session a no-op with no error anywhere. Report it so
@@ -508,6 +677,8 @@ internal object PlaybackBridge {
             .setArtworkUri(artUrl?.let { Uri.parse(it) })
             .build()
 
+        if (headers.isNotEmpty()) MediaItemHeaders.put(url, headers)
+
         val item = MediaItem.Builder()
             .setUri(url)
             .setMediaMetadata(metadata)
@@ -521,6 +692,22 @@ internal object PlaybackBridge {
             // Honouring the flag matters: loading a track to reproduce a paused session must not
             // start audio on its own, and the JS layer relies on this being respected.
             p.playWhenReady = shouldPlay
+        }
+    }
+
+    /**
+     * End playback outright — the native half of the X on the song card.
+     *
+     * Pause is not enough: a paused Media3 session keeps its notification, its media item and its
+     * lockscreen entry alive, so "stopped" still looked like "still playing, just quiet". Clearing
+     * the item after stopping is what makes the notification disappear.
+     */
+    fun stop() {
+        onMain { p ->
+            p.pause()
+            p.stop()
+            p.clearMediaItems()
+            snapshot(p)
         }
     }
 

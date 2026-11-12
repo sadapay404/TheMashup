@@ -99,6 +99,15 @@ export interface StreamInfo {
   playability: string;
   /** Direct URLs by itag, only when deliverable without cipher work. */
   urls: Record<number, string>;
+  /**
+   * Request headers the URLs in this object require, when the resolver reported any.
+   *
+   * A natively resolved URL can be issued for a specific `Referer`/`Origin`; asking for it without
+   * those headers gets a 403 that looks exactly like an expired link. Carried on the *object* rather
+   * than beside the URL so it cannot be separated from the URL it belongs to — the player and the
+   * downloader both read it from here.
+   */
+  headers?: Record<string, string>;
 }
 
 export interface LyricLine {

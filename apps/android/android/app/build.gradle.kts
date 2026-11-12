@@ -64,9 +64,22 @@ android {
         buildConfig = true
     }
 
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        /*
+         * Required by NewPipeExtractor, not a preference.
+         *
+         * NewPipeExtractor's README is explicit: on a `minSdk` below 33 it needs core library
+         * desugaring with the `desugar_jdk_libs_nio` artifact. Without it the enhanced flavour either
+         * fails to dex (missing `java.nio` members) or crashes at runtime the first time the
+         * extractor touches a stream. The `_nio` variant is the one it asks for specifically.
+         *
+         * Enabled for both flavours rather than only the GPL one: a build shape that differs between
+         * flavours is one more way for the APK the user installs to be the one nobody tested.
+         */
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -120,10 +133,23 @@ dependencies {
     // Keystore-backed session storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // GPL extractor — resolved only for the enhanced flavour.
-    // Optional GPL extractor. NewPipe publishes to JitPack; the enhanced flavour is built separately.
-    "withNativeExtractorImplementation"("com.github.TeamNewPipe:NewPipeExtractor:v0.24.6")
-    "withNativeExtractorImplementation"("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    // Core library desugaring for NewPipeExtractor (see compileOptions above).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+
+    /*
+     * The GPL extractor.
+     *
+     * v0.27.1 is the release NewPipe itself ships (2026-11-10), and the only version whose YouTube
+     * client table matches what YouTube is serving today — which is the whole point of taking the
+     * dependency. The previous pin, v0.24.6, was roughly a year behind.
+     *
+     * JitPack builds it from the tag on first request, which is less reliable than a hosted
+     * repository but is the coordinate NewPipeExtractor documents and maintains.
+     *
+     * `kotlinx-serialization-json` is NOT here: it was never needed by this class (it parses through
+     * org.json) and adding an unused runtime dependency to a GPL APK is just more surface to break.
+     */
+    "withNativeExtractorImplementation"("com.github.TeamNewPipe:NewPipeExtractor:v0.27.1")
 
     testImplementation("junit:junit:${rootProject.ext["junitVersion"]}")
     androidTestImplementation("androidx.test.ext:junit:${rootProject.ext["androidxJunitVersion"]}")

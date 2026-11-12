@@ -27,13 +27,14 @@ import {
   nativeSetRate,
   nativeSetVolume,
   nativeState,
+  nativeStop,
   onNativeEvent,
 } from '@/lib/native';
 import { haptic } from '@/lib/haptics';
 import { rankRadio, signalComplete, signalPlay, signalSkip, toggleLike } from '@/lib/signals';
 import { StallDetector } from '@/lib/stall';
 import { store, useApp } from '@/state/store';
-import type { Track } from '@themashup/core';
+import type { StreamInfo, Track } from '@themashup/core';
 
 const STALL_MS = 8000;
 
@@ -54,6 +55,21 @@ let nativeDisabled = false;
 const nativeStall = new StallDetector(STALL_MS);
 /** One-time notice when the native transport reports no usable position. */
 let nativePositionWarned = false;
+
+/**
+ * Is Media3, rather than the <audio> element, the transport right now?
+ *
+ * `hasAttribute('src')` rather than `!el.src`. The two agree for an untouched element, but they stop
+ * agreeing the moment a source is *removed*: `el.removeAttribute('src')` — what the hand-over to Media3
+ * does — leaves `.src` returning the resolved page URL on some WebView versions, so a `!el.src` test
+ * can evaluate false while the element is genuinely empty. That is the state in which a press of play
+ * reached `el.play()` on an empty element and silently did nothing.
+ *
+ * Defined once and used everywhere: eight copies of a nearly-right condition is how that survived.
+ */
+function elementOwnsPlayback(el: HTMLAudioElement | null, nativeAvailable: boolean): boolean {
+  return Boolean(el && !el.hasAttribute('src') && nativeAvailable);
+}
 
 export function usePlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -185,6 +201,9 @@ export function usePlayer() {
       // a complete stream. `t.durationSec` is 0 for some link-sourced tracks, which the picker
       // treats as "unknown" rather than as "zero length".
       const playable = service.playableUrl(resolved.info, t.durationSec);
+      // The headers belong to this exact URL and travel on the StreamInfo that carries it, so there is
+      // no per-track cache to go stale: resolving again produces a new StreamInfo with its own set.
+      const requestHeaders = resolved.info.headers;
       store.set({ stream: resolved.info });
       // Count the attempt only once a source resolved: a failed resolve is not a listening choice.
       signalPlay(t);
@@ -225,6 +244,9 @@ export function usePlayer() {
         ...(art ? { artUrl: art } : {}),
         durationMs: Math.round(t.durationSec * 1000),
         shouldPlay: true,
+        // The resolver's request headers, when it reported any. A CDN that needs its Referer answers
+        // 403 without them, which is indistinguishable from the stream dying.
+        ...(requestHeaders && Object.keys(requestHeaders).length > 0 ? { headers: requestHeaders } : {}),
       }));
       if (handedToNative) {
         el.removeAttribute('src');
@@ -249,9 +271,26 @@ export function usePlayer() {
       store.set({ loading: false });
       lastTimeUpdate.current = Date.now();
       if (resumeAt > 0.5) {
-        // `fastSeek` where available: an exact seek on a freshly attached stream forces a second
-        // range request and can stall the very recovery that asked for it.
+        // Seeking before playback starts is cheaper than seeking a live stream: no range request has
+        // been issued for the region we are skipping.
         el.currentTime = resumeAt;
+      }
+
+      /*
+       * Start it.
+       *
+       * Assigning `src` only *loads* the media; nothing plays until `play()` is called. This branch
+       * used to return here and rely on the caller to call `setPlaying(true)` — and `setPlaying` bails
+       * immediately when the element has no `src` attribute yet (`loading` has not produced one at
+       * that instant on a fast tap), which is exactly the "tap a song, nothing happens, press play,
+       * still nothing" report. A rejected promise here means autoplay policy or a bad source; both are
+       * reported to the UI, and neither is allowed to escape as an unhandled rejection.
+       */
+      try {
+        await el.play();
+        store.set({ playing: true });
+      } catch {
+        store.set({ playing: false });
       }
 
       // Lyrics load in the background; they never block playback.
@@ -270,15 +309,50 @@ export function usePlayer() {
       const el = ensureAudio();
 
       // Native Media3 path: no element src, the service owns transport.
-      if (!el.src && hasNativePlayback()) {
+      if (elementOwnsPlayback(el, hasNativePlayback())) {
         haptic('player');
-        if (next) await nativeResume();
-        else await nativePause();
-        store.set({ playing: next });
+        if (!next) {
+          await nativePause();
+          store.set({ playing: false });
+          return;
+        }
+
+        /*
+         * Ask the native player to resume, and *believe its answer*.
+         *
+         * `nativeResume()` is false when Media3 holds no media item — the state after a cold start
+         * that restored a queue but never loaded a track, or after the notification's Stop. Setting
+         * `playing: true` on top of that is the frozen player the user reported: the icon flips to
+         * pause, the timer stays at 0:00, and nothing says why. Load the current track instead, which
+         * is what a press of play means in that state.
+         */
+        const resumed = await nativeResume();
+        if (resumed) {
+          store.set({ playing: true });
+          return;
+        }
+        const s = store.getState();
+        const t = s.queue[s.index];
+        if (t) void load(t, s.positionSec > 1 ? s.positionSec : 0);
         return;
       }
 
-      if (!el.src) return;
+      /*
+       * No element source and no native transport: there is nothing to play *yet*.
+       *
+       * Pressing play in that state must start the current track rather than return silently. This is
+       * the shape of the "open the app and press play, nothing happens" report: the session restores
+       * a queue but never resolves a stream, `setPlaying(true)` found no src, and returned.
+       */
+      if (!el.hasAttribute('src')) {
+        const s = store.getState();
+        const t = s.queue[s.index];
+        if (next && t) {
+          haptic('player');
+          void load(t, s.positionSec > 1 ? s.positionSec : 0);
+        }
+        return;
+      }
       const ctx = ctxRef.current;
       const gain = gainRef.current;
       if (ctx && ctx.state === 'suspended') await ctx.resume().catch(() => undefined);
@@ -308,7 +382,7 @@ export function usePlayer() {
         store.set({ playing: false });
       }
     },
-    [ensureAudio],
+    [ensureAudio, load],
   );
 
   /**
@@ -392,7 +466,7 @@ export function usePlayer() {
         // Restart through whichever transport owns playback; `el.currentTime = 0` is a no-op in
         // native mode (no src), which made repeat-one silently advance to the next track instead.
         const el = audioRef.current;
-        if (el && !el.src && hasNativePlayback()) {
+        if (elementOwnsPlayback(el, hasNativePlayback())) {
           void nativeSeek(0);
           store.set({ positionSec: 0 });
           void setPlaying(true);
@@ -419,7 +493,7 @@ export function usePlayer() {
           // Manual "next" past the end: stay stopped rather than surprising the user with audio.
           store.set({ playing: false, positionSec: 0 });
           const el = audioRef.current;
-          if (el && !el.src && hasNativePlayback()) {
+          if (elementOwnsPlayback(el, hasNativePlayback())) {
             void nativePause();
             return;
           }
@@ -441,7 +515,7 @@ export function usePlayer() {
     const el = audioRef.current;
     // Native mode has no element position: el.currentTime is always 0, so pressing previous jumped
     // backwards instead of restarting the song the way every player does.
-    const nativeMode = Boolean(el && !el.src && hasNativePlayback());
+    const nativeMode = elementOwnsPlayback(el, hasNativePlayback());
     const position = nativeMode ? s.positionSec : (el?.currentTime ?? 0);
     const restart = () => {
       if (nativeMode) void nativeSeek(0);
@@ -467,7 +541,7 @@ export function usePlayer() {
 
   const seek = useCallback((sec: number) => {
     const el = audioRef.current;
-    if (el && !el.src && hasNativePlayback()) {
+    if (elementOwnsPlayback(el, hasNativePlayback())) {
       void nativeSeek(Math.round(sec * 1000));
       store.set({ positionSec: sec });
       return;
@@ -480,7 +554,7 @@ export function usePlayer() {
   const seekBy = useCallback(
     (delta: number) => {
       const el = audioRef.current;
-      if (el && !el.src && hasNativePlayback()) {
+      if (elementOwnsPlayback(el, hasNativePlayback())) {
         const s = store.getState();
         seek(Math.max(0, s.positionSec + delta));
         return;
@@ -620,6 +694,25 @@ export function usePlayer() {
       void load(t, store.getState().positionSec);
     });
 
+    /*
+     * Stop tapped *in the notification*.
+     *
+     * The service has already cleared its media item, so the audio is gone; if the page did not react,
+     * the card would keep offering a track that no longer exists in the player. Clearing the queue is
+     * the same thing the card's own X does, which is the whole point of a "stop" control.
+     */
+    const offStopped = onNativeEvent('stopped', () => {
+      store.set({
+        playing: false,
+        loading: false,
+        positionSec: 0,
+        queue: [],
+        index: -1,
+        stream: null,
+        playerOpen: false,
+      });
+    });
+
     // Custom notification buttons — shuffle / repeat / like — tapped in the media notification.
     // The native side posts these; JS owns the state and updates the store.
     const offToggleShuffle = onNativeEvent('toggleShuffle', () => {
@@ -646,6 +739,7 @@ export function usePlayer() {
       window.clearInterval(id);
       offEnded();
       offError();
+      offStopped();
       offToggleShuffle();
       offToggleRepeat();
       offToggleLike();
@@ -795,13 +889,22 @@ export function usePlayer() {
   // Resume position for the current track (7-day window).
   useEffect(() => {
     if (!track) return;
+    /*
+     * Never restore a position while a resolve is in flight.
+     *
+     * A recovery reload calls `load(track, resumeAt)` for the *same* track object, so this effect does
+     * not re-run — but the effect's 350 ms timer from the previous mount may still be pending, and it
+     * would seek to the saved position on top of the explicit `resumeAt` the recovery asked for. Two
+     * seeks in flight is how a resume lands a few seconds off.
+     */
+    if (store.getState().loading) return;
     const saved = readProgress(track.id);
     if (saved <= 5) return;
     const el = audioRef.current;
 
     // Native mode never fires loadedmetadata on the (src-less) element, so the saved position was
     // silently discarded and every resumed song restarted from zero. Seek the service directly.
-    if (el && !el.src && hasNativePlayback()) {
+    if (elementOwnsPlayback(el, hasNativePlayback())) {
       const id = window.setTimeout(() => {
         void nativeSeek(Math.round(saved * 1000));
         store.set({ positionSec: saved });
@@ -829,8 +932,15 @@ export function usePlayer() {
     generation.current += 1; // invalidate any in-flight resolve
     const el = audioRef.current;
     if (hasNativePlayback()) {
-      await nativePause().catch(() => undefined);
-      await nativeSeek(0).catch(() => undefined);
+      /*
+       * `stop`, not `pause + seek(0)`.
+       *
+       * A paused Media3 session keeps its media item, its lockscreen entry and its notification, so
+       * the previous implementation left the player sitting in the shade showing a track the user had
+       * explicitly closed — the "I pressed the X and it is still there" report. `nativeStop` clears the
+       * item, which is what makes the notification go away.
+       */
+      await nativeStop().catch(() => undefined);
     }
     if (el) {
       el.pause();

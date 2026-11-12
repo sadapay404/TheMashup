@@ -27,7 +27,7 @@ export function isNative(): boolean {
   return Boolean(cap()?.isNativePlatform?.());
 }
 
-type PluginName = 'MashupPlayer' | 'MashupDownloads' | 'MashupAccount' | 'MashupLog';
+type PluginName = 'MashupPlayer' | 'MashupDownloads' | 'MashupAccount' | 'MashupLog' | 'MashupExtractor';
 
 function plugin(name: PluginName): PluginRef | null {
   const c = cap();
@@ -51,6 +51,14 @@ export interface NativePlayPayload {
   durationMs: number;
   /** Load and start playing (default on the native side). Pass false to preload without audio. */
   shouldPlay?: boolean;
+  /**
+   * Request headers the media URL needs, when the resolver reported any.
+   *
+   * A CDN that issued a URL for a particular `Referer` refuses it without one, and the refusal looks
+   * exactly like the stream dying. Passed through to `PlaybackService` and applied by
+   * `MediaItemHeaders` at request time.
+   */
+  headers?: Record<string, string>;
 }
 
 /** True when a native Media3 session exists and can take over playback. */
@@ -68,6 +76,35 @@ export async function nativePlay(p: NativePlayPayload): Promise<boolean> {
   }
 }
 
+/**
+ * Headers the media request needs, if the resolver reported any.
+ *
+ * Some URLs only serve bytes when asked with the `Referer` (or `User-Agent`) they were issued for.
+ * Passing them through is the difference between a stream that starts and a 403 that looks like the
+ * stream dying — the exact failure this app has chased for months.
+ */
+/**
+ * Play a track through Media3, with the resolver's request headers attached.
+ *
+ * `nativePlay` above is kept for callers that have no headers (a local file, a plain CDN URL); this
+ * is the same call plus the optional map, and is what the resolution path uses.
+ */
+/**
+ * End playback outright and retire the notification.
+ *
+ * Distinct from pause: the X on the song card means "make it stop", and a paused Media3 session keeps
+ * its media item, lockscreen entry and shade entry alive. `pause + seek(0)` — what this used to do —
+ * left the player sitting in the notification tray showing a track that was supposed to be gone.
+ */
+export async function nativeStop(): Promise<void> {
+  if (!hasNativePlayback()) return;
+  try {
+    await invoke('MashupPlayer', 'stop');
+  } catch {
+    /* the service may already be gone — nothing to retire */
+  }
+}
+
 export async function nativePause(): Promise<void> {
   try {
     await invoke('MashupPlayer', 'pause');
@@ -76,11 +113,19 @@ export async function nativePause(): Promise<void> {
   }
 }
 
-export async function nativeResume(): Promise<void> {
+/**
+ * Resume playback.
+ *
+ * Returns false when the service refused — which is not noise: `Player.play()` on an empty playlist
+ * is a silent no-op, so a resume after a track failed to resolve would otherwise leave the UI showing
+ * "playing" with no audio anywhere. The caller uses this to start the track instead of waiting.
+ */
+export async function nativeResume(): Promise<boolean> {
   try {
     await invoke('MashupPlayer', 'resume');
+    return true;
   } catch {
-    /* ignore */
+    return false;
   }
 }
 
@@ -121,9 +166,140 @@ export async function nativeState(): Promise<{ positionMs: number; durationMs: n
   }
 }
 
+/**
+ * The native stream extractor (GPL APK only).
+ *
+ * Resolution order in [MusicService.resolveStream] is: this, then InnerTube client profiles, then the
+ * public mirrors, then the direct downloader. It is first because it is the only rung that produces a
+ * URL with a real PoToken — and a token-gated URL dies after roughly a megabyte, which the listener
+ * experiences as the song stopping a third of the way in.
+ *
+ * Both calls are capability-detected. In the standard APK the plugin is absent, `installed` is false,
+ * and the ladder simply starts at its second rung; nothing pretends otherwise.
+ */
+export interface NativeExtractorStatus {
+  /** True when this APK contains a working extractor. */
+  installed: boolean;
+  /** `withNativeExtractor` (GPL) or `standard`. Diagnostic only. */
+  flavour: string;
+}
+
+/** A stream the native extractor resolved, in the shape the player needs. */
+export interface NativeResolvedStream {
+  url: string;
+  /** `progressive` is a plain file; `hls` / `dash` are manifests ExoPlayer can also play. */
+  kind: 'progressive' | 'hls' | 'dash';
+  itag: number;
+  codec: string;
+  kbps: number;
+  mime: string;
+  durationSec: number;
+  /** Request headers the media URL needs, if any. */
+  headers: Record<string, string>;
+  /** Which provider answered (`newpipe`). */
+  source: string;
+  /**
+   * A caveat about what was actually resolved, when there is one.
+   *
+   * `video_track` means the extractor could not separate an audio stream and fell back to the muxed
+   * video track: it plays, but it is not the audio format the UI would otherwise claim. Reported so
+   * the player can say so in one sentence instead of letting the user believe a 144p mux is a
+   * 160 kbps audio stream.
+   */
+  note?: string;
+}
+
+let extractorStatus: NativeExtractorStatus | null = null;
+
+/** Ask once per session whether this APK can resolve streams natively. */
+export async function nativeExtractorStatus(): Promise<NativeExtractorStatus> {
+  if (extractorStatus) return extractorStatus;
+  if (!plugin('MashupExtractor')) {
+    extractorStatus = { installed: false, flavour: 'standard' };
+    return extractorStatus;
+  }
+  try {
+    const res = (await invoke('MashupExtractor', 'available')) as { installed?: boolean; flavour?: string };
+    extractorStatus = {
+      installed: Boolean(res.installed),
+      flavour: String(res.flavour ?? 'unknown'),
+    };
+  } catch {
+    extractorStatus = { installed: false, flavour: 'unknown' };
+  }
+  return extractorStatus;
+}
+
+/**
+ * Resolve a stream through the native extractor.
+ *
+ * Returns null when it is not installed, timed out, or found nothing. The reason is reported through
+ * the optional `onReason` callback rather than thrown, because the ladder treats every rung the same
+ * way and an exception here would abort a resolve that still has three rungs left.
+ */
+export async function nativeResolveStream(
+  videoId: string,
+  preferItag = 0,
+  onReason?: (reason: string) => void,
+): Promise<NativeResolvedStream | null> {
+  if (!plugin('MashupExtractor')) {
+    onReason?.('extractor_not_installed');
+    return null;
+  }
+  try {
+    const res = (await invoke('MashupExtractor', 'resolve', { videoId, preferItag })) as {
+      ok?: boolean;
+      reason?: string;
+      detail?: string;
+      url?: string;
+      kind?: string;
+      itag?: number;
+      codec?: string;
+      kbps?: number;
+      mime?: string;
+      durationSec?: number;
+      headers?: Record<string, string>;
+      source?: string;
+      note?: string;
+    };
+    if (!res?.ok || !res.url) {
+      onReason?.(res?.detail ? `${res.reason ?? 'failed'}: ${res.detail}` : (res?.reason ?? 'no_url'));
+      return null;
+    }
+    const kind = res.kind === 'hls' || res.kind === 'dash' ? res.kind : 'progressive';
+    return {
+      url: res.url,
+      kind,
+      itag: Number(res.itag ?? 0),
+      codec: String(res.codec ?? ''),
+      kbps: Number(res.kbps ?? 0),
+      mime: String(res.mime ?? ''),
+      durationSec: Number(res.durationSec ?? 0),
+      headers: res.headers && typeof res.headers === 'object' ? res.headers : {},
+      source: String(res.source ?? 'newpipe'),
+      ...(res.note ? { note: String(res.note) } : {}),
+    };
+  } catch (e) {
+    onReason?.(`bridge_error: ${(e as Error).message}`);
+    return null;
+  }
+}
+
 /** Subscribe to native playback/download events. Returns an unsubscribe function. */
 export function onNativeEvent(
-  event: 'playing' | 'ended' | 'error' | 'downloadProgress' | 'downloadComplete' | 'downloadFailed' | 'accountSignedIn' | 'accountSignedOut' | 'toggleShuffle' | 'toggleRepeat' | 'toggleLike',
+  event:
+    | 'playing'
+    | 'ended'
+    | 'error'
+    | 'stopped'
+    | 'downloadProgress'
+    | 'downloadComplete'
+    | 'downloadFailed'
+    | 'accountSignedIn'
+    | 'accountSignedOut'
+    | 'toggleShuffle'
+    | 'toggleRepeat'
+    | 'toggleLike',
   cb: (data: unknown) => void,
 ): () => void {
   const p = plugin('MashupPlayer') ?? plugin('MashupDownloads') ?? plugin('MashupAccount');
@@ -146,6 +322,13 @@ export async function nativeDownload(args: {
   /** Songs and videos are written under separate roots, so the file lands in the right section. */
   kind?: 'music' | 'video';
   publicMusicDir?: boolean;
+  /**
+   * Request headers the media URL needs.
+   *
+   * The same headers playback sends. A URL that plays in the player but 403s in the downloader is a
+   * difference nobody can guess from the error message, so both paths take them from the resolver.
+   */
+  headers?: Record<string, string>;
 }): Promise<{ id: string; path: string; folder: string } | null> {
   if (!plugin('MashupDownloads')) return null;
   try {

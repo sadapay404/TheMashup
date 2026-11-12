@@ -1,78 +1,394 @@
 package app.themashup.music.extractor.generated
 
-import app.themashup.music.extractor.StreamExtractor
-import app.themashup.music.playback.poToken.PoTokenGenerator
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor
+import android.util.Log
+import app.themashup.music.extractor.StreamExtractor
+import org.json.JSONObject
+import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.downloader.Downloader
+import org.schabi.newpipe.extractor.downloader.Request
+import org.schabi.newpipe.extractor.downloader.Response
+import org.schabi.newpipe.extractor.localization.Localization
+import org.schabi.newpipe.extractor.services.youtube.PoTokenProvider
+import org.schabi.newpipe.extractor.exceptions.ExtractionException
+import org.schabi.newpipe.extractor.services.youtube.YoutubeStreamExtractor
+import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.StreamInfo
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
+import okhttp3.OkHttpClient
+import okhttp3.Request as OkRequest
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response as OkResponse
+import java.util.concurrent.TimeUnit
 
 /**
- * Native YouTube stream resolver backed by NewPipe Extractor with a real PoToken provider.
+ * Native YouTube stream resolver backed by NewPipeExtractor (GPL-3.0).
  *
  * This is the only GPL-touching class in the app. It lives exclusively in the
- * `withNativeExtractor` source set so the default `standard` flavour compiles without any GPL code.
+ * `withNativeExtractor` source set, so the default `standard` flavour compiles without any GPL code
+ * and remains proprietary. The seam is
+ * [app.themashup.music.extractor.StreamExtractor], installed reflectively by `MainActivity`.
  *
- * How it works:
- *  1. [initialize(Context)] is called from [MainActivity] at app start. It stores the Context and
- *     installs a WebView-based BotGuard PoToken generator (ported from LibreTube) via
- *     [YoutubeStreamExtractor.setPoTokenProvider]. This is what lets NewPipeExtractor obtain
- *     signed `pot=` parameters for age-restricted / throttled streams.
- *  2. [resolve] fetches the stream manifest via [StreamInfo.getInfo] and returns the first
- *     playable audio-stream URL to the JS layer, which hands it to ExoPlayer via
- *     [PlaybackBridge.play].
- *  3. Falls back to HLS / DASH manifests if no direct audio URL is available.
+ * What it is for:
  *
- * Without step 1, most YouTube audio streams are throttled to ~1-2 MB and then cut — the exact
- * failure this app has been debugging for months.
+ * YouTube hands out media URLs that are only valid for about a megabyte unless the request carries a
+ * stream PoToken. NewPipeExtractor knows which clients YouTube currently accepts and how to ask for
+ * those URLs; it also knows how to perform the signature deciphering that some of them require. The
+ * app cannot do either from the WebView, which is why every previous release died at roughly thirty
+ * seconds.
  *
- * Licence: GPL-3.0 (NewPipe Extractor + PoToken generator port). The `standard` flavour never
- * references this class, so the default APK stays licence-clean.
+ * PoToken note: SABR/streaming tokens need Google's BotGuard JavaScript. This class does **not**
+ * claim to mint them. NewPipeExtractor is given a token provider only when one is explicitly
+ * installed (`setPoTokenProvider`); that is a separate, optional piece of work and its absence is
+ * reported honestly rather than papered over. What NewPipeExtractor *does* give us unconditionally
+ * is correct client selection, real itags, signature-deciphering results, and a maintained table of
+ * what YouTube is currently serving — none of which this app had.
+ *
+ * Licence: GPL-3.0-or-later. This class is reached by name ("Class.forName") from the standard
+ * flavour, never by import, so the default APK never links it. `initialize(Context)` is
+ * `@JvmStatic` because that reflection looks for a static method.
  */
 class NativeExtractorImpl : StreamExtractor {
 
     companion object {
-        @Volatile
-        private var appContext: Context? = null
+        private const val TAG = "MashupNPE"
 
-        @Volatile
-        private var poTokenInstalled = false
+        /** Set once; `NewPipe.init` installs a process-wide downloader and localization. */
+        private val initialised = AtomicBoolean(false)
 
         /**
-         * Call once from [MainActivity] after the delegate is installed. Provides the Context
-         * needed to create the hidden WebView for BotGuard PoToken generation, and installs the
-         * PoToken provider with NewPipeExtractor.
+         * Optional BotGuard provider.
          *
-         * @JvmStatic so [MainActivity] can reach it via reflection
-         * (Class.forName(...).getMethod("initialize", Context::class.java)).
+         * Installed from [initialize] only when a provider class is present. Nothing is invented
+         * here: if there is no provider, no token is requested and NewPipeExtractor uses the clients
+         * that do not need one.
+         */
+        @Volatile
+        private var poTokenProviderInstalled = false
+
+        /**
+         * Called once from `app.themashup.music.MainActivity` by reflection:
+         * `Class.forName(...).getMethod("initialize", Context::class.java).invoke(null, activity)`.
+         *
+         * `@JvmStatic` is required for that reflection to find a static method.
+         *
+         * Must never throw: it is invoked from `MainActivity.onCreate` through reflection, where an
+         * exception would be swallowed by the caller's catch — and then every later resolve would fail
+         * for a reason nothing recorded. A failure is logged and left for `resolve` to report.
          */
         @JvmStatic
         fun initialize(context: Context) {
-            appContext = context
-            installPoTokenProviderLocked()
+            try {
+                ensureInitialised(context)
+            } catch (t: Throwable) {
+                Log.e(TAG, "initialise failed; native resolution will report unavailable", t)
+            }
         }
 
-        private fun installPoTokenProviderLocked() {
-            if (poTokenInstalled) return
-            val ctx = appContext
-                ?: error("NativeExtractorImpl.initialize(Context) requires a non-null Context")
-            val generator = PoTokenGenerator()
-            generator.setAppContext(ctx)
-            YoutubeStreamExtractor.setPoTokenProvider(generator)
-            poTokenInstalled = true
+        /**
+         * Install the OkHttp-backed downloader and localization once per process.
+         *
+         * NewPipeExtractor is a process-wide singleton (`NewPipe.init`), so this is guarded rather
+         * than run per play. A failure here is logged and rethrown: without a downloader every
+         * extraction fails immediately, and silently swallowing that would make the app report "no
+         * stream" for a reason that has nothing to do with YouTube.
+         */
+        @Synchronized
+        private fun ensureInitialised(context: Context) {
+            if (initialised.get()) return
+            try {
+                NewPipe.init(OkHttpDownloader(), Localization.DEFAULT)
+                installPoTokenProviderIfAvailable(context)
+                // The downloader is process-wide and does not need the Context itself; it is taken so
+                // the signature can also serve a PoToken provider that does (a hidden WebView needs
+                // an Activity/Application context). Kept in the signature deliberately.
+                Log.d(TAG, "init context: ${context.javaClass.simpleName}")
+                initialised.set(true)
+                Log.i(TAG, "NewPipeExtractor initialised")
+            } catch (t: Throwable) {
+                Log.e(TAG, "NewPipeExtractor initialisation failed", t)
+                throw t
+            }
+        }
+
+        /**
+         * Install a BotGuard PoToken provider **if one was compiled into this flavour**.
+         *
+         * The provider lives in `app.themashup.music.playback.poToken`. It is looked up
+         * reflectively so this file keeps compiling on its own: a provider that is absent, or one
+         * whose API drifted, must degrade to "no PoToken" rather than to a class-loading crash in
+         * the extractor.
+         *
+         * This is deliberately defensive. Earlier releases tried to call into the provider directly
+         * and the *whole* enhanced flavour failed to compile, which is how five builds in a row were
+         * lost without a single one reaching the device.
+         */
+        private fun installPoTokenProviderIfAvailable(context: Context) {
+            if (poTokenProviderInstalled) return
+            try {
+                val cls = Class.forName("app.themashup.music.playback.poToken.PoTokenGenerator")
+                val instance = cls.getDeclaredConstructor().newInstance()
+                if (instance is PoTokenProvider) {
+                    /*
+                     * Give it a Context *before* installing it.
+                     *
+                     * `PoTokenGenerator` needs one to create its hidden WebView, and it is constructed
+                     * reflectively here, so nothing else will hand it one. A provider without a
+                     * Context answers null for every request — which looks exactly like "YouTube does
+                     * not want a token today" and would have made this whole path silently inert.
+                     * Looked up by reflection too, so this file keeps compiling if the provider's API
+                     * drifts: a missing setter is a warning, not a broken enhanced flavour.
+                     */
+                    runCatching {
+                        cls.getMethod("setAppContext", Context::class.java).invoke(instance, context)
+                    }.onFailure {
+                        Log.w(TAG, "PoToken provider has no setAppContext(Context): ${it.message}")
+                    }
+                    YoutubeStreamExtractor.setPoTokenProvider(instance)
+                    poTokenProviderInstalled = true
+                    Log.i(TAG, "PoToken provider installed")
+                } else {
+                    Log.w(TAG, "PoToken provider is not a PoTokenProvider; continuing without tokens")
+                }
+            } catch (t: Throwable) {
+                // Not fatal by design: NewPipeExtractor still resolves with the token-free clients.
+                Log.w(TAG, "No PoToken provider (${t.javaClass.simpleName}: ${t.message})")
+            }
         }
     }
 
-    override suspend fun resolve(videoId: String): String? = withContext(Dispatchers.IO) {
-        companion.installPoTokenProviderLocked()
+    override suspend fun resolve(videoId: String, preferItag: Int): String? {
+        // The plugin thread has no Context; MainActivity's initialize() must have run. If it did not,
+        // there is no way to construct a downloader and the honest answer is "unavailable".
+        if (!initialised.get()) {
+            Log.w(TAG, "resolve called before initialise(); no downloader configured")
+            return null
+        }
 
-        val info = StreamInfo.getInfo("https://www.youtube.com/watch?v=$videoId")
+        // StreamInfo.getInfo performs the player request, client selection and any signature work.
+        // It is blocking; the plugin already runs this on Dispatchers.IO.
+        val info: StreamInfo = try {
+            StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
+        } catch (t: Throwable) {
+            Log.w(TAG, "getInfo failed for $videoId", t)
+            throw t
+        }
 
-        // Pick an audio stream. Prefer one with a direct URL; fall back to HLS/DASH if present.
-        info.audioStreams.firstOrNull { it.url.isNotBlank() }?.url
-            ?: info.hlsUrl
-            ?: info.dashMpdUrl
-            ?: null
+        pickAudio(info, preferItag)?.let { chosen ->
+            val js = JSONObject()
+            js.put("url", chosen.stream.getContent())
+            js.put("kind", "progressive")
+            js.put("itag", itagOf(chosen.stream))
+            js.put("codec", chosen.stream.getFormat()?.getMimeType() ?: "")
+            js.put("kbps", chosen.stream.getAverageBitrate())
+            js.put("mime", chosen.stream.getFormat()?.getMimeType() ?: "")
+            js.put("durationSec", info.getDuration())
+            js.put("source", "newpipe")
+            js.put("headers", JSONObject())
+            Log.i(
+                TAG,
+                "resolved $videoId -> itag ${itagOf(chosen.stream)} " +
+                    "${chosen.stream.getAverageBitrate()} kbps (${chosen.how})",
+            )
+            return js.toString()
+        }
+
+        // No progressive audio. DASH/HLS manifests are still playable by ExoPlayer, and a manifest is
+        // strictly better than silence — it carries every audio quality the track has.
+        val dash = info.getDashMpdUrl()
+        if (!dash.isNullOrBlank()) {
+            val js = JSONObject()
+            js.put("url", dash)
+            js.put("kind", "dash")
+            js.put("itag", 0)
+            js.put("codec", "")
+            js.put("kbps", 0)
+            js.put("mime", "application/dash+xml")
+            js.put("durationSec", info.getDuration())
+            js.put("source", "newpipe")
+            js.put("headers", JSONObject())
+            Log.i(TAG, "resolved $videoId -> DASH manifest")
+            return js.toString()
+        }
+
+        val hls = info.getHlsUrl()
+        if (!hls.isNullOrBlank()) {
+            val js = JSONObject()
+            js.put("url", hls)
+            js.put("kind", "hls")
+            js.put("itag", 0)
+            js.put("codec", "")
+            js.put("kbps", 0)
+            js.put("mime", "application/x-mpegURL")
+            js.put("durationSec", info.getDuration())
+            js.put("source", "newpipe")
+            js.put("headers", JSONObject())
+            Log.i(TAG, "resolved $videoId -> HLS manifest")
+            return js.toString()
+        }
+
+        /*
+         * Nothing playable — so say which "nothing".
+         *
+         * Returning bare `null` here was the last silent failure in this file: the bridge turned it
+         * into `reason=no_stream_returned`, and from the phone that is indistinguishable from a
+         * network error. Two causes are knowable at this point and they need different advice:
+         *
+         *  - the extractor recorded an error while fetching the audio list (YouTube changed something,
+         *    or a PoToken was required and refused) — retrying will not help today;
+         *  - there is no audio stream because the video has none, but a muxed video stream does exist —
+         *    the player should play the video's own audio track instead.
+         */
+        val audioErrors = info.getErrors()
+            .filter { it.message?.contains("audio", ignoreCase = true) == true }
+        if (audioErrors.isNotEmpty()) {
+            val first = audioErrors.first()
+            Log.w(TAG, "audio extraction failed for $videoId: ${first.message}", first)
+            throw ExtractionException(
+                "audio_extraction_failed: ${first.message ?: first.javaClass.simpleName}",
+            )
+        }
+
+        val muxed = info.getVideoStreams().firstOrNull { it.getContent().isNotBlank() }
+        if (muxed != null) {
+            val js = JSONObject()
+            js.put("url", muxed.getContent())
+            js.put("kind", "progressive")
+            js.put("itag", 0)
+            js.put("codec", muxed.getFormat()?.getMimeType() ?: "")
+            js.put("kbps", 0)
+            js.put("mime", muxed.getFormat()?.getMimeType() ?: "video/mp4")
+            js.put("durationSec", info.getDuration())
+            js.put("source", "newpipe")
+            js.put("headers", JSONObject())
+            // Named in the payload so the UI can say "audio could not be separated; playing the
+            // video track" instead of implying this is a normal audio stream.
+            js.put("note", "video_track")
+            Log.i(TAG, "resolved $videoId -> muxed video track (no separate audio)")
+            return js.toString()
+        }
+
+        Log.w(
+            TAG,
+            "no playable stream for $videoId (audio=${info.getAudioStreams().size} " +
+                "video=${info.getVideoStreams().size})",
+        )
+        return null
+    }
+
+    /** A chosen stream plus the sentence used in the log. */
+    private class Choice(val stream: AudioStream, val how: String)
+
+    /**
+     * Choose the audio stream to hand to the player.
+     *
+     * Order of preference, and why:
+     *
+     *  1. **The format the caller asked for**, if it is on offer. The download sheet and the player
+     *     both show the user a specific format; substituting silently makes the UI lie.
+     *  2. **The highest-bitrate full-length stream.** Downloaded files and progressive URLs are whole
+     *     files — there is no byte budget to economise against, so take the best quality.
+     *  3. Anything playable at all.
+     *
+     * Streams whose content is a URL are preferred over ones whose content is a manifest fragment:
+     * `getContent()` returns the media URL for a progressive stream and something unplayable for a
+     * DASH segment, and passing the latter to ExoPlayer as an audio track produces silence.
+     */
+    private fun pickAudio(info: StreamInfo, preferItag: Int): Choice? {
+        val all = info.getAudioStreams().filter { it.getContent().isNotBlank() }
+        if (all.isEmpty()) return null
+
+        val directUrls = all.filter { it.isUrl }
+        val pool = if (directUrls.isNotEmpty()) directUrls else all
+
+        if (preferItag > 0) {
+            pool.firstOrNull { itagOf(it) == preferItag }?.let { return Choice(it, "preferred itag") }
+        }
+
+        // Highest average bitrate first; `getAverageBitrate` is 0 when the extractor did not report
+        // one, and those sort last rather than first.
+        val best = pool.maxByOrNull { it.getAverageBitrate() } ?: return null
+        return Choice(best, if (directUrls.isNotEmpty()) "direct url" else "stream content")
+    }
+
+    /**
+     * The itag, or 0 when the extractor did not carry one.
+     *
+     * `getItagItem()` is nullable in practice — some delivery types have no itag — so this is a
+     * plain null-safe read rather than an assumption.
+     */
+    private fun itagOf(stream: AudioStream): Int {
+        // `ItagItem.id` is a public final field, not a getter. Reading it as `getItag()` is the kind
+        // of mistake that only shows up as a Kotlin compile error in CI, so it is called out here.
+        val item = stream.getItagItem() ?: return 0
+        return item.id
+    }
+}
+
+/**
+ * A minimal [Downloader] backed by OkHttp.
+ *
+ * NewPipeExtractor requires one; without it `NewPipe.init` leaves the downloader null and every
+ * extraction throws before it starts. OkHttp is already a dependency (the download service uses it),
+ * so this adds no weight to the APK.
+ *
+ * Redirects are followed to the limit NewPipeExtractor expects, and the response body is read as a
+ * string because that is the only shape the extractor consumes.
+ */
+private class OkHttpDownloader : Downloader() {
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    @Throws(IOException::class)
+    override fun execute(request: Request): Response {
+        val method = request.httpMethod()
+        val body = request.dataToSend()
+
+        val builder = OkRequest.Builder()
+            .url(request.url())
+            .method(
+                method,
+                when {
+                    body == null -> null
+                    // OkHttp forbids a body on GET/HEAD; NewPipeExtractor never sends one there, but
+                    // an explicit branch keeps the failure inside our code rather than OkHttp's.
+                    method.equals("GET", ignoreCase = true) || method.equals("HEAD", ignoreCase = true) -> null
+                    else -> body.toRequestBody(null)
+                },
+            )
+
+        for ((name, values) in request.headers()) {
+            if (values.isEmpty()) continue
+            // A single header with several values is sent as the joined list, which is what every
+            // server NewPipeExtractor talks to expects (notably Accept-Language).
+            builder.header(name, values.joinToString(", "))
+        }
+
+        val response: OkResponse = client.newCall(builder.build()).execute()
+        response.use { r ->
+            val bodyText = try {
+                r.body?.string() ?: ""
+            } catch (t: IOException) {
+                // A truncated body is still a response with a status; let the extractor decide.
+                Log.w("MashupNPE", "response body read failed", t)
+                ""
+            }
+            return Response(
+                r.code,
+                r.message,
+                r.headers.toMultimap(),
+                bodyText,
+                r.request.url.toString(),
+            )
+        }
     }
 }

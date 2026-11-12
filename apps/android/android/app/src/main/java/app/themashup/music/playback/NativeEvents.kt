@@ -70,6 +70,17 @@ class MashupPlayerPlugin : Plugin() {
             call.reject("url is required")
             return
         }
+        // Headers the resolver reported (Referer / User-Agent). Optional: a plain URL has none, and
+        // an absent map must not read as "clear the headers".
+        val headers = call.getObject("headers")?.let { obj ->
+            val map = HashMap<String, String>()
+            for (key in obj.keys()) {
+                val value = obj.optString(key, "")
+                if (key.isNotBlank() && value.isNotBlank()) map[key] = value
+            }
+            map
+        } ?: emptyMap()
+
         PlaybackBridge.play(
             url = url,
             title = call.getString("title") ?: "",
@@ -78,7 +89,21 @@ class MashupPlayerPlugin : Plugin() {
             durationMs = call.getLong("durationMs") ?: 0L,
             // Defaults to true: a play() call has always meant "start playing".
             shouldPlay = call.getBoolean("shouldPlay") ?: true,
+            headers = headers,
         )
+        call.resolve()
+    }
+
+    /**
+     * End playback and retire the notification.
+     *
+     * Distinct from [pause] on purpose: the X on the song card means "make it stop", and a paused
+     * Media3 session keeps its media item, its lockscreen entry and its shade entry alive — so a
+     * pause-based stop is why the player was still in the notification tray after the user closed it.
+     */
+    @PluginMethod
+    fun stop(call: PluginCall) {
+        PlaybackBridge.stop()
         call.resolve()
     }
 

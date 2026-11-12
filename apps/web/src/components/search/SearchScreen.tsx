@@ -15,7 +15,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { Playlist, SearchFilter, Track } from '@themashup/core';
 import { looksLikeLyrics } from '@themashup/core';
 import { service } from '@/lib/service';
-import { downloadPlaylist, playlistTarget } from '@/lib/playlist';
+import { downloadPlaylist } from '@/lib/playlist';
 import { store } from '@/state/store';
 import { Chip, EmptyState, Skeleton, snap } from '@/components/ui/primitives';
 import { DownloadIcon, MicIcon, QueueIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
@@ -180,18 +180,29 @@ export function SearchScreen({
         return;
       }
       haptic('success');
+      // Headers from the most recent resolve, per track. Filled by `resolve` below and read by the
+      // engine when it starts the transfer, so a URL that needs its Referer is fetched with one.
+      const headersByTrack = new Map<string, Record<string, string>>();
       await downloadPlaylist({
         name: pl.title,
         tracks,
         ...(tracks.every((t) => t.kind === 'video') ? { kind: 'video' as const } : {}),
         resolve: async (track: Track) => {
-          // Pick the URL for the tier the engine asked for; resolveStream already knows which itags
-          // are deliverable without cipher work, so a missing entry means "not downloadable", not
-          // "try again with a different one".
+          /*
+           * Ask the service for the best URL rather than indexing `urls` with a hard-coded itag.
+           *
+           * `playlistTarget()` used to name itag 140 and this line looked it up directly. That breaks
+           * as soon as the URL comes from the native extractor, which offers the tier it chose — the
+           * lookup finds nothing and a perfectly downloadable track is reported as unavailable.
+           * `downloadUrl` returns whatever the resolver actually produced.
+           */
           const res = await service.resolveStream(track.id);
           if (!res.ok) return null;
-          return res.info.urls[playlistTarget(track).itag] ?? null;
+          const headers = res.info.headers;
+          if (headers && Object.keys(headers).length > 0) headersByTrack.set(track.id, headers);
+          return service.downloadUrl(res.info, track.durationSec);
         },
+        headers: (track: Track) => headersByTrack.get(track.id),
       });
     } catch {
       store.notify('Could not open that playlist.', 'error');

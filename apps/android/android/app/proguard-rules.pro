@@ -18,6 +18,24 @@
 -dontwarn okio.**
 -dontwarn org.conscrypt.**
 
+# ── GPL extractor: never linked into the standard APK ────────────────────────────────────────────
+# The source set does not exist in the `standard` flavour, so there is nothing to link. These rules
+# are for the *enhanced* flavour, where the class and NewPipeExtractor are reached by name and by
+# reflection, and for the standard flavour's harmless-but-real Class.forName string reference (which
+# R8 resolves to a null constant, not a linkage).
+-keep class app.themashup.music.extractor.generated.** { *; }
+-keep class app.themashup.music.extractor.Extractor { *; }
+-keep interface app.themashup.music.extractor.StreamExtractor { *; }
+-keep class app.themashup.music.extractor.ExtractorPlugin { *; }
+
+# NewPipeExtractor ships proguard rules of its own, but they are read from the AAR/JAR metadata which
+# R8 applies *before* ours; Rhino's classfile writer is the commonly-missed one (it is loaded by name
+# from interpreted JavaScript).
+-keep class org.mozilla.javascript.** { *; }
+-keep class org.mozilla.classfile.ClassFileWriter
+-dontwarn org.mozilla.javascript.tools.**
+-dontwarn org.schabi.newpipe.extractor.**
+
 # Keep line numbers so the on-device diagnostics ring buffer stays useful.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile

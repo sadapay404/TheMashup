@@ -65,8 +65,16 @@ class DownloadService : Service() {
                 val url = intent.getStringExtra(EXTRA_URL) ?: return START_NOT_STICKY
                 val dest = intent.getStringExtra(EXTRA_DEST) ?: return START_NOT_STICKY
                 val name = intent.getStringExtra(EXTRA_NAME) ?: "download"
+                // Headers the resolver reported (Referer / User-Agent). A CDN that issued the URL for
+                // a particular referer answers 403 to a request without one — a download failure that
+                // looks like a network fault.
+                val headerPairs = intent.getStringArrayExtra(EXTRA_HEADERS) ?: emptyArray()
+                val headers = headerPairs.mapNotNull { pair ->
+                    val at = pair.indexOf('\n')
+                    if (at <= 0) null else pair.substring(0, at) to pair.substring(at + 1)
+                }.toMap()
                 startForegroundIfNeeded()
-                enqueue(id, url, File(dest), name)
+                enqueue(id, url, File(dest), name, headers)
             }
             ACTION_CANCEL -> {
                 intent.getStringExtra(EXTRA_ID)?.let { id ->
@@ -164,7 +172,13 @@ class DownloadService : Service() {
         }
     }
 
-    private fun enqueue(id: String, url: String, dest: File, displayName: String) {
+    private fun enqueue(
+        id: String,
+        url: String,
+        dest: File,
+        displayName: String,
+        headers: Map<String, String> = emptyMap(),
+    ) {
         if (jobs.containsKey(id)) return
         val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
         cancelFlags[id] = cancelled
@@ -176,7 +190,11 @@ class DownloadService : Service() {
 
                 val request = Request.Builder()
                     .url(url)
-                    .apply { if (downloaded > 0) header("Range", "bytes=$downloaded-") }
+                    .apply {
+                        // The resolver's headers first; a Range header below must not overwrite them.
+                        for ((name, value) in headers) header(name, value)
+                        if (downloaded > 0) header("Range", "bytes=$downloaded-")
+                    }
                     .build()
 
                 var expectedTotal = -1L
@@ -284,13 +302,28 @@ class DownloadService : Service() {
         const val EXTRA_DEST = "dest"
         const val EXTRA_NAME = "name"
 
-        fun intent(context: Context, id: String, url: String, dest: String, name: String): Intent =
+        /** Request headers the media URL needs, flattened as `name\nvalue` pairs. */
+        const val EXTRA_HEADERS = "headers"
+
+        fun intent(
+            context: Context,
+            id: String,
+            url: String,
+            dest: String,
+            name: String,
+            headers: Map<String, String> = emptyMap(),
+        ): Intent =
             Intent(context, DownloadService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_ID, id)
                 putExtra(EXTRA_URL, url)
                 putExtra(EXTRA_DEST, dest)
                 putExtra(EXTRA_NAME, name)
+                if (headers.isNotEmpty()) {
+                    // Flattened rather than a Bundle of pairs: this crosses a process boundary as an
+                    // Intent extra, where a null key or an unexpected type is a crash at dispatch.
+                    putExtra(EXTRA_HEADERS, headers.map { "${it.key}\n${it.value}" }.toTypedArray())
+                }
             }
     }
 }

@@ -33,6 +33,8 @@ class MainActivity : BridgeActivity() {
         LogPlugin.beginSession(this)
 
         registerPlugin(app.themashup.music.playback.MashupPlayerPlugin::class.java)
+        // The JS ladder asks this first: real URLs with real PoTokens, or an honest "not installed".
+        registerPlugin(app.themashup.music.extractor.ExtractorPlugin::class.java)
         registerPlugin(app.themashup.music.download.DownloadPlugin::class.java)
         registerPlugin(app.themashup.music.auth.AccountPlugin::class.java)
         registerPlugin(app.themashup.music.diagnostics.LogPlugin::class.java)
@@ -42,20 +44,35 @@ class MainActivity : BridgeActivity() {
         // failed; one that stops after means the failure is in the page or a service it touched.
         LogPlugin.boot("bridge created")
 
-        // Optional GPL extractor is only installed in the enhanced flavour at build time.
+        /*
+         * The optional GPL extractor.
+         *
+         * `standard` flavour: the class does not exist, `create()` returns null, and the JS ladder is
+         * authoritative. `withNativeExtractor` flavour: the class is present, `create()` returns it,
+         * and it is asked **before** the JS ladder on every play.
+         *
+         * The reflective seam is what keeps GPL code out of the standard APK. It is also why this
+         * block is the only place the standard build mentions the enhanced one at all.
+         */
         LogPlugin.boot("extractor: resolving")
         Extractor.delegate = BuildConfigStreamExtractorDelegate.create()
-        LogPlugin.boot("extractor: resolved")
+        val extractorInstalled = Extractor.available
+        LogPlugin.boot("extractor: ${if (extractorInstalled) "native (GPL)" else "not installed (standard build)"}")
 
-        // Initialise the native extractor's PoToken generator with this Activity's Context so its
-        // hidden WebView can be created. Reflection keeps the standard flavour free of any reference
-        // to the GPL class — if the class doesn't exist, this is a no-op.
-        try {
-            Class.forName("app.themashup.music.extractor.generated.NativeExtractorImpl")
-                .getMethod("initialize", android.content.Context::class.java)
-                .invoke(null, this@MainActivity)
-        } catch (_: Throwable) {
-            // Not the withNativeExtractor flavour, or initialize missing — the JS ladder remains authoritative.
+        // Initialise the extractor with a Context: it needs one to build an HTTP downloader, and (if
+        // present) to create the hidden WebView a PoToken generator would use. Reflection again, and
+        // again non-fatal — a flavour without the class simply skips this.
+        if (extractorInstalled) {
+            try {
+                Class.forName("app.themashup.music.extractor.generated.NativeExtractorImpl")
+                    .getMethod("initialize", android.content.Context::class.java)
+                    .invoke(null, this@MainActivity)
+                LogPlugin.boot("extractor: initialised")
+            } catch (t: Throwable) {
+                // Logged, not swallowed: "installed but failed to initialise" is a real failure mode,
+                // and without this line it would look identical to "not installed".
+                LogPlugin.boot("extractor: init failed — ${t.javaClass.simpleName}: ${t.message}")
+            }
         }
 
         // The notification permission is requested in onResume, not here: see the note on
@@ -99,11 +116,19 @@ class MainActivity : BridgeActivity() {
      */
     private fun requestNotificationPermissionOnce() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        if (notifPermissionAsked) return
         val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
-        if (granted) return
-        notifPermissionAsked = true
+        // Asked-tracking is derived from the OS answer, not from a boolean set when we *ask*.
+        //
+        // The old flag was set before the dialog appeared and never cleared, so a user who dismissed
+        // the dialog once ("Not now") could never grant the permission again without digging into
+        // system settings — and the media notification never appeared, which is the "notification does
+        // not arrive" report. Re-asking on a later resume is what every media app does.
+        if (granted) {
+            notificationDenied = false
+            return
+        }
+        if (notificationDenied) return
         ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF)
     }
 
@@ -115,7 +140,11 @@ class MainActivity : BridgeActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_NOTIF) {
             val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
-            LogPlugin.boot("notifications: ${if (granted) "granted" else "denied by user"}")
+            // A denial is remembered for this session only. Permanently giving up after one "Not now"
+            // is how the player ended up with no notification at all on a device where the user had
+            // merely dismissed a dialog.
+            notificationDenied = !granted
+            LogPlugin.boot("notifications: ${if (granted) "granted" else "denied for now"}")
         }
     }
 
@@ -197,8 +226,8 @@ class MainActivity : BridgeActivity() {
         super.onDestroy()
     }
 
-    /** Set the first time we ask, so a denial is not re-prompted on every resume. */
-    private var notifPermissionAsked = false
+    /** True after the user declined this session, so the dialog is not re-shown on every resume. */
+    private var notificationDenied = false
 
     private companion object {
         const val REQ_NOTIF = 1001

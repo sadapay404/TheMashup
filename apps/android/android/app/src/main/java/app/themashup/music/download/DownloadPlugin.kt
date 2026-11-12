@@ -42,7 +42,19 @@ class DownloadPlugin : Plugin() {
         val safeName = sanitize(fileName)
         val dest = File(dir, safeName)
 
-        val intent = DownloadService.intent(ctx, id, url, dest.absolutePath, safeName)
+        // Headers the resolver reported for this URL, passed through so the transfer is authorised
+        // exactly like playback is. Without them a downloaded file fails with 403 while the same URL
+        // plays fine in the player — a difference nobody would guess from the error.
+        val headers = call.getObject("headers")?.let { obj ->
+            val map = HashMap<String, String>()
+            for (key in obj.keys()) {
+                val value = obj.optString(key, "")
+                if (key.isNotBlank() && value.isNotBlank()) map[key] = value
+            }
+            map
+        } ?: emptyMap()
+
+        val intent = DownloadService.intent(ctx, id, url, dest.absolutePath, safeName, headers)
         ContextCompat.startForegroundService(ctx, intent)
 
         call.resolve(

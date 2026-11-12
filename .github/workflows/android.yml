@@ -9,9 +9,9 @@ on:
       flavor:
         description: 'Build flavour'
         required: true
-        default: 'standard'
+        default: 'both'
         type: choice
-        options: [standard, withNativeExtractor, both]
+        options: [both, standard, withNativeExtractor]
       build_type:
         description: 'Build type'
         required: true
@@ -65,7 +65,9 @@ jobs:
           SDKMGR="$SDK/cmdline-tools/latest/bin/sdkmanager"
           if [ -x "$SDKMGR" ]; then
             yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
-            "$SDKMGR" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
+            # compileSdk 35 (see variables.gradle). Installed explicitly rather than relying on the
+            # runner image: a missing platform fails the whole build with an unhelpful message.
+            "$SDKMGR" "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
           fi
           ls "$SDK/platforms"
 
@@ -120,6 +122,27 @@ jobs:
             echo "ℹ no keystore secret — building with the debug key"
           fi
 
+      # JitPack compiles artefacts on demand. A first request for a fresh tag can take several minutes
+      # and a cold JitPack can answer 502 once before it has the artefact — which reads in a Gradle log
+      # as "Could not resolve", identical to the dependency being unpublished. Asking for the POM once
+      # beforehand separates the two, and the wait is bounded.
+      - name: Warm the JitPack artefact (enhanced flavour only)
+        if: github.event.inputs.flavor != 'standard'
+        run: |
+          set +e
+          for ATTEMPT in 1 2 3 4 5 6; do
+            CODE="$(curl -s -o /dev/null -m 60 -w '%{http_code}' \
+              https://jitpack.io/com/github/TeamNewPipe/NewPipeExtractor/v0.27.1/NewPipeExtractor-v0.27.1.pom)"
+            echo "attempt $ATTEMPT -> HTTP $CODE"
+            if [ "$CODE" = "200" ]; then exit 0; fi
+            if [ "$CODE" = "404" ]; then
+              echo "::error title=NewPipeExtractor unpublished::JitPack has no v0.27.1 artefact (HTTP 404). The GPL APK cannot be built from this pin."
+              exit 1
+            fi
+            sleep 20
+          done
+          echo "::warning title=JitPack slow::Still answering $CODE after six attempts; letting Gradle try anyway."
+
       - name: Assemble
         working-directory: apps/android/android
         env:
@@ -133,7 +156,11 @@ jobs:
           chmod +x gradlew
           # Tag pushes carry no inputs, so the default matters. A tag is a release: build release
           # variant (R8-minified, no debug badge, faster runtime). Manual runs can still ask for debug.
-          FLAVOR="${{ github.event.inputs.flavor || 'standard' }}"
+          # A tag push carries no inputs. A tag is a release, and the release must contain the build
+          # that can actually play a full song — the GPL flavour — alongside the standard one. This
+          # used to default to `standard` only, so the very APK that carried the native resolver was
+          # never the APK that was published.
+          FLAVOR="${{ github.event.inputs.flavor || 'both' }}"
           # Third source of truth for the build type, in priority order: an explicit manual input,
           # then the tag name, then release. A tag ending in -debug produces a debuggable,
           # unminified APK, which is what tells us whether a crash lives in the R8 output or in the
@@ -196,6 +223,16 @@ jobs:
           mkdir -p out
           find apps/android/android/app/build/outputs -name "*.apk" -exec cp {} out/ \; 2>/dev/null || true
           ls -lh out/ || echo "no APKs found"
+          # Name the failure precisely: an APK that failed to build is not the same as a build that
+          # succeeded and was never copied, and the release step must not publish a partial set.
+          if [ "${{ github.event.inputs.flavor || 'both' }}" = "both" ]; then
+            for want in standard withNativeExtractor; do
+              if ! ls out/app-${want}-*.apk >/dev/null 2>&1; then
+                echo "::error title=missing APK::app-${want}-*.apk was not produced"
+                exit 1
+              fi
+            done
+          fi
 
       # Prove the artefact is a real, signed APK rather than a renamed zip. The verdict is emitted
       # as a check annotation so it is visible without downloading 8 MB.
@@ -204,26 +241,35 @@ jobs:
         run: |
           SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           BT="$(ls -d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -1)"
-          APK="$(ls out/*.apk 2>/dev/null | head -1)"
-          if [ -z "$APK" ]; then
+          COUNT="$(ls out/*.apk 2>/dev/null | wc -l)"
+          if [ "$COUNT" -eq 0 ]; then
             echo "::error title=No APK::the build produced no .apk in out/"
             exit 1
           fi
-          if [ -x "$BT/aapt2" ]; then
-            BADGING="$("$BT/aapt2" dump badging "$APK" 2>&1 | grep -E "^package:|^application-label:|sdkVersion|targetSdkVersion" | tr '\n' ' ')"
-          else
-            BADGING="aapt2 unavailable"
-          fi
-          if [ -x "$BT/apksigner" ]; then
-            SIGNER="$("$BT/apksigner" verify --print-certs "$APK" 2>&1 | grep -i "certificate DN" | head -1)"
-            VERIFY="$( "$BT/apksigner" verify "$APK" > /dev/null 2>&1 && echo SIGNED-VALID || echo SIGNATURE-INVALID )"
-          else
-            SIGNER="apksigner unavailable"; VERIFY="unknown"
-          fi
-          SIZE="$(du -h "$APK" | cut -f1)"
-          echo "APK: $APK ($SIZE) — $VERIFY"
-          echo "::notice title=APK built ($SIZE)::$BADGING | $VERIFY | $SIGNER"
-          echo "$BADGING | $VERIFY | $SIGNER" > out/apk-verification.txt
+          # Verify EVERY artefact, not just the first. A signed standard APK next to a corrupt GPL
+          # one would previously have been reported as "the APK is fine".
+          : > out/apk-verification.txt
+          for APK in out/*.apk; do
+            if [ -x "$BT/aapt2" ]; then
+              BADGING="$("$BT/aapt2" dump badging "$APK" 2>&1 | grep -E "^package:|^application-label:|sdkVersion|targetSdkVersion" | tr '\n' ' ')"
+            else
+              BADGING="aapt2 unavailable"
+            fi
+            if [ -x "$BT/apksigner" ]; then
+              SIGNER="$("$BT/apksigner" verify --print-certs "$APK" 2>&1 | grep -i "certificate DN" | head -1)"
+              VERIFY="$( "$BT/apksigner" verify "$APK" > /dev/null 2>&1 && echo SIGNED-VALID || echo SIGNATURE-INVALID )"
+            else
+              SIGNER="apksigner unavailable"; VERIFY="unknown"
+            fi
+            SIZE="$(du -h "$APK" | cut -f1)"
+            echo "APK: $APK ($SIZE) — $VERIFY"
+            echo "::notice title=APK built ($(basename "$APK"), $SIZE)::$BADGING | $VERIFY | $SIGNER"
+            echo "$(basename "$APK") | $BADGING | $VERIFY | $SIGNER" >> out/apk-verification.txt
+            if [ "$VERIFY" = "SIGNATURE-INVALID" ]; then
+              echo "::error title=Bad signature::$(basename "$APK") is not validly signed"
+              exit 1
+            fi
+          done
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
@@ -248,7 +294,6 @@ jobs:
           trap 'echo "::error title=release publish failed::gh CLI exited $? for tag $TAG" >&2' ERR
           # Idempotent: a re-run of the same tag must not fail on "release already exists".
           gh release view "$TAG" > /dev/null 2>&1 || \
-            gh release create "$TAG" --title "TheMashup $TAG" \
-              --notes "Android build from ${GITHUB_SHA:0:7}. Sideload with the instructions in docs/16-INSTALL-ON-ANDROID.md."
+            gh release create "$TAG" --title "TheMashup $TAG" --notes-file .github/apk-release-notes.md
           gh release upload "$TAG" out/*.apk --clobber
           echo "::notice title=APK::https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"

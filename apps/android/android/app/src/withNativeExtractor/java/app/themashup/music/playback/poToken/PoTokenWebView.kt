@@ -7,10 +7,10 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.annotation.MainThread
-import com.squareup.okhttp3.MediaType
-import com.squareup.okhttp3.OkHttpClient
-import com.squareup.okhttp3.Request
-import com.squareup.okhttp3.RequestBody
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,11 +44,24 @@ class PoTokenWebView private constructor(
     private val generatorContinuation: Continuation<PoTokenWebView>
 ) {
     private val webView = WebView(context)
-    private val poTokenContinuations = mutableMapOf<String, Continuation<String>>()
+    /**
+     * Callers waiting for a token, keyed by identifier.
+     *
+     * Concurrent: [generatePoToken] is called from NewPipeExtractor's IO thread, while the
+     * `@JavascriptInterface` callbacks that complete these continuations arrive on a WebView thread.
+     * A plain `mutableMapOf` here is a data race that shows up as a token request that never returns.
+     */
+    private val poTokenContinuations =
+        java.util.concurrent.ConcurrentHashMap<String, Continuation<String>>()
     private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
         onInitializationError(exception)
     }
     private lateinit var expirationInstant: Instant
+
+    @Volatile
+    private var closed = false
+
+    private val initSettled = java.util.concurrent.atomic.AtomicBoolean(false)
 
     //region Initialization
     init {
@@ -154,7 +167,9 @@ class PoTokenWebView private constructor(
             withContext(Dispatchers.Main) {
                 webView.evaluateJavascript("this.integrityToken = $integrityToken") {
                     Log.d(TAG, "initialization finished, expiration=${expirationTimeInSeconds}s")
-                    generatorContinuation.resume(this@PoTokenWebView)
+                    // Exactly once: `close()` resumes this same continuation with an exception, and a
+                    // second resume throws on the main thread.
+                    if (settleInit()) generatorContinuation.resume(this@PoTokenWebView)
                 }
             }
         }
@@ -195,7 +210,9 @@ class PoTokenWebView private constructor(
     @JavascriptInterface
     fun onObtainPoTokenError(identifier: String, error: String) {
         Log.e(TAG, "obtainPoToken error from JavaScript: $error")
-        poTokenContinuations.remove(identifier)?.resumeWithException(PoTokenException(error))
+        poTokenContinuations.remove(identifier)?.let {
+            runCatching { it.resumeWithException(PoTokenException(error)) }
+        }
     }
 
     /**
@@ -208,15 +225,20 @@ class PoTokenWebView private constructor(
         val poToken = try {
             u8ToBase64(poTokenU8)
         } catch (t: Throwable) {
-            poTokenContinuations.remove(identifier)?.resumeWithException(t)
+            poTokenContinuations.remove(identifier)?.let { runCatching { it.resumeWithException(t) } }
             return
         }
 
         Log.d(TAG, "Generated poToken: identifier=$identifier poToken=$poToken")
-        poTokenContinuations.remove(identifier)?.resume(poToken)
+        poTokenContinuations.remove(identifier)?.let { runCatching { it.resume(poToken) } }
     }
 
     fun isExpired(): Boolean {
+        if (closed) return true
+        // `expirationInstant` is only assigned once initialization produced an integrity token; a
+        // read before that is not "expired", it is "not ready", and treating it as expired would
+        // recreate the WebView in a loop.
+        if (!::expirationInstant.isInitialized) return false
         return Instant.now().isAfter(expirationInstant)
     }
     //endregion
@@ -228,15 +250,18 @@ class PoTokenWebView private constructor(
      */
     private suspend fun makeBotguardServiceRequest(url: String, data: List<String>): String =
         withContext(Dispatchers.IO) {
-            val client = OkHttpClient()
-            val body = data.joinToString(",")
+            val body = data.joinToString(",").toRequestBody(TEXT_PLAIN)
             val request = Request.Builder()
                 .url(url)
-                .post(RequestBody.create(body, MediaType.parse("text/plain")))
-                .header("Content-Type", "text/plain")
+                .post(body)
                 .build()
-            client.newCall(request).execute().use { response ->
-                response.body?.string() ?: ""
+            // One client per process, not per call: `OkHttpClient()` allocates a connection pool and
+            // a thread pool, and this ran twice per token.
+            SharedClient.get().newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw PoTokenException("$url answered HTTP ${response.code}")
+                }
+                response.body.string()
             }
         }
 
@@ -246,31 +271,47 @@ class PoTokenWebView private constructor(
      */
     private fun onInitializationError(error: Throwable) {
         CoroutineScope(Dispatchers.Main).launch {
+            if (settleInit()) generatorContinuation.resumeWithException(error)
             close()
-            generatorContinuation.resumeWithException(error)
         }
     }
 
+    /** Claims the single resume of [generatorContinuation]; false if someone already did. */
+    private fun settleInit(): Boolean = initSettled.compareAndSet(false, true)
+
     /** Releases all [webView] resources. */
     @MainThread
-    fun close() = with(webView) {
-        clearHistory()
-        // Clears RAM cache and disk cache (globally for all WebViews).
-        clearCache(true)
-
-        // Ensures that the WebView isn't doing anything when destroying it.
-        loadUrl("about:blank")
-
-        onPause()
-        removeAllViews()
-        destroy()
+    fun close() {
+        if (closed) return
+        closed = true
+        runCatching {
+            webView.stopLoading()
+            webView.loadUrl("about:blank")
+            webView.clearHistory()
+            webView.onPause()
+            webView.removeAllViews()
+            webView.destroy()
+        }.onFailure { Log.w(TAG, "WebView teardown: ${it.message}") }
+        // Continue any caller still waiting on this generator: it can never answer now, and a
+        // coroutine that waits forever is a hung resolve.
+        poTokenContinuations.values.forEach {
+            runCatching { it.resumeWithException(PoTokenException("generator closed")) }
+        }
+        poTokenContinuations.clear()
     }
     //endregion
 
     companion object {
-        private val TAG = PoTokenWebView::class.simpleName
+        private val TAG = "PoTokenWebView"
+        private val TEXT_PLAIN = "text/plain; charset=utf-8".toMediaType()
         private const val REQUEST_KEY = "O43z0dpjhgX20SCx4KAo"
-        private val JS_INTERFACE = PoTokenWebView::class.simpleName!!
+        private val JS_INTERFACE = "MashupPoToken"
+
+        /** Lazily built once; see the note at the call site. */
+        object SharedClient {
+            private val instance: OkHttpClient by lazy { OkHttpClient() }
+            fun get(): OkHttpClient = instance
+        }
 
         /** YouTube web client user agent, so BotGuard sees a normal browser. */
         const val USER_AGENT =
@@ -287,5 +328,4 @@ class PoTokenWebView private constructor(
     }
 }
 
-/** Thrown when BotGuard initialization or PoToken generation fails. */
-class PoTokenException(message: String) : Exception(message)
+

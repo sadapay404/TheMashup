@@ -85,11 +85,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- Resolves a playable stream URL when InnerTube returns nothing usable. -->
-        <service
-            android:name=".extractor.ExtractorService"
-            android:exported="false" />
-
         <receiver
             android:name="androidx.media3.session.MediaButtonReceiver"
             android:exported="true">

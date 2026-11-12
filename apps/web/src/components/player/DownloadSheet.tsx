@@ -67,13 +67,22 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
   const rows: Row[] = [];
   if (stream) {
     for (const f of stream.audio) {
-      const usable = f.deliver === 'url' && !f.premiumOnly;
+      /*
+       * A negative itag is a synthesised entry for a manifest (see `streamInfoFromNative`), not a
+       * format. A `.mpd` is not an audio file: saving it gives the user a few kilobytes of XML and a
+       * download that "worked". It is listed, greyed out, with the reason, because hiding it would
+       * make the sheet silently disagree with what the player is using.
+       */
+      const manifest = f.itag < 0;
+      const usable = f.deliver === 'url' && !f.premiumOnly && !manifest;
       rows.push({
         kind: 'audio',
-        label: `${f.container.toUpperCase()} · ${f.nominalKbps} kbps`,
-        detail: `${f.codec}${f.premiumOnly ? ' · needs Premium' : ''} · ${
-          f.deliver === 'url' ? 'direct stream copy' : f.deliver === 'cipher' ? 'signature-locked' : 'unavailable'
-        }`,
+        label: manifest ? 'Stream manifest · not a file' : `${f.container.toUpperCase()} · ${f.nominalKbps} kbps`,
+        detail: manifest
+          ? `${f.codec} · plays, but cannot be saved as one file`
+          : `${f.codec}${f.premiumOnly ? ' · needs Premium' : ''} · ${
+              f.deliver === 'url' ? 'direct stream copy' : f.deliver === 'cipher' ? 'signature-locked' : 'unavailable'
+            }`,
         format: f,
         usable,
       });
@@ -104,7 +113,10 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
       needsTranscode: false,
       ...(row.kind === 'audio' ? { kbps: row.format.nominalKbps } : {}),
     };
-    void startDownload(track, url, target);
+    // Forward the resolver's request headers: the same URL that plays in the player 403s in the
+    // downloader without them, and that difference is invisible in the error message.
+    const headers = stream?.headers;
+    void startDownload(track, url, target, undefined, headers);
     onClose();
   };
 

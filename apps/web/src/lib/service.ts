@@ -37,7 +37,12 @@ import {
 } from '@themashup/core';
 
 import { isDesktop, nativeHttp } from './desktop';
-import { nativeBootMark } from './native';
+import {
+  nativeBootMark,
+  nativeExtractorStatus,
+  nativeResolveStream,
+  type NativeResolvedStream,
+} from './native';
 
 /**
  * One line into the on-device diagnostics file.
@@ -324,8 +329,53 @@ export class MusicService {
     return [];
   }
 
-  /** Stream resolution: provider (browser) → InnerTube ladder (native / fallback). */
+  /**
+   * Resolve a stream, in the order that actually produces playable audio.
+   *
+   * The order is not arbitrary — it is the whole fix for "the song stops after thirty seconds":
+   *
+   *  1. **Native extractor** (GPL APK only). The only rung that can mint stream PoTokens, and the only
+   *     one whose client table is maintained by someone who tests against YouTube daily. It is first
+   *     because it is the only path that returns *whole files*.
+   *  2. **InnerTube client profiles.** Cheap, no dependency, and works when a client happens to be
+   *     token-free today. Every rung here that needs a PoToken returns a URL that serves ~1 MB and
+   *     then 403s, so a "success" from these clients is not evidence of playable audio — see
+   *     [pickAudioUrl] and `PROFILES[...].needsStreamPoToken`.
+   *  3. **Public Piped/Invidious mirrors.** Third-party and frequently blocked on mobile networks,
+   *     but they hand back full files when they work.
+   *
+   * Before this order existed the native extractor was never asked at all: the Kotlin seam existed,
+   * but no bridge method called it, so the enhanced APK carried a working resolver nothing used and
+   * the standard APK fell straight through to clients that cannot serve a full track.
+   */
   async resolveStream(videoId: string): Promise<{ ok: true; info: StreamInfo } | { ok: false; error: AppError }> {
+    // 1. Native extractor, when this APK has one. Reports *why* when it does not.
+    if (this.native) {
+      let reason = '';
+      const nativeStream = await nativeResolveStream(videoId, 0, (why) => {
+        reason = why;
+      });
+      if (nativeStream) {
+        this.lastRoute = `native extractor · ${nativeStream.source}`;
+        this.lastProfile = nativeStream.source;
+        this.lastPlayability = 'OK';
+        diag(
+          `resolve ${videoId}: native WON — ${nativeStream.kind} itag=${nativeStream.itag} ` +
+            `kbps=${nativeStream.kbps} codec=${nativeStream.codec} dur=${nativeStream.durationSec}s`,
+        );
+        return { ok: true, info: streamInfoFromNative(videoId, nativeStream) };
+      }
+      // Logged, not swallowed: "the extractor ran and failed" and "there is no extractor" are
+      // different problems and used to look identical from the outside.
+      const status = await nativeExtractorStatus();
+      diag(
+        `resolve ${videoId}: native unusable — installed=${status.installed} ` +
+          `flavour=${status.flavour} reason=${reason || 'no result'}`,
+      );
+    }
+
+    // Browser builds resolve through the CORS-friendly provider first; there is no InnerTube there
+    // without a relay, so this is not an ordering preference but the only route that works.
     if (!this.native) {
       const fromProvider = await this.provider.stream(videoId);
       if (fromProvider) {
@@ -378,13 +428,27 @@ export class MusicService {
       }
     }
 
+    /*
+     * Nothing worked. Say what was tried and what would change the outcome.
+     *
+     * The old sentence — "No playable source (tried VISIONOS, ANDROID_VR, …)" — named internal client
+     * ids at a listener, which is an explanation for the person who wrote the ladder, not for the
+     * person holding the phone. It also did not mention the one fact that matters: this build cannot
+     * make the token YouTube now demands.
+     */
+    const extractor = this.native ? await nativeExtractorStatus() : null;
+    const advice = extractor && !extractor.installed
+      ? ' This app build has no native extractor, and YouTube currently gates every client that could ' +
+        'play a full track. Install the GPL build (app-withNativeExtractor-release.apk) to resolve streams properly.'
+      : '';
     return {
       ok: false,
       error: {
         k: 'Network',
         retryable: true,
         cause: 'unknown',
-        message: `No playable source (tried ${tried.join(', ')} and the public API ladder).`,
+        message:
+          `Could not get a playable stream for this track — tried ${tried.join(', ')} and the public mirrors.${advice}`,
       },
     };
   }
@@ -435,7 +499,33 @@ export class MusicService {
    * picker reject 30-second preview clips in favour of a full-length stream.
    */
   playableUrl(info: StreamInfo, expectedSec = 0): { itag: number; url: string; preview: boolean } | undefined {
+    /*
+     * A natively resolved stream is not a format list, it is *a chosen stream*.
+     *
+     * `pickAudioUrl` ranks `info.audio` and looks the winner up in `info.urls`. The native path
+     * populates both, so it works — but the itag it reports is the extractor's, not the one the caller
+     * asked for, which is why callers must use this result rather than indexing `urls` with an itag
+     * they picked themselves (playlist downloads used to do exactly that and would have silently found
+     * nothing).
+     */
     return pickAudioUrl(info, expectedSec);
+  }
+
+  /**
+   * The best URL for a caller that has no opinion about format.
+   *
+   * Used by the playlist downloader, which asks for "a stream copy" rather than a specific itag. The
+   * old code looked up a hard-coded 128 kbps itag in `urls`, which stopped working the moment the URL
+   * came from a resolver that offers a different tier — and looked indistinguishable from "this track
+   * cannot be downloaded".
+   */
+  downloadUrl(info: StreamInfo, expectedSec = 0): string | null {
+    const best = this.playableUrl(info, expectedSec);
+    if (best) return best.url;
+    // A manifest is still a complete stream (it is described as one by `streamInfoFromNative`), so this
+    // is a last resort only for shapes produced elsewhere — the InnerTube path, for instance.
+    const anyUrl = Object.values(info.urls)[0];
+    return anyUrl ?? null;
   }
 
   /** Lyrics + local index warm-up. */
@@ -496,6 +586,74 @@ export class MusicService {
     if (f.premiumOnly) return 'Premium only · locked';
     return f.deliver === 'url' ? 'Direct stream copy' : f.deliver === 'cipher' ? 'Needs signature' : 'Unavailable';
   }
+}
+
+/**
+ * Adapt a natively resolved stream to the app's [StreamInfo] shape.
+ *
+ * Everything downstream (the player, the download sheet, the diagnostics lines) speaks `StreamInfo`,
+ * so the native path is normalised here rather than teaching every consumer a second shape. The itag
+ * and bitrate are preserved so the download sheet labels the format honestly; a manifest gets itag 0
+ * and an empty format list, because a manifest is not a format — it is a container for them.
+ */
+/**
+ * The itag used for a manifest-only stream.
+ *
+ * Negative because every real itag is a positive integer: a DASH or HLS manifest has no itag of its
+ * own, and inventing a plausible one (140, say) would make the download sheet offer a file that does
+ * not exist.
+ */
+const MANIFEST_ITAG = -1;
+
+export function streamInfoFromNative(videoId: string, stream: NativeResolvedStream): StreamInfo {
+  const isManifest = stream.kind !== 'progressive';
+
+  /*
+   * A manifest is a stream too, and it must be shaped like one.
+   *
+   * The first version of this function produced `audio: []` and no `urls` entry for DASH/HLS results,
+   * so the picker found nothing to play and the app reported "this track cannot be played" for a track
+   * the extractor had just resolved. From ExoPlayer's point of view a manifest is one playable track,
+   * so it is described as one: a single synthesised format pointing at the manifest URL.
+   *
+   * A real itag is used when the resolver reported one; otherwise the key is `-1`, which is not an
+   * itag any format can carry, so it cannot collide with a real entry in the same map.
+   */
+  const itag = isManifest && stream.itag <= 0 ? MANIFEST_ITAG : stream.itag;
+
+  const urls: Record<number, string> = { [itag]: stream.url };
+
+  const container: AudioFormat['container'] = stream.mime.includes('webm') ? 'webm' : 'm4a';
+
+  const format: AudioFormat = {
+    itag,
+    codec: stream.codec || (isManifest ? stream.mime || 'manifest' : 'unknown'),
+    nominalKbps: stream.kbps,
+    actualKbps: stream.kbps,
+    container,
+    quality: '',
+    deliver: 'url',
+    premiumOnly: false,
+    durationSec: stream.durationSec,
+  };
+
+  return {
+    videoId,
+    // The caveat rides on the profile string so every existing consumer that shows or logs a profile
+    // name reports it, without adding a field to the shared domain type for a case only one resolver
+    // can produce.
+    profile: stream.note ? `native:${stream.source}:${stream.note}` : `native:${stream.source}`,
+    audio: [format],
+    video: [],
+    // A progressive URL from the extractor is a plain signed URL; it outlives the play, not the day.
+    expiresInSec: 6 * 3600,
+    playability: 'OK',
+    urls,
+    // The extractor can hand back a URL that is only valid with the headers it was issued for, and
+    // dropping them here made a working URL 403 in the player — which is indistinguishable from
+    // "this stream is dead". Lives on the StreamInfo so it travels with the URL it belongs to.
+    ...(stream.headers && Object.keys(stream.headers).length > 0 ? { headers: stream.headers } : {}),
+  };
 }
 
 export const service = new MusicService();

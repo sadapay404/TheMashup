@@ -44,6 +44,15 @@ export function playlistTarget(track: Track): Target {
 type Resolver = (track: Track, target: Target) => Promise<string | null>;
 
 /**
+ * Optional hook for the request headers a resolved URL needs.
+ *
+ * Kept out of [Resolver] on purpose: the URL and its headers come from the same `StreamInfo`, but the
+ * resolver's contract is "give me a URL", and changing it would break every test double. A caller that
+ * has headers reports them here; one that does not simply omits the hook.
+ */
+type HeaderProvider = (track: Track) => Record<string, string> | undefined;
+
+/**
  * Start downloading a playlist into its own folder.
  *
  * `resolve` turns a track into a CDN URL; it is injected so the engine can be tested without a
@@ -54,6 +63,8 @@ export async function downloadPlaylist(opts: {
   tracks: Track[];
   kind?: MediaKind;
   resolve: Resolver;
+  /** Request headers the resolved URL needs, when the caller knows them. */
+  headers?: HeaderProvider;
 }): Promise<PlaylistBatch | null> {
   const tracks = opts.tracks.filter((t) => t && t.id);
   if (!tracks.length) return null;
@@ -103,7 +114,9 @@ export async function downloadPlaylist(opts: {
         patch({ failed: batch.failed });
         continue;
       }
-      const jobId = await startDownload(track, url, target, folder.name);
+      // `resolve` returned the URL; the headers it needed are attached to the same StreamInfo the
+      // caller resolved from, so the downloader is authorised exactly like playback.
+      const jobId = await startDownload(track, url, target, folder.name, opts.headers?.(track));
       // File the job into the playlist folder. startDownload registers it first so progress is
       // visible from the moment it is queued.
       store.set((s) => ({

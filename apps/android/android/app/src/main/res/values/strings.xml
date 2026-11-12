@@ -5,4 +5,11 @@
     <string name="package_name">app.themashup.music</string>
     <string name="custom_url_scheme">app.themashup.music</string>
     <string name="notification_channel_name">Playback</string>
+
+    <!-- Notification action labels. Media3 shows these as the accessibility label and as the
+         title on Android 13+ where the icon alone is not enough. -->
+    <string name="notif_shuffle">Shuffle</string>
+    <string name="notif_repeat">Repeat</string>
+    <string name="notif_like">Like</string>
+    <string name="notif_stop">Stop</string>
 </resources>

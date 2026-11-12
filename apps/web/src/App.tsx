@@ -140,6 +140,8 @@ export default function App() {
       if (dismissTopOverlay()) return true;
       const s = store.getState();
       if (s.playerOpen) {
+        // Back is navigation. Stopping the music on a back press is the behaviour that made the
+        // player feel like a trap; the X and the card's X are the explicit stop controls.
         store.set({ playerOpen: false });
         return true;
       }
@@ -312,7 +314,10 @@ export default function App() {
         {playerOpen && track ? (
           <NowPlaying
             track={track}
+            // The X: stop and clear (the dock's card carries the same control).
             onClose={() => void player.stop()}
+            // The chevron / downward drag: put the sheet away, keep the music.
+            onHide={() => store.set({ playerOpen: false })}
             onToggle={() => void player.setPlaying(!playing)}
             onNext={() => player.next(false)}
             onPrev={player.prev}

@@ -170,6 +170,8 @@ export async function startDownload(
   url: string,
   target: Target,
   folderName?: string,
+  /** Request headers the resolved URL needs, when the resolver reported any. */
+  startDownloadHeaders?: Record<string, string>,
 ): Promise<string> {
   const id = `dl-${target.itag}-${track.id}-${Date.now()}`;
   const job: DownloadJob = {
@@ -192,6 +194,9 @@ export async function startDownload(
       // the sensible default. Either way the native side creates the real directory.
       ...(folderName ? { subdir: folderName } : track.album ? { subdir: track.album } : {}),
       kind: track.kind === 'video' ? 'video' : 'music',
+      // Headers the resolver reported for this URL (Referer / User-Agent), so the transfer is
+      // authorised exactly like playback.
+      ...(startDownloadHeaders ? { headers: startDownloadHeaders } : {}),
     });
     if (res) {
       bindNativeDownloadEvents();
@@ -438,7 +443,10 @@ export async function retryDownload(job: DownloadJob): Promise<string | null> {
     store.notify('This tier has no direct URL — try another.', 'error');
     return null;
   }
-  return startDownload(job.track, url, target);
+  // Re-resolve, re-forward headers: a retry against a stored URL fails for a reason unrelated to
+  // the original failure — stream URLs are signed and time-limited.
+  const headers = res.info.headers;
+  return startDownload(job.track, url, target, undefined, headers);
 }
 
 export function pendingBytes(): number {

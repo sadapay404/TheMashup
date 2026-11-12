@@ -1,10 +1,13 @@
 ext {
     // Matches the toolchain Capacitor 6 is tested against. Deviating from this costs compile
     // reliability for no user-visible benefit.
-    // minSdk 26 (not 22): Media3 sessions and EncryptedSharedPreferences both need it.
+    // minSdk 26: Media3 sessions and EncryptedSharedPreferences both need it.
     minSdkVersion = 26
-    compileSdkVersion = 34
-    targetSdkVersion = 34
+    // compileSdk 35, not 34. NewPipeExtractor v0.27.1 is compiled against Android 33+ APIs and the
+    // GPL flavour needs them available at compile time; 34 also fails the media3 1.6.x AAR metadata
+    // check, which demands compileSdk 35 or newer.
+    compileSdkVersion = 35
+    targetSdkVersion = 35
     androidxActivityVersion = '1.8.0'
     androidxAppCompatVersion = '1.6.1'
     androidxCoordinatorLayoutVersion = '1.2.0'
