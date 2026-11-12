@@ -308,14 +308,57 @@ turned into a guessed first track.
 
 ---
 
+## 5e. The apk.53 reports
+
+**"The account picker is not working, neither is the sign-in page opening, so no way to sign up."**
+The picker had **never** worked, for three independent reasons — any one sufficient:
+
+1. `newChooseAccountIntent(null, null, arrayOf("com.google"), …)` passes the type list as
+   `allowableAccountTypes`. Non-null there means **Add account**, not *choose*: the device asks the
+   user to sign into Google instead of listing accounts it already has. Wrong contract.
+2. `ACTION_PICK_ACTIVITY` returns the *intent to launch* in `EXTRA_INTENT`, not an account uri.
+   Treating that result as the answer yields a null account every time.
+3. Both JS paths read failure as cancellation. `nativePickAccount()` returned `string | null`, so
+   "no picker on this device" and "user pressed back" were the same `null`, and the caller returned
+   silently for both. On any device without a picker the button did *nothing at all*.
+
+Now: `ACTION_PICK_ACTIVITY` asks the system for a handler (with Android 14's
+`allowAccountAddition = false` overload as a third attempt), the two-step result is followed through
+a second `@ActivityCallback`, and `nativePickAccount()` returns `picked | cancelled | unavailable` so
+Settings opens the Google page for the last case. **There is no remaining state in which tapping Sign
+in is a no-op.** The WebView flow is unchanged and still reachable from "Other…".
+
+**"Search takes a long long time."** The UI was fine; the transport was built to be patient.
+
+- `nativeHttp` is a bridge call with no `AbortSignal` and had **no timeout at all** — one hung socket
+  blocked the ladder forever.
+- Each route ran to the full 12 s socket timeout *in sequence*, so ladder cost was the sum, not the
+  max: with four routes, nearly a minute before admitting failure.
+- The mirror fallback tried ten community instances one at a time at 9 s each — ninety seconds worst
+  case, on networks where those mirrors are routinely blocked.
+- The two strategies were **queued**: InnerTube first, mirrors only if it returned empty.
+- The search effect's cleanup set a `cancelled` flag that suppressed `setState` but let the request
+  run to completion. An eight-letter query kept six searches alive, all drawing one rate-limit bucket.
+
+Now bounded end to end: 6.5 s per route, one 11 s chain budget (not per route), mirrors race their
+first three and stop at 8 s, the two strategies race with the loser aborted, and the search screen
+passes a real `AbortSignal`. An aborted request is explicitly *not* recorded as a route failure, so
+typing quickly cannot open the breakers and mark every mirror dead.
+
+---
+
 ## 6. Verification
 
-`tsc` clean · **352 tests / 36 files** green · `npm run build` OK.
-Android run `43182800620` **success** (apk.52, first attempt). Assets 3,664,254 B and 4,359,653 B.
+`tsc` clean · **364 tests / 37 files** green · `npm run build` OK.
+Android run `43191883833` (build) + `43191883740` (e2e) **success** (apk.53).
+Assets 3,665,574 B and 4,361,185 B.
+
+apk.52: **352 tests / 36 files**, run `43182800620` **success**. Assets 3,664,254 B / 4,359,653 B.
 
 apk.51: **342 tests / 35 files**, run `43176761724` **success**.
 Every CI step green, including "Verify APK integrity".
 
+New in apk.53: `signin-and-search.test.ts` (12).
 New in apk.52: `home-feed.test.ts` (6); `seek-arbitration.test.ts` grown 5 → 8.
 New in apk.51: `account-picker.test.ts` (6), `responsiveness.test.ts` (5).
 apk.50: `separator.test.ts` (6), `search-slogan.test.ts` (3), `dock-icon-only.test.ts` (4).
