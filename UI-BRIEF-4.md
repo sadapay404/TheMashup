@@ -205,13 +205,77 @@ the container by `ITEMS.length` rather than a fixed width.
 
 ---
 
+## 5c. The apk.51 reports
+
+### Sign-in: the previous design could not work, and the screenshots proved it
+
+The user's two screenshots are the whole diagnosis. One shows **Permissions → "Contacts"** with no
+account row anywhere; the other lists "Contacts — Not allowed" under Permissions. That "Contacts" row
+*is* `GET_ACCOUNTS` — Android files it under the Contacts permission group — so the instruction "allow
+accounts on this device" pointed at a row that does not exist under that name.
+
+Worse, granting it would not have helped. Since Android 8, `AccountManager.getAccountsByType("com.google")`
+**returns an empty array** to ordinary apps even with the permission: Google gates enumeration behind
+its own consent flow (`GoogleAuthUtil.requestGoogleAccountsAccess`, or the Play Services picker). The
+apk.50 code would have shown an empty list on a phone with three Google accounts on it.
+
+So `GET_ACCOUNTS` is gone from the manifest, `getAccountsByTypeAndFeatures` is gone from the plugin,
+and the hand-drawn list is gone from Settings. In their place: `pickAccount` launches the **system**
+account picker (`AccountManager.newChooseAccountIntent`), which already knows every signed-in Google
+account, needs no permission, and returns the tapped address through `@ActivityCallback`.
+
+The second half of the complaint — *"it should instantly open TheMashup when sign in is complete
+instead of opening YT music"* — was a separate bug in the same flow. The cookie harvest only *acted* on
+a `music.youtube.com` page, so the dialog waited for YouTube's entire web app to boot before closing.
+SAPISID is minted by Google's own consent page, long before that, so the harvest now fires on whichever
+page set it. The user closes the dialog where they clicked "Allow", not after a detour through a music
+site they did not ask for.
+
+### Seeking restarted the song
+
+Two writers, no arbitration:
+- `seek()` wrote the target into the store and told Media3;
+- a 1 Hz poll asked Media3 for its position and wrote *that* back.
+
+A poll's answer describes the player as it was when the question was asked, and Media3 answers before
+it has necessarily processed the seek — a seek into unbuffered audio is itself a network request. So the
+poll kept reverting the playhead, and the next `load()` used the reverted value as the resume point.
+From the outside: "I can't skip into the middle, it starts from 0:00."
+
+Fixed on both sides: `seek()` records its target and suppresses the *position* write for 1.2 s (duration
+still updates — it never depends on the playhead), then releases so the bar cannot freeze; and the native
+`seekTo()` snapshots *after* seeking, so `getState()`'s `refreshCache()` agrees with the target instead
+of reverting it.
+
+### Sleep timer removed
+
+Requested. Gone from the store, the shell, the song card, the player sheet — and the 1 Hz countdown
+interval that existed only to drive it.
+
+### Responsiveness
+
+Three structural costs, each individually reasonable and all three paid per interaction:
+
+| what | why it was expensive | change |
+|---|---|---|
+| `App` subscribed to `positionSec` | every second of playback re-rendered the route tree, dock and every screen | subscription moved into the one element that draws the progress hairline |
+| `AnimatePresence mode="wait"` | exit and enter run **in series**, so each tab press paid both before showing anything | `popLayout` + 170 ms tween, overlapping the two |
+| `backdrop-filter: blur(18px)` on the status bar | fixed, full-width, over scrolling content → per-frame re-sample of everything beneath | removed; the gradient is opaque enough where the icons sit |
+
+Plus `useRecommendations` rebuilt and sorted the whole play history on every Home render; it is now
+memoised on `[history, affinity]`.
+
+---
+
 ## 6. Verification
 
-`tsc` clean · **326 tests / 32 files** green · `npm run build` OK.
-Android run `43171202832` **success** (apk.50, first attempt — no Kotlin round lost).
+`tsc` clean · **342 tests / 35 files** green · `npm run build` OK.
+Android run `43176761724` **success** (apk.51, first attempt — no Kotlin round lost).
+Every CI step green, including "Verify APK integrity".
 
-New this round: `src/test/separator.test.ts` (6), `src/test/search-slogan.test.ts` (3),
-`src/test/dock-icon-only.test.ts` (4).
+New in apk.51: `account-picker.test.ts` (6), `seek-arbitration.test.ts` (5),
+`responsiveness.test.ts` (5).
+apk.50: `separator.test.ts` (6), `search-slogan.test.ts` (3), `dock-icon-only.test.ts` (4).
 
 New: `src/test/safe-area.test.ts` (9), `src/test/notifications.test.ts` (13),
 `src/test/downloads-autoplay.test.tsx` (9).
@@ -236,8 +300,14 @@ and always bind a catch variable in Kotlin.**
 - **apk.50**: whether the playback notification now appears on play is the key unverified claim. The
   cause was identified from Media3 1.3.1's own source, not guessed, and `addSession` is provably the
   missing registration — but no device has run it yet.
-- **Account enumeration** was never executed on a device either. Expect variation: some ROMs return an
-  empty list without Google Play services, and on API 30+ the permission prompt is a settings hop
-  rather than an in-app dialog.
+- **Account enumeration was abandoned as an approach** (see §5c): it cannot work on Android 8+ without
+  Google's own consent flow. The system picker that replaced it is untested on a device, but it is a
+  documented public intent with no permission requirement, so the risk is the UI, not the plumbing.
+- **The seek fix is reasoning, not observation.** The two-writer race explains the symptom exactly and
+  both writers are now arbitrated, but no device has confirmed that scrubbing mid-song lands where the
+  thumb was dropped.
+- **The responsiveness work is measurable but unmeasured here** — this sandbox has no Android device and
+  no Playwright browser binary, so the numbers quoted are structural (removed per-frame work, halved
+  transition latency), not profiled frame times.
 - Install over an older TheMashup will fail with "App not installed" (per-runner debug key). Uninstall
   first, or add `MASHUP_KEYSTORE_BASE64`.
