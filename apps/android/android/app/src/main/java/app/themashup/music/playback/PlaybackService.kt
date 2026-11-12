@@ -26,13 +26,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
-import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
-import androidx.media3.session.MediaNotification
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import androidx.media3.session.SessionCommand
 import app.themashup.music.MainActivity
+import app.themashup.music.R
 
 /**
  * Background playback.
@@ -224,15 +222,6 @@ class PlaybackService : MediaSessionService() {
         const val NOTIFICATION_CHANNEL_ID = "app.themashup.music.playback"
         const val NOTIFICATION_CHANNEL_NAME = "Playback"
 
-        /** Custom session commands exposed as notification buttons. */
-        const val CMD_TOGGLE_SHUFFLE = "cmd_toggle_shuffle"
-        const val CMD_TOGGLE_REPEAT = "cmd_toggle_repeat"
-        const val CMD_TOGGLE_LIKE = "cmd_toggle_like"
-
-        val CommandToggleShuffle = SessionCommand(CMD_TOGGLE_SHUFFLE, Bundle.EMPTY)
-        val CommandToggleRepeat = SessionCommand(CMD_TOGGLE_REPEAT, Bundle.EMPTY)
-        val CommandToggleLike = SessionCommand(CMD_TOGGLE_LIKE, Bundle.EMPTY)
-
         /**
          * Connection used by [app.themashup.music.MainActivity] to bring the session up before the
          * first play. Kept trivial on purpose: the bridge is a global object, so all we need is the
@@ -277,52 +266,9 @@ class PlaybackService : MediaSessionService() {
                 )
                 .build()
 
-            // Custom notification buttons — shuffle, repeat, like — ported from the OuterTune
-            // pattern: CommandButton with a custom SessionCommand that the JS layer handles.
-            session.setCustomLayout(
-                listOf(
-                    CommandButton.Builder()
-                        .setDisplayName("Shuffle")
-                        .setSessionCommand(CommandToggleShuffle)
-                        .setIcon(CommandButton.ICON_SHUFFLE)
-                        .build(),
-                    CommandButton.Builder()
-                        .setDisplayName("Repeat")
-                        .setSessionCommand(CommandToggleRepeat)
-                        .setIcon(CommandButton.ICON_REPEAT)
-                        .build(),
-                    CommandButton.Builder()
-                        .setDisplayName("Like")
-                        .setSessionCommand(CommandToggleLike)
-                        .setIcon(CommandButton.ICON_THUMBS_UP)
-                        .build(),
-                ),
-            )
-
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailablePlayerCommands(playerCommands)
                 .build()
-        }
-
-        /**
-         * Handles taps on the custom notification buttons (shuffle / repeat / like).
-         *
-         * The native side doesn't own that state — it lives in the JS store — so each tap posts an
-         * event back to JS via [NativeEvents]. JS toggles the store and tells the player what to do.
-         */
-        override fun onCustomCommand(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo,
-            command: SessionCommand,
-            args: android.os.Bundle?,
-            resultCallback: androidx.media3.common.util.ResultCallback<Void?>,
-        ) {
-            when (command.action) {
-                CMD_TOGGLE_SHUFFLE -> NativeEvents.post("toggleShuffle", null)
-                CMD_TOGGLE_REPEAT -> NativeEvents.post("toggleRepeat", null)
-                CMD_TOGGLE_LIKE -> NativeEvents.post("toggleLike", null)
-            }
-            resultCallback.sendResult(null)
         }
 
         /**
