@@ -630,12 +630,24 @@ export function usePlayer() {
       // Recorded before the call, not after: the rejection path must still suppress the poller, and
       // the poll that races the seek can land while the invoke is in flight.
       seekGuard.current = { at: Date.now(), target: clamped };
+      /*
+       * Also written to the resume store.
+       *
+       * Everything that reloads a track — pause/resume, a stall recovery, a route re-entry, the
+       * `setPlaying` fallback — reads `readProgress(track.id)` to decide where to start. Without this
+       * write that value was whatever the last *element* timeupdate produced, which in native mode is
+       * never anything. So a scrub followed by any reload silently resumed from an older position,
+       * which is the second half of "the slider still has that silly issue": the seek worked, then
+       * something reloaded and handed it back the stale number.
+       */
+      persistProgress(clamped, true);
       void nativeSeek(Math.round(clamped * 1000));
       store.set({ positionSec: clamped });
       return;
     }
     if (!el || !Number.isFinite(el.duration)) return;
     el.currentTime = Math.max(0, Math.min(el.duration - 0.25, sec));
+    persistProgress(el.currentTime, true);
     store.set({ positionSec: el.currentTime });
   }, []);
 
@@ -1009,6 +1021,16 @@ export function usePlayer() {
      * seeks in flight is how a resume lands a few seconds off.
      */
     if (store.getState().loading) return;
+    /*
+     * A seek owns the position.
+     *
+     * This effect runs on every track change and re-anchors playback to the saved resume point. If it
+     * fires while a seek is still settling, it races the scrub: the write from `seek()` lands, then
+     * this hands the player the pre-seek value and the thumb jumps back. Skipping while the guard is
+     * live makes the user's last action authoritative.
+     */
+    const guard = seekGuard.current;
+    if (guard && Date.now() - guard.at < SEEK_SETTLE_MS) return;
     const saved = readProgress(track.id);
     if (saved <= 5) return;
     const el = audioRef.current;
@@ -1115,9 +1137,20 @@ function readProgress(id: string): number {
 }
 
 let lastPersist = 0;
-function persistProgress(sec: number): void {
+/**
+ * Save the resume point for the current track.
+ *
+ * Throttled to one write every four seconds, because the caller is the element's `timeupdate` and
+ * that fires several times a second — serialising the whole map that often is how a player ends up
+ * costing more than the music.
+ *
+ * `force` exists for the user's own decisions, which are rare and must never be dropped: a seek is
+ * the one moment where "the position we remember" and "the position the listener chose" disagree,
+ * and losing that write is what makes a scrub revert on the next reload.
+ */
+function persistProgress(sec: number, force = false): void {
   const now = Date.now();
-  if (now - lastPersist < 4000) return;
+  if (!force && now - lastPersist < 4000) return;
   lastPersist = now;
   const s = store.getState();
   const t = s.queue[s.index];

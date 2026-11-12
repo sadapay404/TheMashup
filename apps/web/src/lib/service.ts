@@ -20,11 +20,13 @@ import {
   err,
   getLyrics,
   ok,
+  parseHomeFeed,
   parsePlayer,
   parseRadioQueue,
   parseSearch,
   pickAudioUrl,
   type AudioFormat,
+  type FeedShelf,
   type Lyrics,
   type LyricDoc,
   type ProfileName,
@@ -305,6 +307,33 @@ export class MusicService {
       }
     } catch {
       /* fall through */
+    }
+    return [];
+  }
+
+  /**
+   * The signed-in account's own YT Music home feed.
+   *
+   * This is the fix for "the recommendation should come from YT music": rather than inferring taste
+   * from what has already been played here, it asks YouTube for the same shelves it shows the user on
+   * music.youtube.com — the ones built from their real listening history across every device.
+   *
+   * `FEmusic_home` is the documented browse id for that page. It is only personalized when the
+   * request carries the account cookie; anonymously it returns generic charts, which is worse than
+   * the local seed because it has no idea who is asking. So this deliberately returns `[]` for an
+   * anonymous session and lets the caller decide what to show instead.
+   */
+  async homeFeed(): Promise<FeedShelf[]> {
+    if (!this.hasAccount()) return [];
+    try {
+      const res = await this.innertube.browse('FEmusic_home');
+      const { shelves } = parseHomeFeed(res.json);
+      if (shelves.length) {
+        this.lastRoute = 'InnerTube · home';
+        return shelves;
+      }
+    } catch {
+      /* fall through: a private/empty feed is normal for a brand-new account */
     }
     return [];
   }

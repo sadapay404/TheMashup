@@ -393,6 +393,21 @@ function useAppCycleRepeat() {
 }
 
 /** Seek bar with a liquid leading fill and keyboard support. */
+/**
+ * Where a pointer at `clientX` lands on the bar, in seconds — or null when there is nothing to seek.
+ *
+ * One definition, used by the preview and by the commit, so the thumb and the seek can never disagree.
+ */
+function clientXToSec(el: HTMLElement | null, clientX: number, durationSec: number): number | null {
+  if (!el || durationSec <= 0) return null;
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0) return null;
+  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  // Never exactly at the end: seeking to the duration parks the player in STATE_ENDED and the track
+  // immediately rolls over, which reads as "I dragged to the end and it skipped".
+  return Math.min(ratio * durationSec, Math.max(0, durationSec - 0.75));
+}
+
 function SeekBar({
   positionSec,
   durationSec,
@@ -409,11 +424,8 @@ function SeekBar({
   const pct = durationSec > 0 ? Math.min(1, shown / durationSec) : 0;
 
   const handle = (clientX: number) => {
-    const el = ref.current;
-    if (!el || durationSec <= 0) return;
-    const rect = el.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    setPreview(ratio * durationSec);
+    const target = clientXToSec(ref.current, clientX, durationSec);
+    if (target !== null) setPreview(target);
   };
 
   return (
@@ -430,7 +442,16 @@ function SeekBar({
         className="group relative h-8 cursor-pointer touch-none select-none"
         onPointerDown={(e) => {
           dragging.current = true;
-          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+          /*
+           * Capture on the *slider*, not on `e.target`.
+           *
+           * `e.target` is whichever child was hit — the 4px track, the fill, or the thumb. Capturing
+           * on a child means every later pointer event is delivered there, and once that child is
+           * re-rendered (the fill's width changes on every move) the capture is lost mid-drag. The
+           * result was a thumb that stopped following the finger part-way across, which is the other
+           * way this bar felt broken. The container never unmounts during a drag.
+           */
+          e.currentTarget.setPointerCapture?.(e.pointerId);
           handle(e.clientX);
         }}
         onPointerMove={(e) => {
@@ -438,13 +459,16 @@ function SeekBar({
         }}
         onPointerUp={(e) => {
           dragging.current = false;
-          handle(e.clientX);
-          const el = ref.current;
-          if (el && durationSec > 0) {
-            const rect = el.getBoundingClientRect();
-            const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-            onSeek(ratio * durationSec);
-          }
+          e.currentTarget.releasePointerCapture?.(e.pointerId);
+          /*
+           * Commit from the *same* geometry the preview used, clamped identically.
+           *
+           * These were two copies of the same three lines, and they drifted: the preview clamped the
+           * ratio but the commit recomputed it from scratch, so a drag released slightly outside the
+           * bar could seek somewhere the thumb was never drawn. One helper, one answer.
+           */
+          const target = clientXToSec(ref.current, e.clientX, durationSec);
+          if (target !== null) onSeek(target);
           setPreview(null);
         }}
         onPointerCancel={() => {

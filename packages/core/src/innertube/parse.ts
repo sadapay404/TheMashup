@@ -77,6 +77,15 @@ const BULLET = /\s*[•·]\s*/;
 function videoIdFromListItem(r: Json): string | undefined {
   const direct = obj(r['playlistItemData'])['videoId'];
   if (typeof direct === 'string') return direct;
+
+  /*
+   * `musicTwoRowItemRenderer` — the card row used on the home page — carries its video id on the
+   * item's own navigation endpoint rather than in `playlistItemData`. Missing this made every
+   * two-row card parse as "not a song", so a shelf built entirely from cards vanished.
+   */
+  const fromNav = obj(obj(r['navigationEndpoint'])['watchEndpoint'])['videoId'];
+  if (typeof fromNav === 'string') return fromNav;
+
   const play = obj(
     obj(obj(obj(r['overlay'])['musicItemThumbnailOverlayRenderer'])['content'])['musicPlayButtonRenderer'],
   )['playNavigationEndpoint'];
@@ -527,4 +536,177 @@ export function inspectRungs(json: unknown, profile: ProfileName, videoId: strin
     gated: needsToken ? direct : 0,
     playable: Boolean(pickAudioUrl(info)),
   };
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * The home feed
+ * ---------------------------------------------------------------------------
+ *
+ * YT Music's home page is a `browse` call on `FEmusic_home`, and unlike a search it is **personal**:
+ * the shelves it returns depend on the signed-in account's watch and listen history. That is the
+ * whole reason this exists. The previous Home screen invented recommendations by seeding radios from
+ * the local play history, which cannot know the difference between "Urdu songs I happen to play" and
+ * "the Urdu genre I am actually in the mood for" — the user's exact complaint. YouTube already knows;
+ * the only correct move is to ask it.
+ *
+ * The renderer names below are the ones that matter in practice:
+ *  - `musicCarouselShelfRenderer` — the horizontal rows ("Listen again", "Mixed for you").
+ *  - `musicShelfRenderer`         — a vertical list at the top of the page.
+ *  - `musicCardShelfRenderer`     — the large "your mix" style card.
+ * Shelf *titles* are whatever YouTube decided to call them today, which is why the contract here is
+ * `{ title, tracks }` and not a fixed enum: the app can render any shelf name it is handed. Rows with
+ * a browse endpoint and no video id are dropped rather than guessed at.
+ */
+
+/** A named row on the home page. `title` is YouTube's own label, passed through verbatim. */
+export interface FeedShelf {
+  title: string;
+  tracks: Track[];
+}
+
+/** Which named shelves the app asks for by default, in the order it wants them shown. */
+export const FEED_SHELF_ORDER = [
+  'Quick picks',
+  'Mixed for you',
+  'Listen again',
+  'Replay',
+  'Your favourites',
+] as const;
+
+/** Flatten `runs` or `simpleText` into a string. Both shapes occur in the same response. */
+function textOf(v: unknown): string {
+  const o = obj(v);
+  if (typeof o['simpleText'] === 'string') return o['simpleText'] as string;
+  return arr(o['runs'])
+    .map((r) => (typeof obj(r)['text'] === 'string' ? (obj(r)['text'] as string) : ''))
+    .join('');
+}
+
+/** The title of a shelf renderer, wherever that renderer happens to keep it. */
+function shelfTitle(shelf: Json): string {
+  for (const key of ['title', 'header']) {
+    const node = obj(shelf[key]);
+    if (Object.keys(node).length) {
+      // `header` wraps its own renderer one level down.
+      const inner = obj(node['musicCarouselShelfBasicHeaderRenderer']);
+      if (Object.keys(inner).length) {
+        const t = textOf(inner['title']);
+        if (t) return t;
+      }
+      const t = textOf(node['title']) || textOf(node);
+      if (t) return t;
+    }
+  }
+  return '';
+}
+
+/**
+ * Pull tracks out of one shelf, tolerating every content renderer YT Music uses for rows.
+ *
+ * `musicResponsiveListItemRenderer` covers both the carousel rows and the vertical shelves;
+ * `musicTwoRowItemRenderer` is the card-style row that only appears on the home page. Both are tried,
+ * and anything that yields no video id is skipped — a "shelf" full of playlist links is not a list of
+ * songs you can play from here.
+ */
+function tracksFromShelf(shelf: Json): Track[] {
+  const out: Track[] = [];
+  for (const item of arr(shelf['contents'])) {
+    const wrapper = obj(item);
+    // Two-row items sit inside their own wrapper; responsive rows are passed straight through.
+    const twoRow = obj(wrapper['musicTwoRowItemRenderer']);
+    if (Object.keys(twoRow).length) {
+      const card = parseTwoRowItem(twoRow);
+      if (card) out.push(card);
+      continue;
+    }
+    const responsive = obj(wrapper['musicResponsiveListItemRenderer']);
+    if (!Object.keys(responsive).length) continue;
+    const track = parseTrackRow(responsive, 'home');
+    if (track) out.push(track);
+  }
+  return out;
+}
+
+/**
+ * `musicTwoRowItemRenderer` → Track.
+ *
+ * The card-shaped row that only appears on the home page. It carries `title` and `subtitle` as text
+ * run objects rather than the `flexColumns` the responsive row uses, so `parseTrackRow` — which reads
+ * columns — returns null for it. Hence a separate reader.
+ *
+ * A two-row item with **no video id** is a playlist, album or artist card, not a song: those are
+ * deliberately dropped here, because a shelf of unplayable cards would fill Home with rows that do
+ * nothing when tapped. The alternative — guessing the first song of a playlist — would make the queue
+ * disagree with what the user tapped.
+ */
+function parseTwoRowItem(r: Json): Track | null {
+  const id = videoIdFromListItem(r);
+  if (!id) return null;
+  const title = textOf(r['title']).trim();
+  if (!title) return null;
+  const subtitle = textOf(r['subtitle']);
+  const parts = subtitle.split(BULLET).map((x) => x.trim()).filter(Boolean);
+  const durText = parts.find((p) => /^\d+:\d{2}$/.test(p)) ?? '';
+  const artist = parts.find((p) => p && !/^\d+:\d{2}$/.test(p)) ?? '';
+  return {
+    id,
+    title,
+    artist,
+    durationSec: parseDurationSec(durText),
+    thumbs: parseThumbs(obj(r['thumbnail'])['musicThumbnailRenderer']),
+    source: 'home',
+  };
+}
+
+/**
+ * Parse `browse(FEmusic_home)` into named shelves.
+ *
+ * Returns `{ shelves: [] }` on anything unexpected — same zero-crash contract as the rest of this
+ * file. The caller decides whether an empty feed means "signed out" or "YouTube changed the page".
+ */
+export function parseHomeFeed(json: unknown): { shelves: FeedShelf[] } {
+  const shelves: FeedShelf[] = [];
+  const root = obj(json);
+
+  // The home page arrives under `contents.singleColumnBrowseResultsRenderer.tabs[0]...`.
+  const tabs = arr(obj(obj(obj(root['contents'])['singleColumnBrowseResultsRenderer'])['tabs']));
+  const sectionList = obj(obj(obj(obj(tabs[0])['tabRenderer'])['content'])['sectionListRenderer']);
+
+  const visit = (sections: unknown[]) => {
+    for (const section of sections) {
+      const s = obj(section);
+      /*
+       * A shelf can be nested one level deeper (`musicShelfRenderer` inside a
+       * `musicShelfRenderer`), so recurse through any contents array that is not itself a row list.
+       * Bounded by the response shape, not by a counter — this is not user input.
+       */
+      const carousel = obj(s['musicCarouselShelfRenderer']);
+      if (Object.keys(carousel).length) {
+        const tracks = tracksFromShelf(carousel);
+        if (tracks.length) {
+          const title = shelfTitle(carousel);
+          if (title) shelves.push({ title, tracks });
+        }
+        continue;
+      }
+
+      const shelf = obj(s['musicShelfRenderer']);
+      if (Object.keys(shelf).length) {
+        const tracks = tracksFromShelf(shelf);
+        if (tracks.length) {
+          const title = shelfTitle(shelf);
+          if (title) shelves.push({ title, tracks });
+        }
+        continue;
+      }
+
+      // A section that only wraps more sections.
+      const inner = arr(obj(s['itemSectionRenderer'])['contents']);
+      if (inner.length) visit(inner);
+    }
+  };
+
+  visit(arr(sectionList['contents']));
+  return { shelves };
 }

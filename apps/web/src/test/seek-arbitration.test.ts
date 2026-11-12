@@ -54,6 +54,37 @@ describe('seek does not get overwritten by the position poll', () => {
     expect(hooks).toContain('if (guard !== null) seekGuard.current = null;');
   });
 
+  it('parks a seek that arrives before the player can take it', () => {
+    /*
+     * ExoPlayer.seekTo() is a no-op unless the player has a prepared timeline. The UI accepts a drag
+     * while the track is still resolving, so the call was being silently discarded — the thumb moved
+     * and the audio did not. The target has to be held until STATE_READY.
+     */
+    expect(native).toContain('pendingSeekMs');
+    expect(native).toMatch(/if \(p\.playbackState == Player\.STATE_READY\)/);
+    expect(native).toContain('takePendingSeek');
+  });
+
+  it('applies the parked seek on the READY transition, once', () => {
+    const listener = native.slice(native.indexOf('override fun onPlaybackStateChanged'));
+    expect(listener).toContain('Player.STATE_READY');
+    expect(listener).toContain('takePendingSeek()');
+    // takePendingSeek must clear, or every later READY would re-apply a stale target.
+    const take = native.slice(native.indexOf('fun takePendingSeek'));
+    expect(take).toMatch(/pendingSeekMs = null/);
+  });
+
+  it('saves the seek point so a later reload resumes there, not at the old position', () => {
+    /*
+     * Everything that reloads a track reads readProgress(). In native mode nothing else ever wrote
+     * it, so a scrub followed by any reload handed the player an older number. The write must be
+     * forced, because persistProgress is throttled to 4 s for timeupdate traffic.
+     */
+    const seekFn = hooks.slice(hooks.indexOf('const seek = useCallback'), hooks.indexOf('const seekBy'));
+    expect(seekFn).toContain('persistProgress(clamped, true)');
+    expect(hooks).toMatch(/function persistProgress\(sec: number, force = false\)/);
+  });
+
   it('the native side agrees with the optimistic value instead of reverting it', () => {
     // `getState()` calls refreshCache() → snapshot(player). If the seek had not been applied yet,
     // that snapshot wrote the old offset back over the target.

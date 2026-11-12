@@ -115,14 +115,30 @@ class MashupPlayerPlugin : Plugin() {
 
     @PluginMethod
     fun resume(call: PluginCall) {
-        PlaybackBridge.resume()
-        call.resolve()
+        // `resumed: false` means the player held no media item — the caller must load one instead of
+        // assuming audio started. Previously this resolved unconditionally and the JS recovery branch
+        // that depends on it could never run.
+        val resumed = PlaybackBridge.resume()
+        call.resolve(JSObject().put("resumed", resumed))
     }
 
     @PluginMethod
     fun seek(call: PluginCall) {
         PlaybackBridge.seekTo(call.getLong("positionMs") ?: 0L)
         call.resolve()
+    }
+
+    /**
+     * The current playhead, straight from the player rather than from the JS store.
+     *
+     * The seek bar needs this to decide whether a drag is a *seek* or a *reload*: if the store's
+     * position and the player's disagree, a later `load()` will resume from the store's value and
+     * visibly undo the drag. Cheap enough to call on release only.
+     */
+    @PluginMethod
+    fun position(call: PluginCall) {
+        PlaybackBridge.refreshCache()
+        call.resolve(JSObject().put("positionMs", PlaybackBridge.positionMs()))
     }
 
     @PluginMethod

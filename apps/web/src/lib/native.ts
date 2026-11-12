@@ -120,10 +120,19 @@ export async function nativePause(): Promise<void> {
  * is a silent no-op, so a resume after a track failed to resolve would otherwise leave the UI showing
  * "playing" with no audio anywhere. The caller uses this to start the track instead of waiting.
  */
+/**
+ * Ask Media3 to resume, and believe its answer.
+ *
+ * `false` means the player holds no media item — a cold start that restored a queue but never
+ * resolved a stream, or a session the notification's Stop cleared. The caller must then load the
+ * track rather than flipping an icon over silence. This used to return `true` unconditionally, which
+ * made that recovery branch unreachable.
+ */
 export async function nativeResume(): Promise<boolean> {
   try {
-    await invoke('MashupPlayer', 'resume');
-    return true;
+    const res = (await invoke('MashupPlayer', 'resume')) as { resumed?: boolean };
+    // Absent means an older native build that did not report it; keep the old optimistic answer.
+    return res?.resumed !== false;
   } catch {
     return false;
   }

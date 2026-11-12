@@ -21,7 +21,7 @@ import { EmptyState, glide, snap } from '@/components/ui/primitives';
 import { MicIcon, PlayIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
 import { useContentBottom } from '@/hooks/useContentBottom';
 import { screenTop } from '@/lib/layout';
-import { useRecommendations } from '@/hooks/useRecommendations';
+import { useHomeFeed } from '@/hooks/useHomeFeed';
 import { service } from '@/lib/service';
 
 export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Track[]) => void; onGoSearch: () => void }) {
@@ -38,7 +38,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
     return () => window.removeEventListener('focus', onFocus);
   }, []);
 
-  const { tracks: recommended, loading } = useRecommendations(signedIn);
+  const { shelves, loading, origin } = useHomeFeed(signedIn);
 
   return (
     <div className="px-4" style={{ paddingBottom, paddingTop: screenTop() }}>
@@ -86,52 +86,72 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
         </div>
       </motion.button>
 
+      {/*
+        The shelves.
+
+        Each one is a row YouTube named. The titles are rendered as returned — "Quick picks",
+        "Listen again", "Mixed for you", whatever the account's home page happens to say today —
+        rather than mapped onto a fixed set, so a rename upstream changes a heading instead of
+        silently emptying the page.
+
+        Order is YouTube's, not ours. Its ranking knows more about this account than any local
+        heuristic, and that ordering is a large part of why its home page feels right.
+      */}
       {signedIn ? (
-        <Section title={recommended.length ? 'Made for you' : 'For you'}>
-          {recommended.length ? (
-            <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-              {recommended.map((t, i) => (
-                <motion.button
-                  key={`${t.id}-r${i}`}
-                  type="button"
-                  onClick={() => onPlay(t, recommended)}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ ...snap, delay: Math.min(i, 6) * 0.02 }}
-                  whileTap={{ scale: 0.96 }}
-                  className="w-[136px] shrink-0 text-left"
-                >
-                  <div className="relative aspect-square overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
-                    {t.thumbs[0] ? (
-                      <img src={t.thumbs[0].url} alt="" className="h-full w-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className="grid h-full w-full place-items-center text-2xl text-[var(--color-text-3)]">♪</div>
-                    )}
-                    <span className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 backdrop-blur">
-                      <PlayIcon width={14} height={14} />
-                    </span>
-                  </div>
-                  <div className="mt-2 truncate text-[12.5px] font-medium">{t.title}</div>
-                  <div className="truncate text-[11px] text-[var(--color-text-3)]">{t.artist}</div>
-                </motion.button>
-              ))}
-            </div>
-          ) : (
-            // Loading and "nothing yet" get different copy. A spinner on a shelf that will end up
-            // empty is the most common lie a home screen tells.
+        shelves.length ? (
+          shelves.map((shelf, si) => (
+            <Section key={`${shelf.title}-${si}`} title={shelf.title}>
+              <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+                {shelf.tracks.map((t, i) => (
+                  <motion.button
+                    key={`${t.id}-s${si}-${i}`}
+                    type="button"
+                    onClick={() => onPlay(t, shelf.tracks)}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ ...snap, delay: Math.min(i, 5) * 0.018 }}
+                    whileTap={{ scale: 0.96 }}
+                    className="w-[136px] shrink-0 text-left"
+                  >
+                    <div className="relative aspect-square overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
+                      {t.thumbs[0] ? (
+                        <img src={t.thumbs[0].url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center text-2xl text-[var(--color-text-3)]">♪</div>
+                      )}
+                      <span className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 backdrop-blur">
+                        <PlayIcon width={14} height={14} />
+                      </span>
+                    </div>
+                    <div className="mt-2 truncate text-[12.5px] font-medium">{t.title}</div>
+                    <div className="truncate text-[11px] text-[var(--color-text-3)]">{t.artist}</div>
+                  </motion.button>
+                ))}
+              </div>
+            </Section>
+          ))
+        ) : (
+          <Section title="For you">
+            {/*
+              Loading and "nothing yet" get different copy, and so does *which* source produced
+              nothing. A spinner on a shelf that will end up empty is the most common lie a home
+              screen tells.
+            */}
             <div className="rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_3%,transparent)] p-4 text-[12px] leading-relaxed text-[var(--color-text-3)]">
               {loading
-                ? 'Reading your listening…'
-                : 'Play a few songs and this fills with suggestions built from them. Your history and queue are in Library.'}
+                ? 'Reading your YT Music home…'
+                : origin === 'none'
+                  ? 'YT Music has no home feed for this account yet. Play a few songs on music.youtube.com and this fills with the same rows you see there.'
+                  : 'No suggestions right now.'}
             </div>
-          )}
-        </Section>
+          </Section>
+        )
       ) : (
         <div className="mt-6">
           <EmptyState
             icon={<SparkIcon width={30} height={30} />}
             title="Nothing to suggest yet"
-            detail="Recommendations come from your Google account, so the app can tell what fits your taste instead of guessing. Everything already on this device is in Library."
+            detail="Recommendations come from your YT Music account, so the app can show the same rows you see there instead of guessing. Everything already on this device is in Library."
             action={{ label: 'Find something to play', onClick: onGoSearch }}
           />
         </div>

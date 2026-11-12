@@ -143,6 +143,20 @@ class PlaybackService : MediaSessionService() {
                 if (playbackState == Player.STATE_ENDED) {
                     PlaybackBridge.emitEnded()
                 }
+                /*
+                 * The other half of the pending-seek contract (see PlaybackBridge.seekTo).
+                 *
+                 * A scrub that arrives while the track is still resolving has been parked; this is
+                 * the first moment ExoPlayer will accept it. Consumed exactly once, and only when a
+                 * request is actually waiting, so an ordinary READY transition costs one null check.
+                 */
+                if (playbackState == Player.STATE_READY) {
+                    val target = PlaybackBridge.takePendingSeek()
+                    if (target != null) {
+                        player.seekTo(target)
+                        PlaybackBridge.markPosition(target)
+                    }
+                }
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -540,6 +554,16 @@ internal object PlaybackBridge {
     // Volatile because they are written on main and read on CapacitorPlugins.
     @Volatile private var cachedPositionMs: Long = 0L
     @Volatile private var cachedDurationMs: Long = 0L
+
+    /**
+     * A seek that arrived before the player could take it.
+     *
+     * Set by [seekTo] when the player is not `STATE_READY`, consumed by the playback-state listener in
+     * [PlaybackService.startSession] the moment it becomes ready. Without this, a scrub during the
+     * initial buffer is discarded by ExoPlayer with no error and no retry — the UI moves, the audio
+     * does not, and the next position report puts the thumb back where it started.
+     */
+    @Volatile private var pendingSeekMs: Long? = null
     @Volatile private var cachedIsPlaying: Boolean = false
 
     /*
@@ -762,31 +786,78 @@ internal object PlaybackBridge {
     }
 
     fun pause() = onMain { it.pause() }
-    fun resume() = onMain {
-        it.play()
+    /**
+     * Resume the loaded item, and *report whether there was one*.
+     *
+     * The JS side asks this exact question — `nativeResume()` returning true means "the player had
+     * something and is now playing it", false means "nothing was loaded, load the track instead".
+     * It was answering `true` unconditionally, because the plugin method resolved regardless of
+     * whether the player had a media item. That made the recovery branch in `setPlaying` dead code,
+     * and a cold start that restored a queue but never resolved a stream would show a pause icon
+     * over a player holding nothing.
+     *
+     * Empty is not an error: it is the normal state before the first `play()` of a session.
+     */
+    fun resume(): Boolean {
+        val p = player ?: return false
+        var hadItem = false
+        onMainSync {
+            hadItem = it.mediaItemCount > 0
+            it.play()
+        }
         PlaybackService.current?.refreshNotification(startInForeground = true)
+        return hadItem
     }
     fun seekTo(ms: Long) {
-        /*
-         * Two writes, and the second one is the one that matters.
-         *
-         * The optimistic update stops a `getState()` that overlaps the seek from reporting the old
-         * offset. But `getState()` calls `refreshCache()`, which does a `snapshot()` on the player —
-         * and if ExoPlayer has not processed the seek yet, that snapshot writes the OLD position back
-         * over this one. The player then reports a position the user never asked for, the UI follows
-         * it, and the next resume reloads from there. From the outside that is "I can't skip into the
-         * middle of a song".
-         *
-         * `seekTo` is applied on the main thread, so the snapshot queued after it observes the moved
-         * playhead and agrees with the optimistic value instead of fighting it.
-         */
         val target = ms.coerceAtLeast(0L)
+        /*
+         * Why this is not just `p.seekTo(target)`.
+         *
+         * `ExoPlayer.seekTo()` is a **no-op unless the player has a prepared timeline**. The UI is
+         * perfectly willing to accept a drag while the track is still resolving or buffering — that
+         * is the whole point of a scrubber — and in that window the call is silently discarded. The
+         * user then sees the thumb snap back and the song start from the beginning, which is the
+         * long-standing "playback slider still has that silly issue" report.
+         *
+         * So: record the intent, apply it immediately if the player can take it, and otherwise leave
+         * it as [pendingSeekMs] for the `STATE_READY` transition to consume. The listener below is
+         * the other half of this contract.
+         */
         cachedPositionMs = target
         onMain { p ->
-            p.seekTo(target)
-            snapshot(p)
+            if (p.playbackState == Player.STATE_READY) {
+                pendingSeekMs = null
+                p.seekTo(target)
+                snapshot(p)
+            } else {
+                /*
+                 * Not seekable yet. Hold the request *and* keep the cached position at the target, so
+                 * a poll that lands before the player is ready reports what the user asked for rather
+                 * than the old offset. Otherwise the thumb visibly springs back in the second between
+                 * the drag and the track becoming ready.
+                 */
+                pendingSeekMs = target
+                cachedPositionMs = target
+            }
         }
     }
+    /**
+     * Hand over the parked seek, if any, and clear it.
+     *
+     * Called from the service's own player listener, which lives on the main thread — the same thread
+     * [seekTo] writes from — so the read/write pair needs no locking beyond @Volatile.
+     */
+    fun takePendingSeek(): Long? {
+        val v = pendingSeekMs
+        pendingSeekMs = null
+        return v
+    }
+
+    /** Keep the reported position in step with a seek the service just applied. */
+    fun markPosition(ms: Long) {
+        cachedPositionMs = ms.coerceAtLeast(0L)
+    }
+
     fun setVolume(v: Float) = onMain { it.volume = v.coerceIn(0f, 1f) }
     fun setRate(r: Float) = onMain { it.setPlaybackSpeed(r.coerceIn(0.5f, 3f)) }
 
