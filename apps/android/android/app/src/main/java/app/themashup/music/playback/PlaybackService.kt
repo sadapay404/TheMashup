@@ -34,6 +34,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.session.DefaultMediaNotificationProvider
+import app.themashup.music.notify.NotifyChannels
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import app.themashup.music.MainActivity
@@ -87,20 +88,14 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    /** Create the playback notification channel (Android 8+). Copied from the OuterTune pattern. */
-    private fun createNotificationChannel() {
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
-            NOTIFICATION_CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Playback controls for TheMashup"
-            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
-        }
-        nm.createNotificationChannel(channel)
-    }
+    /**
+     * Create the notification channels.
+     *
+     * Delegated to [NotifyChannels] so there is exactly one definition of every channel id and
+     * importance. This service used to own a copy, the download service owned another, and a message
+     * posted to a channel that had not been created by *that* process was dropped silently by Android.
+     */
+    private fun createNotificationChannel() = NotifyChannels.ensure(this)
 
     private fun startSession() {
         val audioAttributes = AudioAttributes.Builder()
@@ -261,8 +256,13 @@ class PlaybackService : MediaSessionService() {
     companion object {
         private const val TAG = "MashupPlayback"
 
-        /** Notification channel id for the playback foreground notification. */
-        const val NOTIFICATION_CHANNEL_ID = "app.themashup.music.playback"
+        /**
+         * Notification channel id for the playback foreground notification.
+         *
+         * Suffixed `v2` because Android freezes a channel's importance at creation: an upgrade that
+         * reused the old id would keep LOW forever, and the notification would stay buried.
+         */
+        const val NOTIFICATION_CHANNEL_ID = NotifyChannels.PLAYBACK
         const val NOTIFICATION_CHANNEL_NAME = "Playback"
 
         /** Custom notification actions. Declared here so layout and handler cannot disagree. */

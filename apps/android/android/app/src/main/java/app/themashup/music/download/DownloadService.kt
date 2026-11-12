@@ -1,6 +1,5 @@
 package app.themashup.music.download
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
@@ -9,6 +8,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import app.themashup.music.notify.NotifyChannels
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -90,18 +90,9 @@ class DownloadService : Service() {
     }
 
     private fun startForegroundIfNeeded() {
-        val channelId = CHANNEL_ID
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (nm.getNotificationChannel(channelId) == null) {
-                nm.createNotificationChannel(
-                    NotificationChannel(channelId, "Downloads", NotificationManager.IMPORTANCE_LOW).apply {
-                        description = "Background music downloads"
-                        setShowBadge(false)
-                    },
-                )
-            }
-        }
+        // All channels are defined in one place; posting to one that does not exist is silently
+        // dropped by Android, which is how a failed download used to leave no trace at all.
+        NotifyChannels.ensure(this)
         val notification = buildNotification("Downloading", "Preparing download…", indeterminate = true, pct = 0, ongoing = true)
         // Android 14 enforces the declared type at startForeground time; without it the service is
         // killed with ForegroundServiceTypeNotAllowed and every download silently dies.
@@ -159,7 +150,15 @@ class DownloadService : Service() {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(
                 NOTIF_ID_RESULT,
-                NotificationCompat.Builder(this, CHANNEL_ID)
+                /*
+                 * The outcome goes to the alert channel, not the progress channel.
+                 *
+                 * "Downloaded 12 tracks" is the one message in this feature that the user needs to be
+                 * told about; burying it on the silent progress channel was why a finished download
+                 * appeared to do nothing. It is a single, auto-cancelling row, so it costs one
+                 * notification per batch, not one per file.
+                 */
+                NotificationCompat.Builder(this, if (failed) ALERT_CHANNEL_ID else CHANNEL_ID)
                     .setSmallIcon(
                         if (failed) android.R.drawable.stat_notify_error else android.R.drawable.stat_sys_download_done,
                     )
@@ -288,7 +287,9 @@ class DownloadService : Service() {
 
     companion object {
         private const val TAG = "MashupDownload"
-        private const val CHANNEL_ID = "mashup_downloads"
+        private const val CHANNEL_ID = NotifyChannels.DOWNLOADS
+        /** The alert channel, used so a failed download is actually surfaced. */
+        private const val ALERT_CHANNEL_ID = NotifyChannels.ALERTS
         private const val NOTIF_ID = 4211
         /** Survives `stopForeground(STOP_FOREGROUND_REMOVE)`, so the outcome stays in the shade. */
         private const val NOTIF_ID_RESULT = 4212

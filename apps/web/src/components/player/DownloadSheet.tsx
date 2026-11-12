@@ -16,6 +16,7 @@ import { store } from '@/state/store';
 import { glide, Skeleton, snap } from '@/components/ui/primitives';
 import { CloseIcon, DownloadIcon } from '@/components/ui/icons';
 import { pushOverlay } from '@/lib/overlays';
+import { notificationsAvailable } from '@/lib/notifications';
 
 type Row =
   | { kind: 'audio'; label: string; detail: string; format: AudioFormat; usable: boolean }
@@ -25,6 +26,23 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
   const [stream, setStream] = useState<StreamInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
+  /*
+   * Whether the shade can be reached at all.
+   *
+   * `null` while unknown. The banner only appears once we know the answer is "no" — a hidden notice is
+   * the one failure mode a user cannot diagnose, because there is nothing on screen to point at.
+   */
+  const [canNotify, setCanNotify] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void notificationsAvailable().then((ok) => {
+      if (alive) setCanNotify(ok);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,7 +159,7 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
         exit={{ y: '100%' }}
         transition={glide}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-t-[var(--radius-sheet)] border-t border-[var(--hairline)] bg-[var(--color-raised)] pb-[max(20px,env(safe-area-inset-bottom))]"
+        className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-t-[var(--radius-sheet)] border-t border-[var(--hairline)] bg-[var(--color-raised)] pb-[max(20px,var(--safe-b))]"
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--hairline)] bg-[var(--color-raised)]/95 px-5 py-3 backdrop-blur">
           <div className="min-w-0">
@@ -173,6 +191,17 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
             </div>
           ) : (
             <>
+              {canNotify === false ? (
+                <div className="mb-3 flex items-start gap-2 rounded-2xl border border-[color-mix(in_oklab,var(--color-text-3)_30%,transparent)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] p-3 text-[11.5px] leading-relaxed text-[var(--color-text-2)]">
+                  <span className="mt-0.5 shrink-0 text-[var(--color-text-3)]">🔕</span>
+                  <span>
+                    Notifications are off, so the app cannot tell you when this finishes. It still saves —
+                    the Downloads screen tracks it. Android Settings → Apps → TheMashup → Notifications
+                    turns them back on.
+                  </span>
+                </div>
+              ) : null}
+
               <div className="mb-3 rounded-2xl bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] p-3 text-[11.5px] leading-relaxed text-[var(--color-text-2)]">
                 Resolved via <strong className="text-[var(--color-text)]">{stream?.profile}</strong> · URLs expire in{' '}
                 {stream ? Math.round(stream.expiresInSec / 3600) : 0} h, so downloads start immediately. FLAC is a

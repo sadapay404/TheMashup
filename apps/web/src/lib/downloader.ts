@@ -14,6 +14,7 @@
 import { store, type DownloadJob } from '@/state/store';
 import type { StreamInfo, Track } from '@themashup/core';
 import { nativeCancelDownload, nativeDownload, isNative, onNativeEvent } from './native';
+import { clearNotification, postNotification } from './notifications';
 import { service } from './service';
 
 export type DownloadState = DownloadJob['state'];
@@ -45,6 +46,41 @@ function update(id: string, patch: Partial<DownloadJob>): void {
   store.set((s) => ({
     downloads: s.downloads.map((j) => (j.id === id ? { ...j, ...patch } : j)),
   }));
+}
+
+/**
+ * Keep a standing row in the shade while anything is transferring.
+ *
+ * The native service posts its own foreground progress notification, and that is the authoritative one
+ * — but it only exists for jobs that reached `DownloadService`. A browser-path transfer, a job the
+ * service rejected, or one that is sitting in `queued` has no foreground service behind it, and on the
+ * device those were the downloads that appeared to do nothing at all. This row covers the gap: it is
+ * derived from the same job list the UI shows, so what the shade says and what the screen says cannot
+ * disagree.
+ *
+ * Cleared once nothing is in flight, so a finished queue does not leave a permanent "downloading 0%".
+ */
+const PROGRESS_NOTIF_ID = 6010;
+function syncProgressNotification(): void {
+  const jobs = store.getState().downloads;
+  const active = jobs.filter((j) => j.state === 'downloading' || j.state === 'queued' || j.state === 'muxing');
+  if (!active.length) {
+    void clearNotification(PROGRESS_NOTIF_ID);
+    return;
+  }
+  const pct = Math.round(
+    (active.reduce((sum, j) => sum + (j.state === 'queued' ? 0 : Math.min(1, j.progress)), 0) / active.length) * 100,
+  );
+  const label = active.length === 1 ? active[0]!.track.title : `${active.length} tracks`;
+  void postNotification({
+    id: PROGRESS_NOTIF_ID,
+    title: 'Downloading',
+    body: label,
+    channel: 'downloads',
+    ongoing: true,
+    progress: pct,
+    route: 'downloads',
+  });
 }
 
 /** Read a Response into a Blob, tolerating environments whose stream() is unimplemented. */
@@ -183,6 +219,7 @@ export async function startDownload(
     createdAt: Date.now(),
   };
   store.set((s) => ({ downloads: [job, ...s.downloads].slice(0, 60) }));
+  syncProgressNotification();
 
   // Native path: the Kotlin service does resumable chunking and survives backgrounding.
   if (isNative() && !target.needsTranscode) {
@@ -241,6 +278,7 @@ export async function startDownload(
       url,
       (received, total) => {
         update(id, { progress: total > 0 ? received / total : 0, bytes: received, totalBytes: total });
+        syncProgressNotification();
       },
       controller.signal,
     );
@@ -248,7 +286,8 @@ export async function startDownload(
     update(id, { state: 'muxing', progress: 1 });
     await saveBlob(blob, fileNameFor(track, target));
     update(id, { state: 'done', progress: 1, totalBytes: blob.size });
-    store.notify(`Saved ${track.title}`, 'success');
+    syncProgressNotification();
+    store.notify(`Saved ${track.title}`, 'success', { notify: 'always', route: 'downloads' });
   } catch (e) {
     clearWatchdog(id);
     if (e instanceof SaveCancelled) {
@@ -300,7 +339,8 @@ function armWatchdog(id: string): void {
         state: 'failed',
         error: 'The download service never reported progress. It may have been stopped by the system — retry, and check that the file can be fetched.',
       });
-      store.notify('Download stalled — no progress from the service', 'error');
+      syncProgressNotification();
+      store.notify('Download stalled — no progress from the service', 'error', { route: 'downloads' });
     }, WATCHDOG_MS),
   );
 }
@@ -330,6 +370,7 @@ export function bindNativeDownloadEvents(): void {
       progress: total > 0 ? Math.min(1, bytes / total) : 0,
       ...(total > 0 ? { totalBytes: total } : {}),
     });
+    syncProgressNotification();
   });
 
   onNativeEvent('downloadComplete', (data) => {
@@ -337,7 +378,10 @@ export function bindNativeDownloadEvents(): void {
     if (!d?.id) return;
     clearWatchdog(d.id);
     update(d.id, { state: 'done', progress: 1 });
-    store.notify(`Saved ${d.name ?? 'track'}`, 'success');
+    syncProgressNotification();
+    // 'always': a completed download is the canonical case for a shade entry — the user asked for the
+    // file and has almost certainly left the app by the time it lands.
+    store.notify(`Saved ${d.name ?? 'track'}`, 'success', { notify: 'always', route: 'downloads' });
   });
 
   onNativeEvent('downloadFailed', (data) => {
@@ -350,6 +394,7 @@ export function bindNativeDownloadEvents(): void {
       state: cancelled ? 'partial' : 'failed',
       error: d.reason ?? 'download failed',
     });
+    syncProgressNotification();
   });
 }
 
@@ -368,12 +413,14 @@ export function cancelDownload(id: string): void {
   clearWatchdog(id);
   void nativeCancelDownload(id);
   store.set((s) => ({ downloads: s.downloads.filter((d) => d.id !== id) }));
+  syncProgressNotification();
 }
 
 /** Drop a finished or failed job from the list. Running jobs go through `cancelDownload`. */
 export function removeDownload(id: string): void {
   clearWatchdog(id);
   store.set((s) => ({ downloads: s.downloads.filter((d) => d.id !== id) }));
+  syncProgressNotification();
 }
 
 /** Remove every job that is no longer doing anything. */
@@ -382,6 +429,7 @@ export function clearFinishedDownloads(): number {
   store.set((s) => ({
     downloads: s.downloads.filter((d) => d.state === 'downloading' || d.state === 'queued'),
   }));
+  syncProgressNotification();
   return before - store.getState().downloads.length;
 }
 

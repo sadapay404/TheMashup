@@ -36,6 +36,12 @@ class MainActivity : BridgeActivity() {
         // The JS ladder asks this first: real URLs with real PoTokens, or an honest "not installed".
         registerPlugin(app.themashup.music.extractor.ExtractorPlugin::class.java)
         registerPlugin(app.themashup.music.download.DownloadPlugin::class.java)
+        // The one general-purpose notification surface: the JS store's notify() lands here as well as
+        // in the in-app toast, so a message is never lost just because the app was in the background.
+        registerPlugin(app.themashup.music.notify.NotifyPlugin::class.java)
+        // Real status/navigation bar geometry, so the page can stay out of the system bars even
+        // where the WebView does not report a safe-area inset.
+        registerPlugin(app.themashup.music.shell.UiPlugin::class.java)
         registerPlugin(app.themashup.music.auth.AccountPlugin::class.java)
         registerPlugin(app.themashup.music.diagnostics.LogPlugin::class.java)
         LogPlugin.boot("plugins registered")
@@ -77,6 +83,9 @@ class MainActivity : BridgeActivity() {
 
         // The notification permission is requested in onResume, not here: see the note on
         // requestNotificationPermissionOnce for why asking this early silently does nothing.
+        // A cold start from a notification: the route is parked for the page to ask for once it loads.
+        captureNotificationRoute(intent)
+
         LogPlugin.boot("binding playback service")
         preparePlaybackSession()
         LogPlugin.boot("boot complete")
@@ -104,6 +113,21 @@ class MainActivity : BridgeActivity() {
             // WebView <audio> element, which the JS layer handles when the plugin reports no state.
             android.util.Log.w("MashupMain", "playback service unavailable", t)
         }
+    }
+
+    /**
+     * Remember which screen a notification tap asked for.
+     *
+     * The page cannot be evaluated yet (on a cold start nothing has loaded; on a warm one the store may
+     * still be hydrating), so the route is parked on the plugin and the web layer pulls it when it is
+     * ready. This is the difference between tapping "Downloaded" and landing on Home — which makes the
+     * notification look broken — and landing on the Downloads screen the message was about.
+     */
+    private fun captureNotificationRoute(intent: Intent?) {
+        val route = intent?.getStringExtra(app.themashup.music.notify.NotifyPlugin.EXTRA_ROUTE) ?: return
+        app.themashup.music.notify.NotifyPlugin.pendingRoute = route
+        // Consume it, so a rotation or a re-delivery of the same intent cannot re-navigate later.
+        intent.removeExtra(app.themashup.music.notify.NotifyPlugin.EXTRA_ROUTE)
     }
 
     /**
@@ -158,6 +182,9 @@ class MainActivity : BridgeActivity() {
         // BridgeActivity forwards to the bridge (which the WebView event system needs); it is a
         // protected method, so the override must stay `protected` too.
         super.onNewIntent(intent)
+        // A notification tap while the app is already running. A cold-start tap is picked up in
+        // onCreate; both paths park the route in the same place, so the web layer has one contract.
+        captureNotificationRoute(intent)
         // Media3's MediaButtonReceiver already delivers media keys to the session. Re-broadcasting
         // here (as an earlier version did) would loop the intent back into the receiver forever.
     }

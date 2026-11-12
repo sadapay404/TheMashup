@@ -7,6 +7,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 import type { AffinityState, Lyrics, StreamInfo, Track } from '@themashup/core';
 import { emptyAffinity } from '@themashup/core';
 import { DEFAULT_HAPTIC_SETTINGS, haptic, type HapticEvent } from '@/lib/haptics';
+import { deservesNotification, postNotification } from '@/lib/notifications';
 
 export type ThemeId = 'obsidian' | 'vinyl' | 'paper' | 'cyberpunk' | 'forest';
 
@@ -205,15 +206,54 @@ class Store {
    *
    * Haptics fire here because every user-visible outcome in the app goes through a toast, so this is
    * the one place that guarantees feedback is consistent — no component can forget to buzz.
+   *
+   * It also mirrors the message to the phone's notification shade. A toast only exists while the app
+   * is in front of the user; a download that finishes after they switch away, or a playback failure
+   * that happens while the screen is off, used to leave no trace anywhere. Both surfaces now receive
+   * the same event — see `lib/notifications.ts` for which kinds are worth a notification, and why the
+   * quiet ones stay quiet.
    */
-  notify = (text: string, kind: 'info' | 'error' | 'success' = 'info'): void => {
+  notify = (text: string, kind: 'info' | 'error' | 'success' = 'info', opts?: NotifyOptions): void => {
     haptic(kind === 'error' ? 'error' : kind === 'success' ? 'success' : 'tap');
     const id = Date.now();
     this.set({ toast: { id, text, kind } });
     setTimeout(() => {
       if (this.state.toast?.id === id) this.set({ toast: null });
     }, 4200);
+
+    // Fire-and-forget on purpose: `notify` is called from render paths and from inside catch blocks,
+    // and neither can await a bridge call. The helper swallows every failure.
+    if (opts?.notify === 'always' || deservesNotification(kind, text)) {
+      void postNotification({
+        title: opts?.title ?? defaultTitle(kind),
+        body: text,
+        channel: opts?.channel ?? (kind === 'error' ? 'alerts' : 'downloads'),
+        ...(opts?.route ? { route: opts.route } : {}),
+        ...(opts?.ongoing ? { ongoing: true } : {}),
+        ...(opts?.id !== undefined ? { id: opts.id } : {}),
+      });
+    }
   };
+}
+
+/** Extra delivery options for a notification raised by `notify`. */
+export interface NotifyOptions {
+  /** Post to the shade even for a message that would normally stay a toast. */
+  notify?: 'always';
+  /** Headline in the shade. Defaults to the app name, or "Something went wrong" for errors. */
+  title?: string;
+  /** Which channel carries it. Defaults to `downloads` for news, `alerts` for failures. */
+  channel?: 'alerts' | 'playback' | 'downloads';
+  /** Screen to open when the notification is tapped. */
+  route?: string;
+  /** Keep it in the shade until dismissed (a transfer in progress). */
+  ongoing?: boolean;
+  /** Stable id inside the JS range, so repeated updates replace rather than stack. */
+  id?: number;
+}
+
+function defaultTitle(kind: 'info' | 'error' | 'success'): string {
+  return kind === 'error' ? 'Something went wrong' : 'TheMashup';
 }
 
 export const store = new Store();
