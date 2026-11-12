@@ -41,6 +41,24 @@ const DOCK_BASE = 10;
 
 /** Height of one dock item. The pill adds `DOCK_PADDING * 2` around it. */
 export const DOCK_ITEM_H = 52;
+
+/**
+ * Width of one dock item once the label is gone.
+ *
+ * The dock is icon-only at the user's request. Width and height are deliberately equal, so each
+ * destination is a circle rather than a leftover pill with space where a word used to be — five of
+ * them at 52px inside a rounded container reads as one deliberate control, not as a dock that lost
+ * its text.
+ */
+export const DOCK_ITEM_W = 52;
+
+/**
+ * The icon itself.
+ *
+ * Up from 21. The label used to carry about a third of the item's height; with it gone, a 21px glyph
+ * in a 52px circle looks like a mistake rather than a choice.
+ */
+export const DOCK_ICON = 26;
 export const DOCK_PADDING = 6;
 export const DOCK_H = DOCK_ITEM_H + DOCK_PADDING * 2;
 

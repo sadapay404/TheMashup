@@ -297,6 +297,7 @@ export function onNativeEvent(
     | 'downloadFailed'
     | 'accountSignedIn'
     | 'accountSignedOut'
+    | 'signInDismissed'
     | 'toggleShuffle'
     | 'toggleRepeat'
     | 'toggleLike',
@@ -373,6 +374,67 @@ export async function nativeSignIn(): Promise<boolean> {
   try {
     await invoke('MashupAccount', 'signIn');
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/** One Google identity present on the device. `name` is the address, as AccountManager reports it. */
+export interface NativeAccount {
+  name: string;
+  type: string;
+}
+
+export interface AccountsResult {
+  accounts: NativeAccount[];
+  /** True when the app may not enumerate yet (GET_ACCOUNTS is runtime from API 30). */
+  needsPermission: boolean;
+}
+
+/**
+ * The device's signed-in Google accounts.
+ *
+ * Returns an empty list rather than throwing when the plugin is absent or refuses: the caller's job is
+ * to decide between the picker and the WebView fallback, and both are legitimate. A thrown error here
+ * would turn "this is a browser" into an error state on a screen that is otherwise fine.
+ */
+export async function nativeAccounts(): Promise<AccountsResult> {
+  if (!plugin('MashupAccount')) return { accounts: [], needsPermission: false };
+  try {
+    const res = (await invoke('MashupAccount', 'accounts')) as {
+      accounts?: { name?: string; type?: string }[];
+      needsPermission?: boolean;
+    };
+    return {
+      accounts: (res.accounts ?? [])
+        .map((a) => ({ name: String(a?.name ?? ''), type: String(a?.type ?? '') }))
+        .filter((a) => a.name.includes('@')),
+      needsPermission: Boolean(res.needsPermission),
+    };
+  } catch {
+    return { accounts: [], needsPermission: false };
+  }
+}
+
+/** Sign in as a specific device account, without showing a login form. */
+export async function nativeSignInAs(email: string): Promise<boolean> {
+  try {
+    await invoke('MashupAccount', 'signInAs', { email });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Open the OS page where GET_ACCOUNTS can be granted. Resolves false on a browser. */
+export async function nativeRequestAccountsPermission(): Promise<boolean> {
+  if (!plugin('MashupAccount')) return false;
+  try {
+    const res = (await invoke('MashupAccount', 'requestAccountsPermission')) as {
+      granted?: boolean;
+      openedSettings?: boolean;
+    };
+    return Boolean(res.granted);
   } catch {
     return false;
   }

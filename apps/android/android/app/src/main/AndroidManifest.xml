@@ -14,6 +14,14 @@
     <!-- Runtime permission on Android 13+; the media notification is useless without it. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+      Read the Google accounts already signed in on this device, so sign-in can be a picker instead
+      of a login page. Runtime permission from API 30 (see AccountPlugin.accounts); the app degrades
+      to the WebView flow when it is refused. The permission exposes account *names* only — no tokens,
+      no passwords, nothing that leaves the device.
+    -->
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+
     <!-- Optional nicety on Android 12+; improves notification timing, degrades gracefully. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
 

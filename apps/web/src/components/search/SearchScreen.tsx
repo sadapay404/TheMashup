@@ -339,8 +339,16 @@ export function SearchScreen({
             <span className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-[var(--accent)]">
               <SearchIcon width={26} height={26} />
             </span>
+            {/*
+              A slogan, not a title.
+
+              The words “Find anything” used to sit here and again in the empty state below, which read
+              as the same heading twice on one screen. This one is the invitation — it says what the
+              page is *for* — and the empty state keeps the plain restatement for the moment the user
+              needs it.
+            */}
             <h1 className="font-[family-name:var(--font-display)] text-[30px] leading-none tracking-tight">
-              Find anything
+              Search it, listen it, repeat it
             </h1>
             <p className="mt-2 max-w-[19rem] text-[12.5px] leading-relaxed text-[var(--color-text-3)]">
               A song, an artist, or the half-remembered lyric you have been humming all day.

@@ -284,25 +284,52 @@ export default function App() {
   return (
     <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col">
       {/*
-        The separator.
+        The status-bar separator.
 
-        The app is edge-to-edge, so the status bar is drawn over the page. This strip is the physical
-        boundary between the two: it holds the page background at full opacity for the height of the
-        system bar, so the clock and the battery read as *the system's* band rather than as part of
-        whatever the screen happens to be showing behind them, and no content is ever positioned in it.
+        The app is edge-to-edge, so the status bar is drawn over the page. Something has to make the
+        boundary legible. The first attempt was an opaque band in the theme's ground colour, which on a
+        dark theme is a black bar sitting above the content — it read as a letterbox, not as part of the
+        app, and the user said so.
 
-        It is `fixed` and `pointer-events-none` so it costs no layout, and it is drawn *under* the
-        screens (`-z-10` relative to no stacking context) but above the page wash. Screens add their own
-        `screenTop()` padding inside it; this is the visible line between the layers, not the spacing.
+        This version is a *layer* rather than a block:
+
+          - The base is the accent wash already used by every glass surface, so it belongs to the theme
+            instead of fighting it — it tints toward the album-art accent like the rest of the chrome.
+          - It blurs what scrolls under it, so content passing beneath reads as *behind* the bar rather
+            than clipped by it. That is what makes it feel like part of the interface.
+          - It fades out rather than ending on a hard edge: the tint dissolves into the page, so there is
+            no visible seam to call "out of place".
+          - The hairline is drawn as a soft gradient that is strongest in the middle and vanishes at both
+            ends, which is the same motif the dock and the song card use.
+
+        `pointer-events-none` and no layout: it costs nothing and cannot swallow a tap.
       */}
       <div
         aria-hidden
         className="pointer-events-none fixed inset-x-0 top-0 z-0"
         style={{ height: 'var(--safe-t)' }}
       >
-        <div className="h-full w-full bg-[var(--color-void)]" />
-        {/* The hairline that actually draws the separation. */}
-        <div className="absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(90deg,transparent,color-mix(in_oklab,var(--wash)_18%,transparent)_18%,color-mix(in_oklab,var(--wash)_18%,transparent)_82%,transparent)]" />
+        {/* The tinted, blurred layer. `backdrop-filter` is what makes it sit *over* the page. */}
+        <div
+          className="absolute inset-x-0 top-0"
+          style={{
+            height: 'calc(var(--safe-t) + 6px)',
+            background:
+              'linear-gradient(to bottom, color-mix(in oklab, var(--accent) 14%, var(--color-void)) 0%, color-mix(in oklab, var(--accent) 8%, var(--color-void)) 62%, transparent 100%)',
+            backdropFilter: 'blur(18px) saturate(150%)',
+            WebkitBackdropFilter: 'blur(18px) saturate(150%)',
+          }}
+        />
+        {/* The seam between system chrome and app content: soft at the edges, present in the middle. */}
+        <div
+          className="absolute inset-x-0"
+          style={{
+            top: 'calc(var(--safe-t) - 1px)',
+            height: '1px',
+            background:
+              'linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--accent) 34%, transparent) 22%, color-mix(in oklab, var(--accent) 34%, transparent) 78%, transparent 100%)',
+          }}
+        />
       </div>
 
       {/* Route content */}

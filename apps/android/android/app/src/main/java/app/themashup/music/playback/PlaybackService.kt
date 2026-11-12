@@ -33,7 +33,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.HttpDataSource
-import androidx.media3.session.DefaultMediaNotificationProvider
 import app.themashup.music.notify.NotifyChannels
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -60,6 +59,23 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
     /**
+     * Force a notification refresh.
+     *
+     * Media3 1.3.1 predates `triggerNotificationUpdate()`, so this goes through the one public entry
+     * point that exists here: `onUpdateNotification(session, startInForeground)`. Must be called on
+     * the main thread — every caller already is.
+     *
+     * `startInForeground` is not a hint, it is a demand: `true` promotes the service, `false` only
+     * re-posts. Passing `true` while paused would keep the service in the foreground forever, so the
+     * callers pass the player's own play-when-ready rather than a constant.
+     */
+    fun refreshNotification(startInForeground: Boolean) {
+        val session = mediaSession ?: return
+        runCatching { onUpdateNotification(session, startInForeground) }
+            .onFailure { Log.w(TAG, "notification refresh failed", it) }
+    }
+
+    /**
      * Whether the session came up. A failure here is not fatal to the app: the JS layer falls back to
      * the WebView audio element when the plugin reports no player.
      */
@@ -80,6 +96,7 @@ class PlaybackService : MediaSessionService() {
         // outcome; taking the app down with the music service is not.
         try {
             startSession()
+            current = this
             ready = true
         } catch (t: Throwable) {
             Log.e(TAG, "playback session unavailable; web audio will be used", t)
@@ -196,29 +213,37 @@ class PlaybackService : MediaSessionService() {
         /*
          * The foreground notification.
          *
-         * `DefaultMediaNotificationProvider` supplies the standard transport row (previous / play-
-         * pause / next) plus every valid button from the session's custom layout — which is where
-         * shuffle, repeat, like and stop come from. Those buttons exist in the shade only because
-         * `setCustomLayout` above put them there and `onConnect` advertised their commands.
+         * Provided by [NowPlayingNotification], which wraps the stock Media3 provider with the three
+         * things a music app needs and the library does not do by default: our own single-colour small
+         * icon (the default dot is dropped by several OEM skins, which is one way a playback
+         * notification silently never appears), the playback channel, and an ongoing flag so the entry
+         * cannot be swiped away while audio is still coming out of the speaker. This is the shape
+         * LibreTube uses; see that class for what was copied and what was deliberately not.
          *
-         * The channel name comes from resources; the id matches the one created in
-         * [createNotificationChannel] so the notification lands on the channel the user already saw
-         * (and any importance they chose for it survives).
+         * The transport row (previous / play-pause / next), the seek bar and the artwork all still come
+         * from the library. The four extra buttons — shuffle, repeat, like, stop — come from the custom
+         * layout set on the session above, which is why they appear at all.
          */
+        setMediaNotificationProvider(NowPlayingNotification(this))
+
         /*
-         * The compact (collapsed) row is prev / play-pause / next already: Media3 fills it from the
-         * player commands when no custom button claims index slots. The extended row is the same three
-         * plus our four custom buttons. That is the "many controls" the user asked for, and it needs no
-         * subclass to achieve — overriding `addNotificationActions` for it would have been work with
-         * no visible difference.
+         * Register the session with the service — the actual reason playback had no notification.
+         *
+         * `MediaSessionService` only calls `addSession()` from `onGetSession()`, i.e. when some
+         * *controller* connects. Our app never creates a `MediaController`: playback is driven by
+         * `PlaybackBridge` calling `player.setMediaItem()` straight on the ExoPlayer. So no controller
+         * ever connected, `MediaNotificationManager` never registered the session, and every
+         * notification refresh was a no-op — `getConnectedControllerForSession()` returned null and
+         * `shouldShowNotification()` therefore always said no.
+         *
+         * Downloads were unaffected because `DownloadService` posts its own notification by hand, which
+         * is exactly the asymmetry the user described: "the notification appears only when downloading
+         * but not when playing songs".
+         *
+         * Registering here is idempotent (the service checks for an existing id) and it is what makes
+         * Media3 attach its own internal controller, which in turn is what makes the shade entry real.
          */
-        setMediaNotificationProvider(
-            DefaultMediaNotificationProvider.Builder(this)
-                .setNotificationId(1)
-                .setChannelId(NOTIFICATION_CHANNEL_ID)
-                .setChannelName(R.string.notification_channel_name)
-                .build(),
-        )
+        mediaSession?.let { addSession(it) }
 
         PlaybackBridge.attach(player)
     }
@@ -244,6 +269,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        if (current === this) current = null
         PlaybackBridge.detach()
         mediaSession?.run {
             player.release()
@@ -255,6 +281,16 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val TAG = "MashupPlayback"
+
+        /**
+         * The live service, if one exists.
+         *
+         * [PlaybackBridge] is a singleton with no service reference — it only holds the ExoPlayer — so
+         * a notification refresh requested from a bridge call has no other way back to the service.
+         * Written in `onCreate`, cleared in `onDestroy`, both on the main thread.
+         */
+        @Volatile
+        var current: PlaybackService? = null
 
         /**
          * Notification channel id for the playback foreground notification.
@@ -692,6 +728,20 @@ internal object PlaybackBridge {
             // Honouring the flag matters: loading a track to reproduce a paused session must not
             // start audio on its own, and the JS layer relies on this being respected.
             p.playWhenReady = shouldPlay
+            /*
+             * Ask for the notification now.
+             *
+             * Media3 refreshes on `EVENT_MEDIA_METADATA_CHANGED`, `EVENT_TIMELINE_CHANGED` and the
+             * play-state changes it observes through its *internal controller*. Those events do fire,
+             * but the first one is emitted while the player is still `STATE_IDLE`-adjacent, and
+             * `shouldRunInForeground()` refuses anything that is not READY or BUFFERING. Triggering the
+             * refresh after `prepare()` closes that window: by the time the service reads the player it
+             * is BUFFERING and the notification is allowed to promote to foreground.
+             *
+             * This is also what the user meant by "appears when playing" — the notification has to be
+             * there for the whole session, not only after a state change that happens to land later.
+             */
+            PlaybackService.current?.refreshNotification(startInForeground = shouldPlay)
         }
     }
 
@@ -712,7 +762,10 @@ internal object PlaybackBridge {
     }
 
     fun pause() = onMain { it.pause() }
-    fun resume() = onMain { it.play() }
+    fun resume() = onMain {
+        it.play()
+        PlaybackService.current?.refreshNotification(startInForeground = true)
+    }
     fun seekTo(ms: Long) {
         // Optimistic cache update so a JS read straight after a seek is not stale for a frame.
         cachedPositionMs = ms.coerceAtLeast(0L)

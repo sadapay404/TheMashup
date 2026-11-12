@@ -37,7 +37,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { store, useApp, navigate, type Route } from '@/state/store';
 import { ChevronDownIcon, DownloadIcon, HomeIcon, LibraryIcon, SearchIcon, SettingsIcon } from '@/components/ui/icons';
 import { haptic } from '@/lib/haptics';
-import { DOCK_H, DOCK_ITEM_H, DOCK_PADDING, dockBottom, dockBottomOverCard } from '@/lib/layout';
+import {
+  DOCK_H,
+  DOCK_ICON,
+  DOCK_ITEM_H,
+  DOCK_ITEM_W,
+  DOCK_PADDING,
+  dockBottom,
+  dockBottomOverCard,
+} from '@/lib/layout';
 
 const ITEMS: Array<{ id: Route; label: string; Icon: typeof HomeIcon }> = [
   { id: 'home', label: 'Home', Icon: HomeIcon },
@@ -304,8 +312,10 @@ export function SmartDock() {
               layout
               transition={SPRING}
               style={{ height: DOCK_ITEM_H }}
-              animate={{ width: 64, opacity: 1, scale: slid ? 1.07 : 1 }}
-              className="relative flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-full"
+              // Icon-only: a wider, shorter slot than the labelled version, so removing the text makes
+              // the dock feel tighter rather than emptier. The icon grows to fill what the label used.
+              animate={{ width: DOCK_ITEM_W, opacity: 1, scale: slid ? 1.07 : 1 }}
+              className="relative grid place-items-center overflow-hidden rounded-full"
             >
               {active ? (
                 <motion.span
@@ -314,15 +324,13 @@ export function SmartDock() {
                   className="absolute inset-0 rounded-full bg-[var(--accent)]/16"
                 />
               ) : null}
+              {/*
+                The label is gone from the screen but not from the accessibility tree: the button keeps
+                its `aria-label`, and a screen reader still announces "Library, current page". Without
+                that, an icon-only dock is five unlabelled buttons.
+              */}
               <span className={`relative z-10 ${active ? 'text-[var(--accent)]' : 'text-[var(--color-text-2)]'}`}>
-                <Icon width={21} height={21} />
-              </span>
-              <span
-                className={`relative z-10 text-[9.5px] font-semibold leading-none ${
-                  active ? 'text-[var(--accent)]' : 'text-[var(--color-text-3)]'
-                }`}
-              >
-                {label}
+                <Icon width={DOCK_ICON} height={DOCK_ICON} />
               </span>
             </motion.button>
           );
@@ -373,14 +381,15 @@ export function SmartDock() {
               layout
               transition={SPRING}
               style={{ height: DOCK_ITEM_H }}
-              animate={{ width: 64, opacity: 1 }}
-              className="relative flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-full"
+              // Same circle as the expanded row: the compact pill is the *same* control, not a
+              // narrower variant that happens to have lost its caption.
+              animate={{ width: DOCK_ITEM_W, opacity: 1 }}
+              className="relative grid place-items-center overflow-hidden rounded-full"
             >
               <motion.span layoutId="dock-active" transition={SPRING} className="absolute inset-0 rounded-full bg-[var(--accent)]/16" />
               <span className="relative z-10 text-[var(--accent)]">
-                <Icon width={21} height={21} />
+                <Icon width={DOCK_ICON} height={DOCK_ICON} />
               </span>
-              <span className="relative z-10 text-[9.5px] font-semibold leading-none text-[var(--accent)]">{label}</span>
             </motion.button>
           );
         }

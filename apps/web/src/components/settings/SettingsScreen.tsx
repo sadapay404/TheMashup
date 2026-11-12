@@ -10,7 +10,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { buildRequest, inspectRungs, parsePlayer, pickAudioUrl, PROFILES, STREAM_LADDER } from '@themashup/core';
 import { service } from '@/lib/service';
-import { isNative, nativeAccountStatus, nativeBootMark, nativeCookie, nativeSignIn } from '@/lib/native';
+import {
+  isNative,
+  nativeAccountStatus,
+  nativeAccounts,
+  nativeBootMark,
+  nativeCookie,
+  nativeRequestAccountsPermission,
+  nativeSignIn,
+  nativeSignInAs,
+  onNativeEvent,
+} from '@/lib/native';
 import { store, useApp } from '@/state/store';
 import { snap } from '@/components/ui/primitives';
 import { applyTheme, THEMES, themeMeta } from '@/lib/theme';
@@ -84,6 +94,10 @@ export function SettingsScreen() {
   const [signedIn, setSignedIn] = useState(service.hasAccount());
   const [signingIn, setSigningIn] = useState(false);
   const [accountMsg, setAccountMsg] = useState<string | null>(null);
+  // The device's Google identities. Empty is a legitimate state (browser build, permission refused,
+  // or a phone with no Google account) and is what selects the WebView fallback.
+  const [accounts, setAccounts] = useState<{ name: string; type: string }[]>([]);
+  const [showPicker, setShowPicker] = useState(false);
 
   const refreshAccount = async () => {
     if (isNative()) {
@@ -102,8 +116,32 @@ export function SettingsScreen() {
     // Mount-only: `refreshAccount` is recreated each render but only touches state, and re-running
     // this on every render would poll the native plugin on every keystroke elsewhere on the page.
     void refreshAccount();
+    void nativeAccounts().then((r) => setAccounts(r.accounts));
   }, []);
 
+  /*
+   * Backing out of the Google page ends the wait.
+   *
+   * The complaint was that pressing back closed the WebView and nothing else happened, so the button
+   * stayed on "Waiting for Google…" while the sign-in was already over. The native side now reports
+   * the dismissal, which lets this screen stop spinning and say why.
+   */
+  useEffect(() => {
+    const off = onNativeEvent('signInDismissed', () => {
+      setSigningIn(false);
+      setAccountMsg('Sign-in cancelled. Pick an account above, or try again.');
+    });
+    return off;
+  }, []);
+
+  /**
+   * Start sign-in.
+   *
+   * Picker first, page second. If the phone knows about a Google account, the user picks it and the
+   * native side signs in as that identity — no "Sign in with Google" page, which is exactly the flow
+   * the user asked to be rid of. The WebView is now only for the case where the device has no
+   * account to offer, or the user explicitly asks for a different one.
+   */
   const doSignIn = async () => {
     setAccountMsg(null);
     if (!isNative()) {
@@ -114,6 +152,27 @@ export function SettingsScreen() {
       );
       return;
     }
+
+    const discovered = await nativeAccounts();
+    setAccounts(discovered.accounts);
+    if (discovered.needsPermission) {
+      // Offering an empty list would look broken. Ask once, plainly, and say where the switch is.
+      await nativeRequestAccountsPermission();
+      setAccountMsg(
+        'Allow “Accounts on this device” for TheMashup, then tap again — or use the Google page instead.',
+      );
+      return;
+    }
+    if (discovered.accounts.length === 0) {
+      await openWebSignIn();
+      return;
+    }
+    setShowPicker(true);
+  };
+
+  /** The old flow, unchanged, now reached deliberately. */
+  const openWebSignIn = async () => {
+    setShowPicker(false);
     setSigningIn(true);
     await nativeSignIn();
     // The WebView may still be open; poll briefly so the row updates the moment it closes.
@@ -125,6 +184,22 @@ export function SettingsScreen() {
     await refreshAccount();
     setSigningIn(false);
     setAccountMsg(service.hasAccount() ? 'Signed in.' : 'Not signed in yet.');
+  };
+
+  /** One tap on a device account. */
+  const signInAs = async (email: string) => {
+    setShowPicker(false);
+    setSigningIn(true);
+    setAccountMsg(`Signing in as ${email}…`);
+    await nativeSignInAs(email);
+    for (let i = 0; i < 120; i++) {
+      const status = await nativeAccountStatus();
+      if (status?.signedIn) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    await refreshAccount();
+    setSigningIn(false);
+    setAccountMsg(service.hasAccount() ? `Signed in as ${email}.` : `Could not sign in as ${email}.`);
   };
 
   const doSignOut = () => {
@@ -353,14 +428,52 @@ export function SettingsScreen() {
         <Row label="Active route" value={transportRoute} />
         <Row label="Account" value={signedIn ? 'Signed in' : 'Anonymous'} />
         <div className="mt-2 px-1">
-          <button
-            type="button"
-            onClick={() => (signedIn ? doSignOut() : void doSignIn())}
-            disabled={signingIn}
-            className="w-full rounded-2xl bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] py-2.5 text-[12.5px] font-semibold disabled:opacity-60"
-          >
-            {signingIn ? 'Waiting for Google…' : signedIn ? 'Sign out' : 'Sign in with Google'}
-          </button>
+          {/*
+            The account picker.
+
+            This is the answer to "shows all my logged-in Gmails, I click one and it logins without
+            opening YT Music". The list is the device's own accounts, so there is nothing to type and
+            no page that can strand the user. Each row is a real 44px target rather than a chip.
+          */}
+          {showPicker && !signedIn ? (
+            <div className="rounded-2xl border border-[var(--hairline)] bg-[color-mix(in_oklab,var(--wash)_4.5%,transparent)] p-1.5">
+              <p className="px-2.5 pb-1.5 pt-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-3)]">
+                Choose an account
+              </p>
+              <ul>
+                {accounts.map((a) => (
+                  <li key={a.name}>
+                    <button
+                      type="button"
+                      onClick={() => void signInAs(a.name)}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-left active:bg-[color-mix(in_oklab,var(--wash)_8%,transparent)]"
+                    >
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklab,var(--accent)_18%,transparent)] text-[12px] font-bold text-[var(--accent)]">
+                        {a.name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{a.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                onClick={() => void openWebSignIn()}
+                className="mt-1 w-full rounded-xl px-2.5 py-2.5 text-left text-[11.5px] font-medium text-[var(--color-text-3)]"
+              >
+                Use a different account…
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => (signedIn ? doSignOut() : void doSignIn())}
+              disabled={signingIn}
+              className="w-full rounded-2xl bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] py-2.5 text-[12.5px] font-semibold disabled:opacity-60"
+            >
+              {signingIn ? 'Waiting for Google…' : signedIn ? 'Sign out' : 'Sign in with Google'}
+            </button>
+          )}
           {accountMsg ? (
             <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-3)]">{accountMsg}</p>
           ) : null}
