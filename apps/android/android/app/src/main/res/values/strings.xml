@@ -4,4 +4,5 @@
     <string name="title_activity_main">TheMashup</string>
     <string name="package_name">app.themashup.music</string>
     <string name="custom_url_scheme">app.themashup.music</string>
+    <string name="notification_channel_name">Playback</string>
 </resources>

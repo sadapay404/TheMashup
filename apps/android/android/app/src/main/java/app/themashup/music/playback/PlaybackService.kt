@@ -150,7 +150,6 @@ class PlaybackService : MediaSessionService() {
                     code = error.errorCodeName,
                     status = status,
                     positionMs = PlaybackBridge.positionMs(),
-                    url = currentUrl(),
                     detail = cause?.message?.take(180),
                 )
             }
@@ -181,7 +180,7 @@ class PlaybackService : MediaSessionService() {
             DefaultMediaNotificationProvider.Builder(this)
                 .setNotificationId(1)
                 .setChannelId(NOTIFICATION_CHANNEL_ID)
-                .setChannelName(NOTIFICATION_CHANNEL_NAME)
+                .setChannelName(R.string.notification_channel_name)
                 .build()
         )
 
@@ -282,19 +281,20 @@ class PlaybackService : MediaSessionService() {
             // pattern: CommandButton with a custom SessionCommand that the JS layer handles.
             session.setCustomLayout(
                 listOf(
-                    CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                    CommandButton.Builder()
                         .setDisplayName("Shuffle")
                         .setSessionCommand(CommandToggleShuffle)
-                        .setCustomIconResId(android.R.drawable.ic_media_shuffle)
+                        .setIcon(CommandButton.ICON_SHUFFLE)
                         .build(),
-                    CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                    CommandButton.Builder()
                         .setDisplayName("Repeat")
                         .setSessionCommand(CommandToggleRepeat)
-                        .setCustomIconResId(android.R.drawable.ic_media_repeat)
+                        .setIcon(CommandButton.ICON_REPEAT)
                         .build(),
-                    CommandButton.Builder(CommandButton.ICON_HEART_UNFILLED)
+                    CommandButton.Builder()
                         .setDisplayName("Like")
                         .setSessionCommand(CommandToggleLike)
+                        .setIcon(CommandButton.ICON_THUMBS_UP)
                         .build(),
                 ),
             )
@@ -514,7 +514,8 @@ internal object PlaybackBridge {
             put("code", code)
             if (status != null) put("status", status)
             if (positionMs >= 0) put("positionMs", positionMs)
-            if (!url.isNullOrBlank()) put("host", urlHost(url))
+            val resolvedUrl = url ?: player?.currentMediaItem?.localConfiguration?.uri?.toString()
+            if (!resolvedUrl.isNullOrBlank()) put("host", urlHost(resolvedUrl))
             if (!detail.isNullOrBlank()) put("detail", detail)
         },
     )
