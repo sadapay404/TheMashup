@@ -79,7 +79,7 @@ export function TrackRow({
         type="button"
         onClick={() => setAddOpen(true)}
         aria-label={`Add ${track.title} to a queue or playlist`}
-        className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
+        className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
       >
         <DotsIcon width={17} height={17} />
       </button>
@@ -89,7 +89,7 @@ export function TrackRow({
           type="button"
           onClick={() => onDownload(track)}
           aria-label={`Download ${track.title}`}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[var(--color-text-3)] transition hover:bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] hover:text-[var(--color-text)]"
         >
           <DownloadIcon width={17} height={17} />
         </button>

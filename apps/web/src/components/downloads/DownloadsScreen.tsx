@@ -534,7 +534,12 @@ function PendingList({ kind }: { kind: MediaKind }) {
                 type="button"
                 onClick={() => removeDownload(j.id)}
                 aria-label={`Dismiss ${j.track.title}`}
-                className="grid h-7 w-7 place-items-center rounded-lg text-[var(--color-text-3)]"
+                /*
+                 * 44px, not 28. The design system's minimum touch target exists because a 28px hit area
+                 * next to a 28px Retry button is where "I keep tapping the wrong thing" comes from — and
+                 * this one discards a download. The visual chip stays small; only the hit area grows.
+                 */
+                className="grid h-11 w-11 -my-2 place-items-center rounded-lg text-[var(--color-text-3)]"
               >
                 <CloseIcon width={13} height={13} />
               </button>
@@ -547,7 +552,9 @@ function PendingList({ kind }: { kind: MediaKind }) {
                 store.notify('Download stopped', 'info');
               }}
               aria-label={`Stop downloading ${j.track.title}`}
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[var(--color-text-3)]"
+              // Same 44px rule as Dismiss: a stop control next to a Retry control must not be a 28px
+              // target, or the wrong one gets tapped at exactly the moment the user is annoyed.
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[var(--color-text-3)]"
             >
               <CloseIcon width={13} height={13} />
             </button>
