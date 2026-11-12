@@ -123,6 +123,7 @@ dependencies {
     // GPL extractor — resolved only for the enhanced flavour.
     // Optional GPL extractor. NewPipe publishes to JitPack; the enhanced flavour is built separately.
     "withNativeExtractorImplementation"("com.github.TeamNewPipe:NewPipeExtractor:v0.24.6")
+    "withNativeExtractorImplementation"("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     testImplementation("junit:junit:${rootProject.ext["junitVersion"]}")
     androidTestImplementation("androidx.test.ext:junit:${rootProject.ext["androidxJunitVersion"]}")

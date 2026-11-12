@@ -123,7 +123,7 @@ export async function nativeState(): Promise<{ positionMs: number; durationMs: n
 
 /** Subscribe to native playback/download events. Returns an unsubscribe function. */
 export function onNativeEvent(
-  event: 'playing' | 'ended' | 'error' | 'downloadProgress' | 'downloadComplete' | 'downloadFailed' | 'accountSignedIn' | 'accountSignedOut',
+  event: 'playing' | 'ended' | 'error' | 'downloadProgress' | 'downloadComplete' | 'downloadFailed' | 'accountSignedIn' | 'accountSignedOut' | 'toggleShuffle' | 'toggleRepeat' | 'toggleLike',
   cb: (data: unknown) => void,
 ): () => void {
   const p = plugin('MashupPlayer') ?? plugin('MashupDownloads') ?? plugin('MashupAccount');

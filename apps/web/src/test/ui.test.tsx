@@ -97,6 +97,9 @@ describe('Component contracts', () => {
         onOpen={() => undefined}
         onClose={() => undefined}
         onDownload={() => undefined}
+        onSleepTimer={() => undefined}
+        sleepTimerActive={false}
+        sleepTimerMs={0}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }));

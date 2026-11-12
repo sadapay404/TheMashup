@@ -11,6 +11,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit as JTimeUnit
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -21,8 +23,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
 import app.themashup.music.MainActivity
 
 /**
@@ -93,8 +98,37 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                // Surface, never crash: the JS layer re-resolves the stream and retries.
-                PlaybackBridge.emitError(error.errorCodeName)
+                /*
+                 * Surface, never crash — but surface *everything*.
+                 *
+                 * This used to emit `error.errorCodeName` and nothing else. That string says
+                 * "ERROR_CODE_IO_BAD_HTTP_STATUS" and then stops, which is the least useful half of
+                 * the answer: it does not say which status, from which URL, or how many bytes had
+                 * been read when it happened. Every "the song stops" report has therefore been
+                 * argued about instead of measured.
+                 *
+                 * The three numbers that actually separate the candidate causes:
+                 *  - the HTTP status: 403 mid-stream is a token/CDN refusal, 404 is a dead URL,
+                 *    5xx is the edge failing, and no status at all is a socket/dial problem.
+                 *  - the position: how many seconds of audio were successfully delivered before the
+                 *    cut. A cut near a constant wall-clock offset is a gated stream being truncated;
+                 *    a cut that moves around is a network fault.
+                 *  - the URL's shape: whether it carries `pot=`, which is the literal token. Its
+                 *    presence with a 403 says the token was rejected; its absence with a 403 says one
+                 *    was required and never sent. Those are different problems with different fixes.
+                 *
+                 * Emitted as an event so the JS layer still re-resolves and retries exactly as
+                 * before; the extra fields are inert to the existing handler.
+                 */
+                val cause = error.cause
+                val status = (cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+                PlaybackBridge.emitError(
+                    code = error.errorCodeName,
+                    status = status,
+                    positionMs = PlaybackBridge.positionMs(),
+                    url = currentUrl(),
+                    detail = cause?.message?.take(180),
+                )
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -152,6 +186,15 @@ class PlaybackService : MediaSessionService() {
     companion object {
         private const val TAG = "MashupPlayback"
 
+        /** Custom session commands exposed as notification buttons. */
+        const val CMD_TOGGLE_SHUFFLE = "cmd_toggle_shuffle"
+        const val CMD_TOGGLE_REPEAT = "cmd_toggle_repeat"
+        const val CMD_TOGGLE_LIKE = "cmd_toggle_like"
+
+        val CommandToggleShuffle = SessionCommand(CMD_TOGGLE_SHUFFLE, Bundle.EMPTY)
+        val CommandToggleRepeat = SessionCommand(CMD_TOGGLE_REPEAT, Bundle.EMPTY)
+        val CommandToggleLike = SessionCommand(CMD_TOGGLE_LIKE, Bundle.EMPTY)
+
         /**
          * Connection used by [app.themashup.music.MainActivity] to bring the session up before the
          * first play. Kept trivial on purpose: the bridge is a global object, so all we need is the
@@ -195,9 +238,52 @@ class PlaybackService : MediaSessionService() {
                     Player.COMMAND_GET_METADATA,
                 )
                 .build()
+
+            // Custom notification buttons — shuffle, repeat, like — ported from the OuterTune
+            // pattern: CommandButton with a custom SessionCommand that the JS layer handles.
+            session.setCustomLayout(
+                listOf(
+                    CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                        .setDisplayName("Shuffle")
+                        .setSessionCommand(CommandToggleShuffle)
+                        .setCustomIconResId(android.R.drawable.ic_media_shuffle)
+                        .build(),
+                    CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                        .setDisplayName("Repeat")
+                        .setSessionCommand(CommandToggleRepeat)
+                        .setCustomIconResId(android.R.drawable.ic_media_repeat)
+                        .build(),
+                    CommandButton.Builder(CommandButton.ICON_HEART_UNFILLED)
+                        .setDisplayName("Like")
+                        .setSessionCommand(CommandToggleLike)
+                        .build(),
+                ),
+            )
+
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailablePlayerCommands(playerCommands)
                 .build()
+        }
+
+        /**
+         * Handles taps on the custom notification buttons (shuffle / repeat / like).
+         *
+         * The native side doesn't own that state — it lives in the JS store — so each tap posts an
+         * event back to JS via [NativeEvents]. JS toggles the store and tells the player what to do.
+         */
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            command: SessionCommand,
+            args: android.os.Bundle?,
+            resultCallback: androidx.media3.common.util.ResultCallback<Void?>,
+        ) {
+            when (command.action) {
+                CMD_TOGGLE_SHUFFLE -> NativeEvents.post("toggleShuffle", null)
+                CMD_TOGGLE_REPEAT -> NativeEvents.post("toggleRepeat", null)
+                CMD_TOGGLE_LIKE -> NativeEvents.post("toggleLike", null)
+            }
+            resultCallback.sendResult(null)
         }
 
         /**
@@ -300,34 +386,29 @@ internal object PlaybackBridge {
         SystemClock.elapsedRealtime() - cacheStampMs >= 250L
 
     /**
-     * Refresh the position cache, off the caller's thread.
+     * Refresh the position cache **before** returning the value.
      *
-     * THE BUG THIS FIXES — "the progress bar is stuck on 0:00".
+     * This is a correctness fix to a fix, and the distinction matters.
      *
-     * The cache was written *only* from a `Player.Listener` on playback-state, is-playing,
-     * discontinuity and item-transition events. Playback that is working perfectly fires none of
-     * those: the position advances continuously and ExoPlayer does not consider that an event. So
-     * `getState()` returned `positionMs = 0` once per second for the entire song while audio played
-     * normally.
+     * The cache used to be written only from a `Player.Listener` on playback-state / is-playing /
+     * discontinuity / transition events. A track playing normally fires none of those: the position
+     * advances continuously and ExoPlayer does not treat that as an event. So `getState()` answered
+     * `positionMs = 0` for the whole song, and the JS stall watchdog — which correctly treats "the
+     * position stopped changing" as a stall — declared one a few seconds in and reloaded the stream.
      *
-     * That single stale zero produced a second, much worse symptom. The JS stall watchdog in
-     * `usePlayer.ts` decides a stream has stalled when the polled position stops changing — correctly,
-     * because a real stall looks exactly like that. With the position pinned at 0 it could never
-     * change, so about 15 seconds into every track the watchdog "detected" a stall, and the recovery
-     * path reloaded the stream. That is the reported "plays for a few seconds, then says playback
-     * stalled and restarts".
+     * The first attempt at a fix posted the read to the main looper and returned immediately. The
+     * caller then read the *old* cache on its own thread, so it changed nothing: the release that
+     * was supposed to make playback work is the one after which nothing played at all. Posting is
+     * not refreshing. The read has to have completed by the time this returns, or the caller is
+     * answering a question nobody asked.
+     *
+     * So this blocks caller until the main thread has served one read. It is safe because the
+     * callers are Capacitor plugin threads (`CapacitorPlugins` / bridge), never the main thread —
+     * and [onMainSync] detects the main-thread case rather than deadlocking on it if that ever
+     * changes. The read itself is a field access on the owning thread; it costs microseconds.
      */
     fun refreshCache() {
-        if (!cacheIsStale()) return
-        if (readInFlight) return
-        readInFlight = true
-        main.post {
-            try {
-                player?.let { snapshot(it) }
-            } finally {
-                readInFlight = false
-            }
-        }
+        onMainSync { snapshot(it) }
     }
 
     /**
@@ -336,6 +417,36 @@ internal object PlaybackBridge {
      * `post` rather than `runOnUiThread`: this object is not an Activity, and posting keeps the call
      * asynchronous, so a plugin method never blocks its own thread waiting for the main looper.
      */
+    /**
+     * Run [block] with the player on the main thread and **wait for it to finish**.
+     *
+     * Used only by [refreshCache], where the whole point is that the value is current when the
+     * caller reads it. Everything that does not need an answer keeps using the fire-and-forget
+     * [onMain].
+     *
+     * Two guards, because a synchronous cross-thread wait is the classic place to hang an app:
+     *  - if we are already on the main thread, run inline. Posting and waiting from the main thread
+     *    would wait forever for a queue we are blocking.
+     *  - the wait is bounded. A 250 ms ceiling is longer than any legitimate field read and short
+     *    enough that a wedged main looper degrades one position update instead of freezing the UI
+     *    thread's caller. On timeout the caller gets the previous cache, which is stale but safe.
+     */
+    private inline fun onMainSync(crossinline block: (ExoPlayer) -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            player?.let { runCatching { block(it) } }
+            return
+        }
+        val done = java.util.concurrent.CountDownLatch(1)
+        main.post {
+            try {
+                player?.let { runCatching { block(it) } }
+            } finally {
+                done.countDown()
+            }
+        }
+        done.await(250, JTimeUnit.MILLISECONDS)
+    }
+
     private inline fun onMain(crossinline block: (ExoPlayer) -> Unit) {
         main.post {
             val p = player ?: return@post
@@ -345,7 +456,37 @@ internal object PlaybackBridge {
     }
 
     fun emitEnded() = NativeEvents.post("ended", null)
-    fun emitError(code: String) = NativeEvents.post("error", mapOf("code" to code))
+    /**
+     * Emit a playback error with everything needed to diagnose it.
+     *
+     * Null fields are dropped rather than sent as nulls: the JS handler tests for presence, and a
+     * `"status": null` would read as "there was no status" in some paths and "status unknown" in
+     * others, which is exactly the ambiguity this is meant to remove.
+     */
+    fun emitError(
+        code: String,
+        status: Int? = null,
+        positionMs: Long = -1,
+        url: String? = null,
+        detail: String? = null,
+    ) = NativeEvents.post(
+        "error",
+        buildMap {
+            put("code", code)
+            if (status != null) put("status", status)
+            if (positionMs >= 0) put("positionMs", positionMs)
+            if (!url.isNullOrBlank()) put("host", urlHost(url))
+            if (!detail.isNullOrBlank()) put("detail", detail)
+        },
+    )
+
+    /** Host only. The query string is a signed token and must not land in a log or a screenshot. */
+    private fun urlHost(url: String): String = runCatching {
+        java.net.URI(url).host ?: ""
+    }.getOrDefault("")
+
+    /** The URL currently loaded, so an error can name what failed without the JS layer guessing. */
+    private fun currentUrl(): String? = player?.currentMediaItem?.localConfiguration?.uri?.toString()
     fun emitPlaying(playing: Boolean) = NativeEvents.post("playing", mapOf("playing" to playing))
 
     fun play(

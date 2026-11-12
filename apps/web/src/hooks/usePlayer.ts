@@ -30,7 +30,7 @@ import {
   onNativeEvent,
 } from '@/lib/native';
 import { haptic } from '@/lib/haptics';
-import { rankRadio, signalComplete, signalPlay, signalSkip } from '@/lib/signals';
+import { rankRadio, signalComplete, signalPlay, signalSkip, toggleLike } from '@/lib/signals';
 import { StallDetector } from '@/lib/stall';
 import { store, useApp } from '@/state/store';
 import type { Track } from '@themashup/core';
@@ -538,6 +538,32 @@ export function usePlayer() {
     };
   }, [ensureAudio, load, next]);
 
+  // Sleep timer (OuterTune feature): counts down every second and pauses playback when it
+  // expires. Works with both native and WebView playback because it acts on the transport
+  // directly rather than on store state alone.
+  useEffect(() => {
+    let alive = true;
+    const id = window.setInterval(() => {
+      const s = store.getState();
+      if (!s.sleepTimerActive || s.sleepTimerMs <= 0 || !s.playing) return;
+
+      const next = s.sleepTimerMs - 1000;
+      if (next <= 0) {
+        store.set({ sleepTimerMs: 0, sleepTimerActive: false });
+        if (hasNativePlayback()) {
+          void nativePause();
+        } else {
+          const el = ensureAudio();
+          el.pause();
+        }
+        store.notify('Sleep timer — playback stopped.', 'info');
+        return;
+      }
+      store.set({ sleepTimerMs: next });
+    }, 1000);
+    return () => { alive = false; window.clearInterval(id); };
+  }, [ensureAudio]);
+
   // Native transport polling (Media3 is the source of truth once handed off).
   useEffect(() => {
     if (!hasNativePlayback()) return;
@@ -557,7 +583,14 @@ export function usePlayer() {
     const id = window.setInterval(() => void tick(), 1000);
     const offEnded = onNativeEvent('ended', () => next(true));
     const offError = onNativeEvent('error', (data) => {
-      const code = (data as { code?: string } | null)?.code ?? '';
+      const d = data as {
+        code?: string;
+        status?: number;
+        positionMs?: number;
+        host?: string;
+        detail?: string;
+      } | null;
+      const code = d?.code ?? '';
       const st = store.getState();
       const t = st.queue[st.index];
       if (!t) return;
@@ -571,14 +604,51 @@ export function usePlayer() {
         return;
       }
 
-      store.notify('Native player error — re-resolving…', 'error');
+      /*
+       * Surface the full error instead of a single code, so "it stopped" becomes a number we can
+       * act on. positionMs tells us how far the song got; status tells us whether the CDN refused
+       * (403/404), the edge failed (5xx), or the socket closed before either; host says which URL
+       * failed, without leaking the signed token in its query string.
+       */
+      const bits = [code];
+      if (typeof d?.status === 'number') bits.push(`HTTP ${d.status}`);
+      if (typeof d?.positionMs === 'number') bits.push(`at ${Math.round(d.positionMs / 1000)}s`);
+      if (d?.host) bits.push(d.host);
+      if (d?.detail) bits.push(d.detail.slice(0, 120));
+
+      store.notify(`Native player error — ${bits.join(' — ')} — re-resolving…`, 'error');
       void load(t, store.getState().positionSec);
     });
+
+    // Custom notification buttons — shuffle / repeat / like — tapped in the media notification.
+    // The native side posts these; JS owns the state and updates the store.
+    const offToggleShuffle = onNativeEvent('toggleShuffle', () => {
+      const s = store.getState();
+      store.set({ shuffle: !s.shuffle });
+      store.notify(s.shuffle ? 'Shuffle off' : 'Shuffle on', 'info');
+    });
+    const offToggleRepeat = onNativeEvent('toggleRepeat', () => {
+      const s = store.getState();
+      const next = s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off';
+      store.set({ repeat: next });
+      store.notify(`Repeat: ${next}`, 'info');
+    });
+    const offToggleLike = onNativeEvent('toggleLike', () => {
+      const s = store.getState();
+      const t = s.queue[s.index];
+      if (!t) return;
+      const now = toggleLike(t);
+      store.notify(now ? 'Added to your likes' : 'Removed from your likes', now ? 'success' : 'info');
+    });
+
     return () => {
       alive = false;
       window.clearInterval(id);
       offEnded();
       offError();
+      offToggleShuffle();
+      offToggleRepeat();
+      offToggleLike();
     };
   }, [load, next]);
 

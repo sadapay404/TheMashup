@@ -38,6 +38,9 @@ export function SongCard({
   onOpen,
   onClose,
   onDownload,
+  onSleepTimer,
+  sleepTimerActive,
+  sleepTimerMs,
 }: {
   track: Track;
   playing: boolean;
@@ -47,6 +50,10 @@ export function SongCard({
   onClose: () => void;
   /** Opens the quality sheet. Kept as a prop so the card owns no download logic itself. */
   onDownload: () => void;
+  /** Cycles the sleep timer (OuterTune feature). */
+  onSleepTimer: () => void;
+  sleepTimerActive: boolean;
+  sleepTimerMs: number;
 }) {
   const dragY = useMotionValue(0);
   // Upward drag reads as "lifting the card towards the full player".
@@ -130,6 +137,16 @@ export function SongCard({
         className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-2)]"
       >
         <DownloadIcon width={17} height={17} />
+      </motion.button>
+      <motion.button
+        type="button"
+        onClick={onSleepTimer}
+        whileTap={{ scale: 0.9 }}
+        transition={snap}
+        aria-label={sleepTimerActive ? 'Sleep timer on' : 'Sleep timer'}
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-text-2)]"
+      >
+        <span className="text-xs">{sleepTimerActive ? '😴' : '💤'}</span>
       </motion.button>
 
       {/*

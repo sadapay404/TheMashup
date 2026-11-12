@@ -286,6 +286,21 @@ export default function App() {
             onOpen={() => store.set({ playerOpen: true })}
             onClose={() => void player.stop()}
             onDownload={() => setDownload(track)}
+            onSleepTimer={() => {
+              const s = store.getState();
+              const next = s.sleepTimerActive
+                ? s.sleepTimerMs === 900000
+                  ? 0
+                  : s.sleepTimerMs === 1800000
+                    ? 2700000
+                    : s.sleepTimerMs === 2700000
+                      ? 3600000
+                      : 900000
+                : 900000;
+              store.set({ sleepTimerMs: next, sleepTimerActive: next > 0 });
+            }}
+            sleepTimerActive={store.getState().sleepTimerActive}
+            sleepTimerMs={store.getState().sleepTimerMs}
           />
         ) : null}
       </AnimatePresence>
@@ -297,7 +312,7 @@ export default function App() {
         {playerOpen && track ? (
           <NowPlaying
             track={track}
-            onClose={() => store.set({ playerOpen: false })}
+            onClose={() => void player.stop()}
             onToggle={() => void player.setPlaying(!playing)}
             onNext={() => player.next(false)}
             onPrev={player.prev}

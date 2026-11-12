@@ -62,6 +62,8 @@ export function NowPlaying({
   const lyrics = useApp((s) => s.lyrics);
   const lyricsLoading = useApp((s) => s.lyricsLoading);
   const streamError = useApp((s) => s.streamError);
+  const sleepTimerMs = useApp((s) => s.sleepTimerMs);
+  const sleepTimerActive = useApp((s) => s.sleepTimerActive);
   // Subscribing to `likes` is what keeps the heart in sync when the same track is liked elsewhere.
   const likes = useApp((s) => s.likes);
   const liked = likes.some((t) => t.id === track.id);
@@ -308,6 +310,35 @@ export function NowPlaying({
             className="flex items-center gap-1.5 rounded-full px-2 py-1.5 text-[12px] text-[var(--color-text-2)] transition hover:text-[var(--color-text)]"
           >
             <DownloadIcon width={17} height={17} /> Download
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = sleepTimerActive
+                ? sleepTimerMs === 900000
+                  ? 0
+                  : sleepTimerMs === 1800000
+                    ? 2700000
+                    : sleepTimerMs === 2700000
+                      ? 3600000
+                      : 900000
+                : 900000;
+              store.set({ sleepTimerMs: next, sleepTimerActive: next > 0 });
+              store.notify(
+                next > 0
+                  ? `Sleep timer: ${Math.round(next / 60000)} min`
+                  : 'Sleep timer off',
+                'info',
+              );
+            }}
+            className="flex items-center gap-1.5 rounded-full px-2 py-1.5 text-[12px] transition"
+          >
+            <span className="shrink-0">{sleepTimerActive ? '😴' : '💤'}</span>
+            <span className={sleepTimerActive ? 'font-semibold' : ''}>
+              {sleepTimerActive
+                ? `${Math.floor(sleepTimerMs / 60000)}:${String(Math.floor((sleepTimerMs % 60000) / 1000)).padStart(2, '0')}`
+                : 'Sleep'}
+            </span>
           </button>
           <button
             type="button"

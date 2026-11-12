@@ -47,6 +47,17 @@ class MainActivity : BridgeActivity() {
         Extractor.delegate = BuildConfigStreamExtractorDelegate.create()
         LogPlugin.boot("extractor: resolved")
 
+        // Initialise the native extractor's PoToken generator with this Activity's Context so its
+        // hidden WebView can be created. Reflection keeps the standard flavour free of any reference
+        // to the GPL class — if the class doesn't exist, this is a no-op.
+        try {
+            Class.forName("app.themashup.music.extractor.generated.NativeExtractorImpl")
+                .getMethod("initialize", android.content.Context::class.java)
+                .invoke(null, this@MainActivity)
+        } catch (_: Throwable) {
+            // Not the withNativeExtractor flavour, or initialize missing — the JS ladder remains authoritative.
+        }
+
         // The notification permission is requested in onResume, not here: see the note on
         // requestNotificationPermissionOnce for why asking this early silently does nothing.
         LogPlugin.boot("binding playback service")

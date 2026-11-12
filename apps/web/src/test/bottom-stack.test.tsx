@@ -131,7 +131,7 @@ describe('SongCard', () => {
   it('renders the track and opens the player from the title', () => {
     const onOpen = vi.fn();
     render(
-      <SongCard track={track as never} playing={false} progress={0} onToggle={vi.fn()} onOpen={onOpen} onClose={vi.fn()} onDownload={vi.fn()} />,
+      <SongCard track={track as never} playing={false} progress={0} onToggle={vi.fn()} onOpen={onOpen} onClose={vi.fn()} onDownload={vi.fn()} onSleepTimer={vi.fn()} sleepTimerActive={false} sleepTimerMs={0} />,
     );
     expect(screen.getByText('Jhol')).toBeTruthy();
     // Artwork and title both open the player, so both carry the same label by intent.
@@ -153,6 +153,9 @@ describe('SongCard', () => {
         onOpen={vi.fn()}
         onClose={onClose}
         onDownload={onDownload}
+        onSleepTimer={vi.fn()}
+        sleepTimerActive={false}
+        sleepTimerMs={0}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
@@ -165,7 +168,7 @@ describe('SongCard', () => {
 
   it('clamps progress instead of overflowing the hairline', () => {
     const { container } = render(
-      <SongCard track={track as never} playing progress={4} onToggle={vi.fn()} onOpen={vi.fn()} onClose={vi.fn()} onDownload={vi.fn()} />,
+      <SongCard track={track as never} playing progress={4} onToggle={vi.fn()} onOpen={vi.fn()} onClose={vi.fn()} onDownload={vi.fn()} onSleepTimer={vi.fn()} sleepTimerActive={false} sleepTimerMs={0} />,
     );
     const bar = container.querySelector<HTMLElement>('.bg-\\[var\\(--accent\\)\\]');
     expect(bar?.style.width).toBe('100%');

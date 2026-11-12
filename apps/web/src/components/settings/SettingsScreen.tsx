@@ -69,6 +69,8 @@ export function SettingsScreen() {
   const hapticEvents = useApp((s) => s.hapticEvents);
   const volume = useApp((s) => s.volume);
   const rate = useApp((s) => s.rate);
+  type SoundProfile = 'flat' | 'bass' | 'treble' | 'vocal' | 'custom';
+  const [soundProfile, setSoundProfile] = useState<SoundProfile>('flat');
   // Account state is re-read after sign-in and on mount, because the native WebView completes
   // out-of-band: there is no promise to await that means "the user finished signing in".
   const [signedIn, setSignedIn] = useState(service.hasAccount());
@@ -343,6 +345,21 @@ export function SettingsScreen() {
           ) : null}
         </div>
         <Row label="Stream ladder" value={STREAM_LADDER.join(' → ')} />
+        <div className="mt-2 px-1">
+          <button
+            type="button"
+            onClick={() => {
+              const nextProfile: Record<SoundProfile, SoundProfile> = {
+                flat: 'bass', bass: 'treble', treble: 'vocal', vocal: 'custom', custom: 'flat',
+              };
+              setSoundProfile(nextProfile[soundProfile]);
+              store.notify(`Sound profile: ${nextProfile[soundProfile]}`, 'info');
+            }}
+            className="w-full rounded-2xl bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] py-2.5 text-[12.5px] font-semibold"
+          >
+            Sound profile: {soundProfile}
+          </button>
+        </div>
       </Section>
 
       <Section title="Appearance" summary={themeMeta(theme).name}>
