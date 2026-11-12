@@ -36,6 +36,14 @@
 -dontwarn org.mozilla.javascript.tools.**
 -dontwarn org.schabi.newpipe.extractor.**
 
+# Rhino references the *desktop* JDK's scripting and bean APIs for pieces of its engine this app never
+# calls (`RhinoScriptEngine`, `JavaToJSONConverters`). Android has no javax.script and no java.beans,
+# so R8 reports them as missing and — because minification runs in full mode — fails the build rather
+# than the class load. R8 was the first thing to see this: the error surfaces only after Kotlin has
+# compiled cleanly, which is why it appeared one step later than the earlier failures.
+-dontwarn javax.script.**
+-dontwarn java.beans.**
+
 # Keep line numbers so the on-device diagnostics ring buffer stays useful.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
