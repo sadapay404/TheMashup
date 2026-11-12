@@ -10,6 +10,7 @@ import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
+import java.util.concurrent.TimeUnit as JTimeUnit
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
