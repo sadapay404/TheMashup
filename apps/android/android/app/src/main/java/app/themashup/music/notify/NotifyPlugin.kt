@@ -279,7 +279,7 @@ class NotifyPlugin : Plugin() {
     private fun launchActivityClass(): Class<*>? =
         try {
             Class.forName("app.themashup.music.MainActivity")
-        } catch {
+        } catch (t: Throwable) {
             null
         }
 
