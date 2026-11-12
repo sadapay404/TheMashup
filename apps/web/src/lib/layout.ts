@@ -36,9 +36,9 @@ export const DOCK_CARD_GAP = 10;
 /** Space between the card's bottom edge and the safe area. */
 const CARD_BASE = 8;
 
-/** `bottom` for the dock: above the safe area while nothing is playing, unchanged when compact. */
+/** `bottom` for the dock: above the safe area while nothing is playing; when compact it clears the song card. */
 export function dockBottom(compact: boolean): string {
-  return `calc(env(safe-area-inset-bottom) + ${compact ? DOCK_BASE : DOCK_BASE}px)`;
+  return `calc(env(safe-area-inset-bottom) + ${compact ? DOCK_BASE + CARD_H + DOCK_CARD_GAP : DOCK_BASE}px)`;
 }
 
 /** `bottom` for the song card. */

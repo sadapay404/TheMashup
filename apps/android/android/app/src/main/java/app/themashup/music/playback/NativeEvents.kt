@@ -124,4 +124,20 @@ class MashupPlayerPlugin : Plugin() {
         js.put("isPlaying", PlaybackBridge.isPlaying())
         call.resolve(js)
     }
+
+    /** Open Android's notification settings for this app so the user can grant POST_NOTIFICATIONS. */
+    @PluginMethod
+    fun openNotificationSettings(call: PluginCall) {
+        val intent = android.content.Intent(
+            android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS
+        ).apply {
+            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, activity.packageName)
+        }
+        try {
+            activity.startActivity(intent)
+            call.resolve()
+        } catch (t: Throwable) {
+            call.reject("cannot open notification settings", t)
+        }
+    }
 }

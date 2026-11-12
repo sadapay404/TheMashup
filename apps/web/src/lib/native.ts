@@ -289,6 +289,11 @@ export async function nativeInfo(): Promise<NativeInfo | null> {
   }
 }
 
+/** Open Android's notification settings so the user can grant POST_NOTIFICATIONS. */
+export async function nativeOpenNotificationSettings(): Promise<void> {
+  await invoke('MashupPlayer', 'openNotificationSettings');
+}
+
 /**
  * The last fatal crash recorded on this device, if any.
  *

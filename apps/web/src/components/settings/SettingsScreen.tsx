@@ -26,6 +26,7 @@ import {
 import { ChevronDownIcon, SparkIcon } from '@/components/ui/icons';
 import { CrashReport } from '@/components/settings/CrashReport';
 import { useContentBottom } from '@/hooks/useContentBottom';
+import { nativeOpenNotificationSettings } from '@/lib/native';
 
 type CheckState = 'idle' | 'run' | 'pass' | 'fail' | 'warn' | 'skipped';
 interface CheckRow {
@@ -331,6 +332,19 @@ export function SettingsScreen() {
       <Section title="Playback" summary={`Volume ${Math.round(volume * 100)}% · speed ${rate}×`}>
         <Row label="Active route" value={transportRoute} />
         <Row label="Account" value={signedIn ? 'Signed in' : 'Anonymous'} />
+        <div className="mt-2 px-1">
+          <button
+            type="button"
+            onClick={() => void nativeOpenNotificationSettings().catch(() => undefined)}
+            className="w-full rounded-2xl bg-[color-mix(in_oklab,var(--wash)_9%,transparent)] py-2.5 text-[12.5px] font-semibold"
+          >
+            Notification settings (Android)
+          </button>
+          <p className="mt-1 text-[10.5px] leading-relaxed text-[var(--color-text-3)]">
+            Opens Android's notification settings for TheMashup. The playback notification needs
+            this permission to appear in the shade and on the lockscreen.
+          </p>
+        </div>
         <div className="mt-2 px-1">
           <button
             type="button"

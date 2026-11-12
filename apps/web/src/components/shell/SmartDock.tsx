@@ -256,10 +256,6 @@ export function SmartDock() {
     }
   };
 
-  // Always expanded. Kept as a named value so the JSX below stays a single branch and the
-  // hold-to-open gesture still has something to do (it now just re-anchors the dock).
-  const expanded = true;
-
   return (
     <nav
       ref={navRef}
@@ -288,124 +284,43 @@ export function SmartDock() {
         const active = route === id;
         const slid = holding && slideIndex !== null && ITEMS[slideIndex]?.id === id;
 
-        // Open (or not compact): the real destination pill.
-        if (expanded) {
-          return (
-            <motion.button
-              key={id}
-              type="button"
-              data-dock-item={id}
-              aria-label={label}
-              aria-current={active ? 'page' : undefined}
-              onClick={() => {
-                if (suppressClick.current) return;
-                go(id);
-              }}
-              layout
-              transition={SPRING}
-              style={{ height: DOCK_ITEM_H }}
-              animate={{ width: 64, opacity: 1, scale: slid ? 1.07 : 1 }}
-              className="relative flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-full"
-            >
-              {active ? (
-                <motion.span
-                  layoutId="dock-active"
-                  transition={SPRING}
-                  className="absolute inset-0 rounded-full bg-[var(--accent)]/16"
-                />
-              ) : null}
-              <span className={`relative z-10 ${active ? 'text-[var(--accent)]' : 'text-[var(--color-text-2)]'}`}>
-                <Icon width={21} height={21} />
-              </span>
-              <span
-                className={`relative z-10 text-[9.5px] font-semibold leading-none ${
-                  active ? 'text-[var(--accent)]' : 'text-[var(--color-text-3)]'
-                }`}
-              >
-                {label}
-              </span>
-            </motion.button>
-          );
-        }
-
-        // Compact and closed: ONLY the active destination is drawn. The user was explicit — one icon
-        // while a song is playing. The others keep their DOM slot and their `data-dock-item` hook,
-        // because the hold gesture measures against all five, but they are visually absent:
-        // `visibility: hidden` removes them from hit-testing and the accessibility tree without
-        // collapsing the flex gap that the gesture's geometry depends on.
-        //
-        // They cannot be removed from the tree entirely: `visibility: hidden` elements are not
-        // focusable, so a keyboard or screen-reader user would lose navigation the moment a song
-        // started. `DockStubs` below republishes the same five destinations as real, focusable,
-        // invisible buttons for those users, and `aria-hidden` here keeps the audible tree to one
-        // copy of each label.
-        if (!active) {
-          return (
-            <motion.button
-              key={id}
-              type="button"
-              data-dock-item={id}
-              aria-label={label}
-              aria-hidden
-              tabIndex={-1}
-              onClick={() => {
-                if (suppressClick.current) return;
-                navigate(id);
-              }}
-              layout
-              transition={SPRING}
-              style={{ height: DOCK_ITEM_H, visibility: 'hidden' }}
-              animate={{ width: 0, opacity: 0 }}
-              className="pointer-events-none relative overflow-hidden rounded-full"
-            />
-          );
-        }
-
-        if (active) {
-          return (
-            <motion.button
-              key={id}
-              type="button"
-              data-dock-item={id}
-              aria-label={label}
-              aria-current="page"
-              onClick={() => go(id)}
-              layout
-              transition={SPRING}
-              style={{ height: DOCK_ITEM_H }}
-              animate={{ width: 64, opacity: 1 }}
-              className="relative flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-full"
-            >
-              <motion.span layoutId="dock-active" transition={SPRING} className="absolute inset-0 rounded-full bg-[var(--accent)]/16" />
-              <span className="relative z-10 text-[var(--accent)]">
-                <Icon width={21} height={21} />
-              </span>
-              <span className="relative z-10 text-[9.5px] font-semibold leading-none text-[var(--accent)]">{label}</span>
-            </motion.button>
-          );
-        }
-
         return (
           <motion.button
             key={id}
             type="button"
             data-dock-item={id}
-            aria-label={`Go to ${label}`}
+            aria-label={label}
+            aria-current={active ? 'page' : undefined}
             onClick={() => {
               if (suppressClick.current) return;
               go(id);
             }}
             layout
             transition={SPRING}
-            style={{ height: DOCK_ITEM_H }}
-            animate={{ width: 30, opacity: 1, scale: 1 }}
+            style={{
+              width: 64,
+              height: DOCK_ITEM_H,
+              scale: slid ? 1.07 : 1,
+            }}
             whileTap={{ scale: 0.94 }}
-            className="relative flex items-center justify-center overflow-hidden rounded-full"
+            className="relative flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-full"
           >
-            {/* Faded, not hidden: it signals the dock can still do more without competing with
-                the song card that now owns the space it gave up. */}
-            <span className="text-[var(--color-text-3)] opacity-[0.42]">
-              <Icon width={18} height={18} />
+            {active ? (
+              <motion.span
+                layoutId="dock-active"
+                transition={SPRING}
+                className="absolute inset-0 rounded-full bg-[var(--accent)]/16"
+              />
+            ) : null}
+            <span className={`relative z-10 ${active ? 'text-[var(--accent)]' : 'text-[var(--color-text-2)]'}`}>
+              <Icon width={21} height={21} />
+            </span>
+            <span
+              className={`relative z-10 text-[9.5px] font-semibold leading-none ${
+                active ? 'text-[var(--accent)]' : 'text-[var(--color-text-3)]'
+              }`}
+            >
+              {label}
             </span>
           </motion.button>
         );

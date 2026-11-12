@@ -88,7 +88,7 @@ class PlaybackService : MediaSessionService() {
         val channel = NotificationChannel(
             NOTIFICATION_CHANNEL_ID,
             NOTIFICATION_CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = "Playback controls for TheMashup"
             lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
