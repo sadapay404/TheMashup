@@ -33,7 +33,7 @@ import {
 import { haptic } from '@/lib/haptics';
 import { rankRadio, signalComplete, signalPlay, signalSkip, toggleLike } from '@/lib/signals';
 import { StallDetector } from '@/lib/stall';
-import { store, useApp } from '@/state/store';
+import { store, useApp, type QueueOrigin } from '@/state/store';
 import type { StreamInfo, Track } from '@themashup/core';
 
 const STALL_MS = 8000;
@@ -78,6 +78,13 @@ export function usePlayer() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const generation = useRef(0);
   const lastTimeUpdate = useRef(Date.now());
+  /**
+   * The URL of the next track in a Downloads queue, resolved ahead of time.
+   *
+   * Held in a ref, not in state: it is read once, at the moment a track ends, and must not cause a
+   * render when it changes.
+   */
+  const prefetchedUrl = useRef<string | null>(null);
   const fadeTimer = useRef<number | null>(null);
 
   const queue = useApp((s) => s.queue);
@@ -160,8 +167,17 @@ export function usePlayer() {
        * since it was downloaded, fall through to the network rather than failing outright.
        */
       const onDisk = store.getState().downloads.find((d) => d.state === 'done' && d.track.id === t.id && d.path);
+      // Only trust the prefetched URL when it points at *this* track: the queue can change between the
+      // prefetch and the track ending (a skip, a reorder), and playing the wrong file is far worse than
+      // paying for one filesystem lookup.
+      const prefetched =
+        prefetchedUrl.current && onDisk?.path && prefetchedUrl.current === `file://${onDisk.path}`
+          ? prefetchedUrl.current
+          : null;
       if (onDisk?.path) {
-        const localUrl = `file://${onDisk.path}`;
+        const localUrl = prefetched ?? `file://${onDisk.path}`;
+        // Consumed: leaving it set would make the *next* track's prefetch a no-op.
+        prefetchedUrl.current = null;
         nativeBootMark(`play ${t.id}: local file ${onDisk.path}`);
         store.set({ stream: null });
         signalPlay(t);
@@ -394,15 +410,37 @@ export function usePlayer() {
    * result page, which is never what anyone wants.
    */
   const playTrack = useCallback(
-    (t: Track, list?: Track[]) => {
-      const current = store.getState();
+    (t: Track, list?: Track[], origin: QueueOrigin = 'library') => {
+      const prev = store.getState();
+      const current = prev;
+
+      /*
+       * Leaving a downloads queue restores the shuffle the user actually chose.
+       *
+       * The Downloads screen turns shuffle on so an album plays like a shuffle. That is a decision about
+       * *that* list, not a global preference change — carrying it into the library would silently mean
+       * every later album is shuffled too, which is the kind of state leak that makes a player feel
+       * unpredictable.
+       */
+      const leavingDownloads = prev.queueOrigin === 'downloads' && origin !== 'downloads';
+      const restore =
+        leavingDownloads && prev.shuffleBeforeDownloads !== null
+          ? { shuffle: prev.shuffleBeforeDownloads, shuffleBeforeDownloads: null }
+          : {};
+
       if (list && list.length > 1) {
         const at = list.findIndex((x) => x.id === t.id);
-        store.set({ queue: list, index: at >= 0 ? at : 0 });
+        store.set({ queue: list, index: at >= 0 ? at : 0, queueOrigin: origin, ...restore });
       } else {
         const existing = current.queue.findIndex((x) => x.id === t.id);
-        if (existing >= 0) store.set({ index: existing });
-        else store.set({ queue: [...current.queue, t], index: current.queue.length });
+        if (existing >= 0) store.set({ index: existing, queueOrigin: origin, ...restore });
+        else
+          store.set({
+            queue: [...current.queue, t],
+            index: current.queue.length,
+            queueOrigin: origin,
+            ...restore,
+          });
       }
       const next = store.getState();
       const target = next.queue[next.index];
@@ -483,7 +521,31 @@ export function usePlayer() {
       }
       if (nextIndex >= s.queue.length) {
         if (s.repeat === 'all') nextIndex = 0;
-        else if (auto) {
+        else if (auto && s.queueOrigin === 'downloads') {
+          /*
+           * The end of a downloads queue.
+           *
+           * A Download queue is a finite, offline thing the user chose. Two rules follow from that, and
+           * both are enforced here rather than in the screen, because this is the moment a track ends:
+           *
+           *  1. **No radio, ever.** Reaching for the network at the end of an album is how "offline
+           *     listening" turns into a stall spinner: the last track finishes, the app silently starts
+           *     resolving something it has no business resolving, and the next song either takes several
+           *     seconds or never comes. The list ends, and it ends cleanly.
+           *  2. **No silence either.** Unless repeat is on, wrap to the top of the same list and keep
+           *     going without a gap. This is what "next songs play automatically" means for a saved
+           *     album: the last one is followed by the first one, immediately.
+           */
+          store.set({ index: 0 });
+          const first = s.queue[0];
+          if (first) {
+            // Load and start in one step: `load` hands the URL to Media3 (or the element) and the
+            // follow-up `setPlaying(true)` is what removes the pause between tracks.
+            void load(first);
+            void setPlaying(true);
+          }
+          return;
+        } else if (auto) {
           // End of queue: keep playing instead of dying silently. This is the behaviour every music
           // app has and the one docs/07 exists to serve — the radio is re-ranked locally, so the
           // extension reflects what this device has actually learned.
@@ -595,12 +657,37 @@ export function usePlayer() {
     const onWaiting = () => store.set({ loading: true });
     const onPlaying = () => store.set({ loading: false, playing: true });
 
+    /*
+     * Warm the next track before this one ends.
+     *
+     * The gap the user hears between songs is almost never the audio engine: it is the time spent
+     * finding out *what* to play next. For a Downloads queue that means a filesystem lookup plus a
+     * MediaItem hand-off, and for anything remote it means a full resolve round-trip that starts only
+     * after the previous track has already gone silent.
+     *
+     * Ten seconds before the end, the next item's URL is worked out and handed to the player paused,
+     * so `load()` at end-of-track is a `play()` rather than a fetch. Only local files are prefetched:
+     * a remote URL is signed and short-lived, and pre-registering its headers for a track that may
+     * never be reached is a leak with no benefit. Nothing about the current track is touched, and a
+     * failure here is silent by design — this is an optimisation, not a feature that can break.
+     */
+    const prefetch = () => {
+      const s = store.getState();
+      if (s.queueOrigin !== 'downloads' || s.shuffle || s.repeat !== 'off') return;
+      const upcoming = s.queue[s.index + 1];
+      if (!upcoming) return;
+      const onDisk = s.downloads.find((d) => d.state === 'done' && d.track.id === upcoming.id && d.path);
+      if (onDisk?.path) prefetchedUrl.current = `file://${onDisk.path}`;
+    };
+
     el.addEventListener('timeupdate', onTime);
     el.addEventListener('loadedmetadata', onLoaded);
     el.addEventListener('ended', onEnded);
     el.addEventListener('error', onError);
     el.addEventListener('waiting', onWaiting);
     el.addEventListener('playing', onPlaying);
+    // `timeupdate` already fires throughout playback, so this adds no timer of its own.
+    el.addEventListener('timeupdate', prefetch);
 
     return () => {
       el.removeEventListener('timeupdate', onTime);
@@ -609,6 +696,7 @@ export function usePlayer() {
       el.removeEventListener('error', onError);
       el.removeEventListener('waiting', onWaiting);
       el.removeEventListener('playing', onPlaying);
+      el.removeEventListener('timeupdate', prefetch);
     };
   }, [ensureAudio, load, next]);
 

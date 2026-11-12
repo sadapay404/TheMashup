@@ -91,6 +91,33 @@ bundle.
 
 ---
 
+## 4b. Downloads play policy — autoplay + shuffle, Downloads only
+
+The user's rule: **only in Downloads**, songs play back to back with no delay, and there is a shuffle
+button. Three pieces, none of which touch the transport:
+
+1. **`queueOrigin`** (`'library' | 'downloads'`) is stored with the queue. The player reads it when a
+   track *ends*, several screens away from where the queue was filled, so the decision has to live in
+   state rather than in the screen.
+2. **End of a downloads queue never reaches for radio.** That network resolve was the delay: the last
+   track finished, the app silently started resolving something, and the next song took seconds or
+   never came. A downloads queue now wraps to track one and starts immediately. Every other surface
+   keeps the existing radio extension.
+3. **Shuffle is scoped.** The Downloads toggle records the previous global value in
+   `shuffleBeforeDownloads`; `playTrack()` restores it the first time something that did not come from
+   Downloads is played. Toggling twice cannot lose the user's real preference.
+4. **Prefetch.** Ten seconds before a downloads track ends, the next file URL is resolved into a ref, so
+   the hand-off at end-of-track is a `play()` rather than a lookup. Only local files — a remote URL is
+   signed and short-lived, so pre-registering it for a track that may never play is a leak.
+
+UI: `Play N` and a shuffle toggle above the folder list, both disabled when nothing is stored, with one
+line of copy saying the folder loops and needs no network.
+
+Tests: `downloads-autoplay.test.tsx` (9) — origin is passed, play-all passes the whole list, shuffle
+starts at a different track, the preference is remembered and not overwritten.
+
+---
+
 ## 5. Other UI fixes
 
 - Toast sat at a hardcoded `safe-area + 148px`, which cleared the dock but **not** the song card. It is

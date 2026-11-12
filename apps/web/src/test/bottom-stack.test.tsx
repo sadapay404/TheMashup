@@ -56,7 +56,7 @@ describe('layout: dock sits above the card', () => {
   it('does not change the dock when nothing is playing', () => {
     // With no card, the dock returns to the bottom. The two offsets must not be the same, or the
     // compact dock would sit on top of the card again.
-    expect(px(dockBottomOverCard())).toBeGreaterThan(px(dockBottom(false)));
+    expect(px(dockBottomOverCard())).toBeGreaterThan(px(dockBottom()));
   });
 
   it('reserves enough bottom padding for the whole stack, so no row hides behind it', () => {

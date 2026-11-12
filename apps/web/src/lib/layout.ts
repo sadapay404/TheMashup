@@ -95,9 +95,15 @@ export function stickyTop(): string {
   return statusBarTop();
 }
 
-/** `bottom` for the dock: above the safe area while nothing is playing, unchanged when compact. */
-export function dockBottom(compact: boolean): string {
-  return `calc(var(--safe-b) + ${compact ? DOCK_BASE : DOCK_BASE}px)`;
+/**
+ * `bottom` for the dock when no card is showing.
+ *
+ * There used to be a `compact` parameter whose two branches were identical — a parameter that looked
+ * like it did something and did not. The compact case is [dockBottomOverCard], which is a different
+ * layout, not a different number; the callers already choose between them.
+ */
+export function dockBottom(): string {
+  return `calc(var(--safe-b) + ${DOCK_BASE}px)`;
 }
 
 /** `bottom` for the song card. */

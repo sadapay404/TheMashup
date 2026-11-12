@@ -22,6 +22,8 @@ import {
   FolderIcon,
   FolderOpenIcon,
   MoveIcon,
+  PlayIcon,
+  ShuffleIcon,
   TrashIcon,
   VideoIcon,
 } from '@/components/ui/icons';
@@ -68,7 +70,12 @@ const STATE_LABEL: Record<DownloadJob['state'], string> = {
   partial: 'Incomplete',
 };
 
-export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) => void }) {
+export function DownloadsScreen({
+  onPlay,
+}: {
+  /** Third argument is the queue origin: Downloads is the one surface with its own play policy. */
+  onPlay: (t: Track, list: Track[], origin: 'downloads') => void;
+}) {
   const paddingBottom = useContentBottom();
   const folders = useApp((s) => s.folders);
   const downloads = useApp((s) => s.downloads);
@@ -78,6 +85,7 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
   const [moving, setMoving] = useState<DownloadJob | null>(null);
   const [renaming, setRenaming] = useState<DownloadFolder | null>(null);
   const [draft, setDraft] = useState('');
+  const shuffle = useApp((s) => s.shuffle);
 
   // Recomputed from the live slices so a move or a delete is visible immediately.
   const sectionFolders = useMemo(() => folders.filter((f) => f.kind === kind), [folders, kind]);
@@ -90,6 +98,38 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
     haptic('tap');
     setKind(next);
     setOpenFolder(SYSTEM_FOLDER[next]);
+  };
+
+  /**
+   * Shuffle, scoped to this library.
+   *
+   * Shuffle is a global playback preference everywhere else in the app. Turning it on here must not
+   * quietly mean "all my other music is shuffled from now on", so the previous value is remembered and
+   * restored the moment the user plays something that did not come from Downloads (see `playTrack`).
+   * That is why the toggle lives in the store rather than in local component state: the restore happens
+   * in the player, several screens away from this button.
+   */
+  const toggleShuffle = () => {
+    haptic('tap');
+    const prev = store.getState();
+    store.set(
+      prev.shuffleBeforeDownloads === null
+        ? { shuffleBeforeDownloads: prev.shuffle, shuffle: !prev.shuffle }
+        : { shuffle: !prev.shuffle },
+    );
+  };
+
+  /**
+   * Play the whole folder.
+   *
+   * The first track is picked here so shuffle can decide it: turning shuffle on but always starting at
+   * track one is the most common way a shuffle button fails to convince anyone.
+   */
+  const playFolder = () => {
+    if (!playable.length) return;
+    haptic('success');
+    const start = shuffle ? playable[Math.floor(Math.random() * playable.length)]! : playable[0]!;
+    onPlay(start, playable, 'downloads');
   };
 
   return (
@@ -122,6 +162,46 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
           </button>
         ))}
       </div>
+
+      {/*
+        Play controls for the whole list.
+
+        This is the only screen in the app with an autoplay policy and a shuffle that belongs to the
+        list rather than to the user's global preferences, so the two controls that decide how this
+        folder plays sit together above it. Both are disabled with nothing stored: a play button that
+        starts silence is worse than one that is visibly unavailable.
+      */}
+      <div className="mt-2 flex items-center gap-2">
+        <motion.button
+          type="button"
+          onClick={playFolder}
+          disabled={!playable.length}
+          whileTap={{ scale: 0.97 }}
+          transition={snap}
+          className="flex flex-1 items-center justify-center gap-2 rounded-full bg-[var(--accent)] py-2.5 text-[12.5px] font-semibold text-[var(--on-accent)] disabled:opacity-40"
+        >
+          <PlayIcon width={16} height={16} />
+          {playable.length ? `Play ${playable.length}` : 'Nothing to play'}
+        </motion.button>
+
+        <button
+          type="button"
+          onClick={toggleShuffle}
+          aria-pressed={shuffle}
+          aria-label={shuffle ? 'Shuffle on for downloads' : 'Shuffle off for downloads'}
+          className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border transition-colors ${
+            shuffle
+              ? 'border-transparent bg-[var(--accent)]/18 text-[var(--accent)]'
+              : 'border-[var(--hairline)] text-[var(--color-text-3)]'
+          }`}
+        >
+          <ShuffleIcon width={17} height={17} />
+        </button>
+      </div>
+
+      <p className="mt-1.5 px-1 text-[10.5px] leading-relaxed text-[var(--color-text-3)]">
+        Stored files play back to back with no network needed — the folder loops when it reaches the end.
+      </p>
 
       {/* Folders first, as asked: they are the top level of the list, above the files. */}
       <div className="mt-4 space-y-1.5">
@@ -191,7 +271,7 @@ export function DownloadsScreen({ onPlay }: { onPlay: (t: Track, list: Track[]) 
                           <FileRow
                             key={j.id}
                             job={j}
-                            onPlay={() => onPlay(j.track, playable)}
+                            onPlay={() => onPlay(j.track, playable, 'downloads')}
                             onMove={() => {
                               haptic('tap');
                               setMoving(j);

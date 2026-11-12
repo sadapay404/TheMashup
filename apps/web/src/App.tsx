@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Track } from '@themashup/core';
-import { store, useApp, currentTrack, navigate, goBack } from '@/state/store';
+import { store, useApp, currentTrack, navigate, goBack, type QueueOrigin } from '@/state/store';
 import { usePlayer } from '@/hooks/usePlayer';
 import { service } from '@/lib/service';
 import { isDesktop, onDesktopAction, onWindowHidden } from '@/lib/desktop';
@@ -247,7 +247,16 @@ export default function App() {
   useEffect(() => startAutosave(store.getState, store.subscribe), []);
 
   const goSearch = () => navigate('search');
-  const onPlay = (t: Track, list: Track[]) => player.playTrack(t, list);
+  /**
+   * One entry point for playback, with an explicit queue origin.
+   *
+   * The third argument is not decoration: the Downloads screen is the only surface that must never
+   * reach for network radio, and that decision is made by the player when a track ends. Passing it here
+   * keeps the policy in the one place that knows about playback instead of spreading a flag through
+   * every screen.
+   */
+  const onPlay = (t: Track, list: Track[], origin: QueueOrigin = 'library') =>
+    player.playTrack(t, list, origin);
 
   /**
    * Explicit queue append. Separate from `onPlay` on purpose: tapping play on a search result used

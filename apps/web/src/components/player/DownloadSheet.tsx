@@ -16,7 +16,7 @@ import { store } from '@/state/store';
 import { glide, Skeleton, snap } from '@/components/ui/primitives';
 import { CloseIcon, DownloadIcon } from '@/components/ui/icons';
 import { pushOverlay } from '@/lib/overlays';
-import { notificationsAvailable } from '@/lib/notifications';
+import { notificationsAvailable, openNotificationSettings } from '@/lib/notifications';
 
 type Row =
   | { kind: 'audio'; label: string; detail: string; format: AudioFormat; usable: boolean }
@@ -194,10 +194,16 @@ export function DownloadSheet({ track, onClose }: { track: Track; onClose: () =>
               {canNotify === false ? (
                 <div className="mb-3 flex items-start gap-2 rounded-2xl border border-[color-mix(in_oklab,var(--color-text-3)_30%,transparent)] bg-[color-mix(in_oklab,var(--wash)_5%,transparent)] p-3 text-[11.5px] leading-relaxed text-[var(--color-text-2)]">
                   <span className="mt-0.5 shrink-0 text-[var(--color-text-3)]">🔕</span>
-                  <span>
+                  <span className="min-w-0 flex-1">
                     Notifications are off, so the app cannot tell you when this finishes. It still saves —
-                    the Downloads screen tracks it. Android Settings → Apps → TheMashup → Notifications
-                    turns them back on.
+                    the Downloads screen tracks it.
+                    <button
+                      type="button"
+                      onClick={() => void openNotificationSettings()}
+                      className="mt-1.5 block font-semibold text-[var(--accent)]"
+                    >
+                      Open notification settings
+                    </button>
                   </span>
                 </div>
               ) : null}

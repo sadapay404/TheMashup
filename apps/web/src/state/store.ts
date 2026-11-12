@@ -12,6 +12,14 @@ import { deservesNotification, postNotification } from '@/lib/notifications';
 export type ThemeId = 'obsidian' | 'vinyl' | 'paper' | 'cyberpunk' | 'forest';
 
 export type RepeatMode = 'off' | 'all' | 'one';
+
+/**
+ * Where the current queue came from.
+ *
+ * Only `downloads` has its own play policy. It is deliberately a small closed set rather than a free
+ * string: the player switches on it, and a typo in a component should be a type error.
+ */
+export type QueueOrigin = 'library' | 'downloads';
 export type Route = 'home' | 'search' | 'library' | 'downloads' | 'settings';
 
 /**
@@ -97,6 +105,23 @@ export interface AppState {
   muted: boolean;
   repeat: RepeatMode;
   shuffle: boolean;
+  /**
+   * Which surface filled the queue.
+   *
+   * The Downloads library is the one place with a different *policy* rather than a different look: it
+   * is offline media the user deliberately saved, so it plays end-to-end without needing a network,
+   * and it never reaches for radio when the list runs out. Every other surface keeps the normal
+   * behaviour. Storing the origin here — instead of a component-local flag — is what lets the player
+   * make that decision at the moment a track ends, which is several screens away from where it started.
+   */
+  queueOrigin: QueueOrigin;
+  /**
+   * The shuffle setting to restore when leaving a downloads queue.
+   *
+   * Shuffle is a global preference, and the Downloads screen has to be able to switch it on without
+   * silently rewriting what the user chose for the rest of the app. Null when no override is active.
+   */
+  shuffleBeforeDownloads: boolean | null;
   rate: number;
   /** Sleep timer (OuterTune feature): milliseconds remaining, 0 means off. */
   sleepTimerMs: number;
@@ -148,6 +173,8 @@ const initialState: AppState = {
   muted: false,
   repeat: 'off',
   shuffle: false,
+  queueOrigin: 'library',
+  shuffleBeforeDownloads: null,
   rate: 1,
   sleepTimerMs: 0,
   sleepTimerActive: false,

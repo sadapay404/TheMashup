@@ -35,6 +35,7 @@ interface CapacitorPluginRef {
   requestPermission?: () => Promise<unknown>;
   addListener?: (event: string, cb: (data: unknown) => void) => { remove: () => void };
   takePendingRoute?: () => Promise<unknown>;
+  openSettings?: () => Promise<unknown>;
 }
 
 function plugin(): CapacitorPluginRef | null {
@@ -155,6 +156,24 @@ export async function takePendingRoute(apply: (route: string) => void): Promise<
     if (!route) return false;
     apply(route);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Open the system notification settings for this app.
+ *
+ * The only honest answer when the user has switched notifications off at the OS level: the app cannot
+ * ask again, so it takes them to the switch. Returns false on the web build and on a device that
+ * refuses the intent, so the caller can leave the plain "go to Settings" text in place.
+ */
+export async function openNotificationSettings(): Promise<boolean> {
+  const p = plugin();
+  if (!p || !isNative()) return false;
+  try {
+    const res = (await p.openSettings?.()) as { opened?: boolean } | undefined;
+    return Boolean(res?.opened);
   } catch {
     return false;
   }

@@ -270,7 +270,7 @@ export function SmartDock() {
       onPointerCancel={onPointerCancel}
       onContextMenu={onContextMenu}
       style={{
-        bottom: compact ? dockBottomOverCard() : dockBottom(false),
+        bottom: compact ? dockBottomOverCard() : dockBottom(),
         background: 'var(--dock-bg)',
         backdropFilter: 'blur(28px) saturate(160%)',
         WebkitBackdropFilter: 'blur(28px) saturate(160%)',

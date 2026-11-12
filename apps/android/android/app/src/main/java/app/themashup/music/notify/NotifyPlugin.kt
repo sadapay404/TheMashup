@@ -186,6 +186,51 @@ class NotifyPlugin : Plugin() {
     }
 
     /**
+     * Open the system notification settings for this app.
+     *
+     * The one situation the plugin cannot solve itself. If the user tapped "Don't allow" on Android 13+
+     * — or switched the app's notifications off in system settings — nothing the app does can post a
+     * notification again. Telling them that in a sentence is honest; leaving them to find the toggle
+     * buried three levels into Settings is how an app ends up permanently silent.
+     *
+     * The previous attempt at this on the other branch was reverted because it did not compile against
+     * `Plugin.activity`. `getActivity()` is nullable here and every step is guarded, so a device that
+     * cannot resolve the intent leaves the app alive rather than throwing across the bridge.
+     */
+    @PluginMethod
+    fun openSettings(call: PluginCall) {
+        val activity = getActivity()
+        if (activity == null) {
+            call.resolve(JSObject().put("opened", false))
+            return
+        }
+        val opened = runCatching {
+            /*
+             * Two intents, in order of precision.
+             *
+             * `ACTION_APP_NOTIFICATION_SETTINGS` lands on this app's own page (API 26+). The fallback
+             * is the app-details screen, which is where the notification toggle lives on every OEM skin
+             * we have seen when the first intent is not handled.
+             */
+            val direct = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            try {
+                activity.startActivity(direct)
+            } catch (_: Throwable) {
+                val appInfo = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = android.net.Uri.fromParts("package", context.packageName, null)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                activity.startActivity(appInfo)
+            }
+            true
+        }.getOrDefault(false)
+        call.resolve(JSObject().put("opened", opened))
+    }
+
+    /**
      * Hand the JS layer the route a notification was tapped for, exactly once.
      *
      * The launch intent is read before the WebView exists and the page asks for it at boot, so there is
