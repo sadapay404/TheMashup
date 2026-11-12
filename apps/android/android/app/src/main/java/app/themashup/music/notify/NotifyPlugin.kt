@@ -9,7 +9,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.getcapacitor.JSObject
-import com.getcapacitor.PermissionState
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
@@ -156,19 +155,28 @@ class NotifyPlugin : Plugin() {
      * first dialog while doing something else can be asked again the moment a notification is
      * genuinely about to be useful (a download they just started), which is the difference between a
      * permission prompt and a nag.
+     *
+     * Below API 33 the permission does not exist and `requestPermissionForAlias` would have nothing to
+     * request, leaving the JS promise unresolved forever. The version check is what keeps the caller's
+     * `await` from hanging.
      */
     @PluginMethod
     fun requestPermission(call: PluginCall) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // Notifications are allowed unless the user disabled them for the app; report that truth.
+            call.resolve(
+                JSObject()
+                    .put("granted", NotificationManagerCompat.from(context).areNotificationsEnabled())
+                    .put("canAsk", false),
+            )
+            return
+        }
         if (notificationsAllowed()) {
             call.resolve(JSObject().put("granted", true))
             return
         }
-        val perm = getPermissionState("notifications")
-        if (perm == PermissionState.GRANTED) {
-            call.resolve(JSObject().put("granted", true))
-            return
-        }
-        // `requestPermissionForAlias` answers through the callback, not through this call.
+        // `requestPermissionForAlias` answers through the callback, not through this call. If the
+        // permission is already permanently denied the callback still fires, with granted = false.
         requestPermissionForAlias("notifications", call, "permissionCallback")
     }
 
@@ -239,9 +247,10 @@ class NotifyPlugin : Plugin() {
     private fun ensureChannels() = NotifyChannels.ensure(context)
 
     companion object {
-        const val CHANNEL_ALERTS = NotifyChannels.ALERTS
-        const val CHANNEL_PLAYBACK = NotifyChannels.PLAYBACK
-        const val CHANNEL_DOWNLOADS = NotifyChannels.DOWNLOADS
+        // Aliases, not copies: the ids live in exactly one file.
+        val CHANNEL_ALERTS = NotifyChannels.ALERTS
+        val CHANNEL_PLAYBACK = NotifyChannels.PLAYBACK
+        val CHANNEL_DOWNLOADS = NotifyChannels.DOWNLOADS
         private const val GROUP = "mashup.alert"
         private const val DEFAULT_ID = 5301
 

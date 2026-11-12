@@ -1,7 +1,6 @@
 package app.themashup.music.shell
 
 import android.content.Context
-import android.os.Build
 import android.view.View
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -53,7 +52,7 @@ class UiPlugin : Plugin() {
             // resource-derived status bar height, which is right on every device we have seen.
             call.resolve(
                 JSObject()
-                    .put("top", (statusBarRes(activity) / density.toDouble()))
+                    .put("top", statusBarRes(activity) / density.toDouble())
                     .put("bottom", 0.0)
                     .put("left", 0.0)
                     .put("right", 0.0)
@@ -62,23 +61,24 @@ class UiPlugin : Plugin() {
             return
         }
 
-        val top = compat.getInsets(WindowInsetsCompat.Type.statusBars()).top
-        val bottom = compat.getInsets(
-            WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.mandatorySystemGestures(),
-        ).bottom
-        // A cutout can sit beside the status bar (landscape) or inside it (portrait punch-hole).
-        val cutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            compat.getInsets(WindowInsetsCompat.Type.displayCutout())
-        } else {
-            null
-        }
+        /*
+         * Only the inset types androidx.core maps for every supported API level.
+         *
+         * The page needs two numbers: how tall the status bar is, and how much the gesture handle
+         * occupies. In portrait — the orientation this player is used in — a punch-hole cutout sits
+         * *inside* the status-bar band, so `statusBars()` already covers it. `displayCutout()` was
+         * deliberately not queried: it does not exist before API 28, and a plugin must not be the thing
+         * that crashes on an older phone.
+         */
+        val bars = compat.getInsets(WindowInsetsCompat.Type.statusBars())
+        val nav = compat.getInsets(WindowInsetsCompat.Type.navigationBars())
 
         call.resolve(
             JSObject()
-                .put("top", maxOf(top, cutout?.top ?: 0) / density.toDouble())
-                .put("bottom", bottom / density.toDouble())
-                .put("left", (cutout?.left ?: 0) / density.toDouble())
-                .put("right", (cutout?.right ?: 0) / density.toDouble())
+                .put("top", bars.top / density.toDouble())
+                .put("bottom", nav.bottom / density.toDouble())
+                .put("left", maxOf(bars.left, nav.left) / density.toDouble())
+                .put("right", maxOf(bars.right, nav.right) / density.toDouble())
                 .put("reliable", true),
         )
     }

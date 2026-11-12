@@ -262,7 +262,7 @@ class PlaybackService : MediaSessionService() {
          * Suffixed `v2` because Android freezes a channel's importance at creation: an upgrade that
          * reused the old id would keep LOW forever, and the notification would stay buried.
          */
-        const val NOTIFICATION_CHANNEL_ID = NotifyChannels.PLAYBACK
+        val NOTIFICATION_CHANNEL_ID = NotifyChannels.PLAYBACK
         const val NOTIFICATION_CHANNEL_NAME = "Playback"
 
         /** Custom notification actions. Declared here so layout and handler cannot disagree. */

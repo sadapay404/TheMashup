@@ -73,6 +73,9 @@ class DownloadService : Service() {
                     val at = pair.indexOf('\n')
                     if (at <= 0) null else pair.substring(0, at) to pair.substring(at + 1)
                 }.toMap()
+                // Foreground FIRST, work second. Android 14 gives a dataSync service a short window
+                // after startForegroundService() to call startForeground(); doing the download setup
+                // first is what makes it look like a crash rather than a missing notification.
                 startForegroundIfNeeded()
                 enqueue(id, url, File(dest), name, headers)
             }
@@ -287,9 +290,9 @@ class DownloadService : Service() {
 
     companion object {
         private const val TAG = "MashupDownload"
-        private const val CHANNEL_ID = NotifyChannels.DOWNLOADS
+        private val CHANNEL_ID = NotifyChannels.DOWNLOADS
         /** The alert channel, used so a failed download is actually surfaced. */
-        private const val ALERT_CHANNEL_ID = NotifyChannels.ALERTS
+        private val ALERT_CHANNEL_ID = NotifyChannels.ALERTS
         private const val NOTIF_ID = 4211
         /** Survives `stopForeground(STOP_FOREGROUND_REMOVE)`, so the outcome stays in the shade. */
         private const val NOTIF_ID_RESULT = 4212
