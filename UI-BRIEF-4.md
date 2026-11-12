@@ -30,9 +30,23 @@ looked right in a desktop browser and stayed broken on the phone.
 | measurement | `lib/safe-area.ts` + `shell/UiPlugin.kt` | the shell reports the **real** status bar, cutout and gesture insets in dp; written to `--safe-t`/`--safe-b`/`--safe-l`/`--safe-r` |
 | consumption | `lib/layout.ts` | `statusBarTop()/screenTop()/stickyTop()`; every screen pads with them |
 
-`App.tsx` also draws the visible **separator strip**: a fixed, pointer-transparent band of exactly
-`--safe-t` in the theme ground, with a horizontal hairline at its bottom edge. That is the line the
-user asked for between the app and the clock.
+`App.tsx` draws the visible **separator**. The first version filled the band with the theme ground
+(`--color-void`), which on a dark theme is a black strip above the content — reported as looking
+"very weird" and out of place, and it was: an opaque slab in the ground colour is a letterbox, not
+chrome. The separator is now a **layer** rather than a block:
+
+- the tint is mixed from `--accent` over `--color-void` at 14% → 8%, so it belongs to the theme in
+  every palette and cannot disappear into an all-black (amoled) theme the way a ground-colour fill
+  does;
+- `backdrop-filter: blur(18px) saturate(150%)` makes content scroll *under* it, which is what makes
+  it read as part of the interface;
+- it fades to `transparent` at the bottom instead of ending on a hard edge — there is no seam to
+  call out of place;
+- the hairline is a soft accent gradient that dies at both ends, matching the dock and the song card.
+
+Still `fixed`, still `pointer-events-none`, still no layout cost. Six assertions in
+`src/test/separator.test.ts` pin those properties, because the failure mode is theme-specific and
+easy to skip past.
 
 `values/styles.xml` sets `windowLayoutInDisplayCutoutMode=shortEdges` (stops some OEM skins from
 letterboxing the WebView under a punch-hole). `values-v29/styles.xml` is new: it turns off Android 10+'s
@@ -137,10 +151,67 @@ starts at a different track, the preference is remembered and not overwritten.
 
 ---
 
+## 5b. The five reports from apk.49
+
+### The separator looked like a black bar
+Fixed as described in §1. The point is not the blur: it is that the band no longer derives its colour
+from the *page ground* but from the *accent*, so it reads as chrome in every theme.
+
+### The notification only appeared when downloading
+This was a real structural bug, not a styling one. `MediaSessionService` registers a session with its
+notification manager **only** from `onGetSession()`, i.e. when a `MediaController` connects. This app
+never creates one — playback goes `PlaybackBridge` → `player.setMediaItem()` directly. So no controller
+ever connected, `getConnectedControllerForSession()` returned null, and `shouldShowNotification()` was
+therefore always false. `DownloadService` posts its own notification by hand, which is precisely the
+asymmetry reported.
+
+Three changes, all in the native layer:
+
+1. `addSession(mediaSession)` after the session is built, so Media3 attaches its own controller.
+2. `refreshNotification(...)` after `prepare()` and on `resume()`, so the entry appears on *play*
+   rather than waiting for a convenient state change.
+3. `NowPlayingNotification`, the LibreTube-shaped provider: owns the notification id, channel, a real
+   single-colour small icon (`ic_stat_music` — the library default dot is dropped by several OEM
+   skins), and forces `FLAG_ONGOING_EVENT`, which the stock provider hard-codes off.
+
+Copied from LibreTube `util/NowPlayingNotification.kt` and `services/AbstractPlayerService.kt`;
+not copied: per-build re-creation of the session activity intent, which exists there for a
+`singleTask` player activity this app does not have.
+
+### Sign-in opened the YT Music site
+Now: `accounts` enumerates the device's Google identities via `AccountManager`
+(`getAccountsByTypeAndFeatures("com.google", ["service_yt"])`, permission-guarded, empty-list
+tolerant), the Settings screen renders them as a picker, and `signInAs(email)` threads the chosen
+identity into Google's `passive=true` endpoint so no login page appears. The old WebView flow is the
+**fallback**, reached when there is nothing to pick or via "Use a different account…".
+
+Backing out now posts `signInDismissed`, so the button stops saying "Waiting for Google…" the moment
+the dialog goes away — that was the "press back and it does not sign up" complaint.
+
+**What this does not do.** It does not implement OAuth. A real Google Sign-In needs a Web client ID
+and this build's SHA-1 registered in a Cloud project; neither exists and neither can be created on
+the device. Rather than fake it, the app offers the mechanism that actually yields what it needs: a
+`music.youtube.com` session cookie.
+
+### "Find anything" twice
+The hero heading is now **"Search it, listen it, repeat it"**. The empty state keeps "Find anything",
+which is the only place it belongs. Three assertions pin the pair.
+
+### Dock text
+Labels removed from both the expanded row and the compact active pill. Icons 21 → 26px, slots now
+square at 52px so no dead space sits where a word used to be. `aria-label` survives — an icon-only
+dock would otherwise be five unnamed buttons — and the detent maths is untouched because it divides
+the container by `ITEMS.length` rather than a fixed width.
+
+---
+
 ## 6. Verification
 
-`tsc` clean · **313 tests / 29 files** green · `npm run build` OK.
-Android run `43165681677` **success**; CI green.
+`tsc` clean · **326 tests / 32 files** green · `npm run build` OK.
+Android run `43171202832` **success** (apk.50, first attempt — no Kotlin round lost).
+
+New this round: `src/test/separator.test.ts` (6), `src/test/search-slogan.test.ts` (3),
+`src/test/dock-icon-only.test.ts` (4).
 
 New: `src/test/safe-area.test.ts` (9), `src/test/notifications.test.ts` (13),
 `src/test/downloads-autoplay.test.tsx` (9).
@@ -160,7 +231,13 @@ and always bind a catch variable in Kotlin.**
 
 - Device verdict on playback from apk.45 onward: **unknown**. Nothing in this round changes the
   transport, so it neither helps nor hurts; do not describe it as fixed.
-- The notification shade behaviour, the status-bar separator, and Downloads autoplay are all
-  **first device tests** on apk.49.
+- The notification shade behaviour, the status-bar separator, and Downloads autoplay were first device
+  tests on apk.49.
+- **apk.50**: whether the playback notification now appears on play is the key unverified claim. The
+  cause was identified from Media3 1.3.1's own source, not guessed, and `addSession` is provably the
+  missing registration — but no device has run it yet.
+- **Account enumeration** was never executed on a device either. Expect variation: some ROMs return an
+  empty list without Google Play services, and on API 30+ the permission prompt is a settings hop
+  rather than an in-app dialog.
 - Install over an older TheMashup will fail with "App not installed" (per-runner debug key). Uninstall
   first, or add `MASHUP_KEYSTORE_BASE64`.
