@@ -112,49 +112,6 @@ class NativeExtractorImpl : StreamExtractor {
                 throw t
             }
         }
-
-        /**
-         * Called once from `app.themashup.music.MainActivity` by reflection:
-         * `Class.forName(...).getMethod("initialize", Context::class.java).invoke(null, activity)`.
-         *
-         * `@JvmStatic` is required for that reflection to find a static method.
-         *
-         * Must never throw: it is invoked from `MainActivity.onCreate` through reflection, where an
-         * exception would be swallowed by the caller's catch — and then every later resolve would fail
-         * for a reason nothing recorded. A failure is logged and left for `resolve` to report.
-         */
-        @JvmStatic
-        fun initialize(context: Context) {
-            try {
-                ensureInitialised(context)
-            } catch (t: Throwable) {
-                Log.e(TAG, "initialise failed; native resolution will report unavailable", t)
-            }
-        }
-
-        /**
-         * Install the OkHttp-backed downloader and localization once per process.
-         *
-         * NewPipeExtractor is a process-wide singleton (`NewPipe.init`), so this is guarded rather
-         * than run per play. A failure here is logged and rethrown: without a downloader every
-         * extraction fails immediately, and silently swallowing that would make the app report "no
-         * stream" for a reason that has nothing to do with YouTube.
-         */
-        @Synchronized
-        private fun ensureInitialised(context: Context) {
-            if (initialised.get()) return
-            try {
-                NewPipe.init(OkHttpDownloader(), Localization.DEFAULT)
-                // `context` is part of the reflective contract in MainActivity (`initialize(Context)`)
-                // and is the hook a future provider would need; the downloader itself is process-wide.
-                Log.d(TAG, "init context: ${context.javaClass.simpleName}")
-                initialised.set(true)
-                Log.i(TAG, "NewPipeExtractor initialised")
-            } catch (t: Throwable) {
-                Log.e(TAG, "NewPipeExtractor initialisation failed", t)
-                throw t
-            }
-        }
     }
 
     override suspend fun resolve(videoId: String, preferItag: Int): String? {
