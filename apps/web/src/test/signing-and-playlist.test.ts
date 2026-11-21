@@ -174,9 +174,33 @@ describe('one signing key for every build', () => {
     expect(gradle).toMatch(/hasKey[\s\S]{0,120}signingConfigs\.getByName\("release"\)/);
   });
 
-  it('still lets the environment override it', () => {
+  it('still honours an environment key when the committed one is absent', () => {
     // A future properly-secret key must drop in without editing the build file.
     expect(gradle).toContain('MASHUP_KEYSTORE_PATH');
+  });
+
+  it('treats a blank environment value as "not provided"', () => {
+    /*
+     * GitHub Actions defines every `env:` key it declares, and a secret that does not exist resolves
+     * to an EMPTY STRING, not to undefined. `System.getenv(x) ?: default` therefore returns "" and
+     * the keystore is opened with an empty password — which fails the build with "Assemble failed"
+     * and no mention of signing anywhere.
+     */
+    expect(gradle).toContain('takeIf { it.isNotBlank() }');
+    expect(gradle).toContain('isNullOrBlank()');
+    // The naive form must not come back.
+    expect(gradle).not.toMatch(/getenv\("MASHUP_KEYSTORE_PASSWORD"\) \?:/);
+  });
+
+  it('writes the keystore in a form the JDK can read', () => {
+    /*
+     * OpenSSL 3 defaults to AES-256 + PBKDF2-SHA256 in PKCS#12, which the JDK keystore reader
+     * rejects. Reading it back with `openssl` proves the MAC/algorithm header; the CI step proves it
+     * with keytool before the build starts.
+     */
+    const wf = readFileSync(resolve(__dirname, '../../../../.github/workflows/android.yml'), 'utf8');
+    expect(wf).toContain('keytool -list');
+    expect(wf).toMatch(/Signing key unreadable/);
   });
 
   it('fails the build if the key disappears', () => {

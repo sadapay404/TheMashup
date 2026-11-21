@@ -56,11 +56,22 @@ android {
             val storePath = if (committed.exists()) committed.absolutePath
                             else if (envPath != null && file(envPath).exists()) envPath
                             else committed.absolutePath
+            /*
+             * A blank environment value means "not provided".
+             *
+             * GitHub Actions defines every declared `env:` key, and a secret that does not exist
+             * resolves to an **empty string**, not to undefined. `System.getenv(x) ?: "default"`
+             * therefore yields `""` and the keystore is opened with an empty password — a failure
+             * that surfaces as "Assemble failed" with no mention of signing anywhere.
+             */
+            fun envOr(name: String, fallback: String): String =
+                System.getenv(name)?.takeIf { it.isNotBlank() } ?: fallback
+
             if (file(storePath).exists()) {
                 storeFile = file(storePath)
-                storePassword = System.getenv("MASHUP_KEYSTORE_PASSWORD") ?: "themashup123"
-                keyAlias = System.getenv("MASHUP_KEY_ALIAS") ?: "themashup"
-                keyPassword = System.getenv("MASHUP_KEY_PASSWORD") ?: "themashup123"
+                storePassword = envOr("MASHUP_KEYSTORE_PASSWORD", "themashup123")
+                keyAlias = envOr("MASHUP_KEY_ALIAS", "themashup")
+                keyPassword = envOr("MASHUP_KEY_PASSWORD", "themashup123")
             }
         }
     }
@@ -80,8 +91,9 @@ android {
              * debug fallback only applies when no key exists at all — which is a broken checkout, not
              * a normal state.
              */
+            // Blank-safe for the same reason as above: an absent secret arrives as "".
             val hasKey = rootProject.file("../keys/themashup.p12").exists() ||
-                System.getenv("MASHUP_KEYSTORE_PATH") != null
+                !System.getenv("MASHUP_KEYSTORE_PATH").isNullOrBlank()
             signingConfig = if (hasKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
         debug {
