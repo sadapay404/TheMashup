@@ -186,8 +186,12 @@ describe('the service and the home feed are wired to them', () => {
     expect(service).toContain('FEmusic_liked_playlists');
   });
 
-  it('puts the library first, as a Featured group', () => {
-    expect(hook).toMatch(/\[\.\.\.featured, \.\.\.normalize\(feed\)\]/);
+  it('puts the user’s own groups above the home feed', () => {
+    /*
+     * Order is now pinned playlist, then library "Featured", then the home feed's own shelves — the
+     * things the user asked for by name come first, YouTube's generic rows after.
+     */
+    expect(hook).toMatch(/\[\.\.\.pinnedGroup, \.\.\.featured, \.\.\.normalize\(feed\)\]/);
     expect(hook).toContain("'Featured'");
   });
 

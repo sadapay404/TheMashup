@@ -29,14 +29,27 @@ android {
     }
 
     signingConfigs {
-        // CI provides these; local builds fall back to the debug key so the project always assembles.
+        /*
+         * One key, committed, so builds install over each other.
+         *
+         * Every CI runner generated its own debug key, so every APK had a different signature and
+         * Android refused to install it over the previous one ("App not installed") — the user had to
+         * uninstall first, every single release. A committed keystore ends that permanently.
+         *
+         * This is a key for an open-source, sideloaded app distributed as a GitHub release. There is no
+         * Play Store identity to protect and no secret being leaked: anybody can rebuild the APK from
+         * this repository anyway. The environment variables still win when present, so a future
+         * properly-secret key can be dropped in without touching this file.
+         */
         create("release") {
-            val storePath = System.getenv("MASHUP_KEYSTORE_PATH")
-            if (storePath != null && file(storePath).exists()) {
+            val envPath = System.getenv("MASHUP_KEYSTORE_PATH")
+            val committed = rootProject.file("../keys/themashup.p12")
+            val storePath = if (envPath != null && file(envPath).exists()) envPath else committed.absolutePath
+            if (file(storePath).exists()) {
                 storeFile = file(storePath)
-                storePassword = System.getenv("MASHUP_KEYSTORE_PASSWORD")
+                storePassword = System.getenv("MASHUP_KEYSTORE_PASSWORD") ?: "themashup123"
                 keyAlias = System.getenv("MASHUP_KEY_ALIAS") ?: "themashup"
-                keyPassword = System.getenv("MASHUP_KEY_PASSWORD")
+                keyPassword = System.getenv("MASHUP_KEY_PASSWORD") ?: "themashup123"
             }
         }
     }
@@ -51,8 +64,14 @@ android {
             // that would have to enumerate assets that do not exist yet.
             isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            val signed = System.getenv("MASHUP_KEYSTORE_PATH") != null
-            signingConfig = if (signed) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            /*
+             * Release is now always signed with the release key (env-provided or committed), so the
+             * debug fallback only applies when no key exists at all — which is a broken checkout, not
+             * a normal state.
+             */
+            val hasKey = System.getenv("MASHUP_KEYSTORE_PATH") != null ||
+                rootProject.file("../keys/themashup.p12").exists()
+            signingConfig = if (hasKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
         debug {
             applicationIdSuffix = ".debug"

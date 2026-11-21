@@ -110,6 +110,18 @@ jobs:
           fi
           cat "$GITHUB_OUTPUT"
 
+      # The committed key is the default now. Verify it is present, and say plainly if it is not,
+      # because a missing key silently reverts to per-runner debug signing — the exact defect that
+      # forced an uninstall on every release.
+      - name: Verify committed signing key
+        run: |
+          KEY=apps/android/keys/themashup.p12
+          if [ ! -f "$KEY" ]; then
+            echo "::error title=Signing key missing::$KEY is absent. Every build will be signed with a per-runner debug key and will not install over the previous release."
+            exit 1
+          fi
+          echo "✓ committed signing key present ($(wc -c < "$KEY") bytes)"
+
       - name: Decode signing keystore (optional)
         env:
           KEYSTORE_B64: ${{ secrets.MASHUP_KEYSTORE_BASE64 }}
@@ -273,6 +285,13 @@ jobs:
               echo "::error title=Bad signature::$(basename "$APK") is not validly signed"
               exit 1
             fi
+            # The certificate must be the committed release key. Two different DNs across releases is
+            # exactly the defect that forces an uninstall, and it is invisible in a green build.
+            case "$SIGNER" in
+              *TheMashup*) ;;
+              *) echo "::error title=Wrong signing key::$(basename "$APK") is signed by '$SIGNER', not by the committed release key (CN=TheMashup). It will not install over a previous release."
+                 exit 1 ;;
+            esac
           done
 
       - name: Upload APK

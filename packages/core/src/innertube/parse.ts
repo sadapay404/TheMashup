@@ -188,6 +188,51 @@ export function parsePlaylistBrowse(json: unknown): Track[] {
 }
 
 /**
+ * Parse a playlist page, following continuations as far as they go.
+ *
+ * YouTube returns a playlist in pages of ~25 songs with a `continuationCommand.token` at the end of the
+ * shelf. `parsePlaylistBrowse` reads only the first page — fine for previewing a card, wrong for a
+ * playlist the user explicitly asked to be shown in full. This returns the tokens so the caller can
+ * fetch the rest; the caller owns the request because this file is pure.
+ */
+export function parsePlaylistBrowseDeep(json: unknown): { tracks: Track[]; continuation?: string } {
+  const tracks = parsePlaylistBrowse(json);
+  const token = findPlaylistContinuation(json);
+  return token ? { tracks, continuation: token } : { tracks };
+}
+
+/**
+ * Find a `continuationCommand.token` anywhere under a playlist shelf.
+ *
+ * Deliberately a bounded recursive walk rather than a fixed path: the continuation lives at
+ * `contents[].continuationItemRenderer.continuationEndpoint.continuationCommand.token`, but the exact
+ * depth has moved more than once and a wrong guess silently truncates a playlist at 25 songs.
+ */
+function findPlaylistContinuation(json: unknown, depth = 0): string | undefined {
+  if (depth > 12) return undefined;
+  if (Array.isArray(json)) {
+    for (const item of json) {
+      const found = findPlaylistContinuation(item, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (typeof json !== 'object' || json === null) return undefined;
+  const node = json as Json;
+
+  const command = obj(obj(node['continuationEndpoint'])['continuationCommand']);
+  if (typeof command['token'] === 'string' && command['token']) return command['token'] as string;
+
+  // `musicPlaylistShelfRenderer.contents` is where the token actually lives; walking everything
+  // below it costs nothing on a response this size.
+  for (const value of Object.values(node)) {
+    const found = findPlaylistContinuation(value, depth + 1);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
  * Parse `browse(FEmusic_liked_playlists)` into the account's own playlists.
  *
  * This is how OuterTune gets a user's YouTube Music playlists, and it is the only way to do it: a

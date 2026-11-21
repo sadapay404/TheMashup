@@ -56,6 +56,21 @@ const FEATURED_PER_ROW = 4;
 /** How often the home page re-reads the library, so an edit in YouTube shows up on its own. */
 const LIBRARY_REFRESH_MS = 60_000;
 
+/**
+ * The playlist the home screen is pinned to.
+ *
+ * The user gave this URL explicitly and asked for its songs on Home, four to a row, with as many rows
+ * as the playlist needs. This is deliberately a constant rather than a setting: it is one specific
+ * playlist, and a settings screen for it was not asked for. If they want a different one later, that
+ * is a one-line change here plus a build.
+ *
+ * https://www.youtube.com/playlist?list=PLT_8JyiMy1Zk
+ */
+const PINNED_PLAYLIST_ID = 'PLT_8JyiMy1Zk';
+
+/** Four to a row, as asked. */
+const PINNED_PER_ROW = 4;
+
 export type FeedState = {
   shelves: FeedShelf[];
   /** True while the first fetch is in flight, so Home can show a skeleton rather than an empty state. */
@@ -112,6 +127,28 @@ function pinOrder(shelves: FeedShelf[]): FeedShelf[] {
  * block of rows rather than a row per playlist. Ordering is the library's own, which puts the
  * user's most recently touched playlists first.
  */
+/**
+ * Songs from the pinned playlist, four to a row, as many rows as it takes.
+ *
+ * This is the direct answer to "pull this playlist and show it on the home screen, 4 songs per row, no
+ * limit on rows". It is a *songs* group rather than a playlist-card group: the user wants the songs of
+ * one playlist laid out, not a shelf of collection cards to tap through.
+ *
+ * The rows carry no title except the first, so the whole thing reads as one section.
+ */
+function pinnedRows(tracks: Track[], title: string): FeedShelf[] {
+  const rows: FeedShelf[] = [];
+  for (let i = 0; i < tracks.length; i += PINNED_PER_ROW) {
+    rows.push({
+      title: i === 0 ? title : '',
+      tracks: tracks.slice(i, i + PINNED_PER_ROW),
+      // Refreshable in place, exactly like the library group.
+      featured: true,
+    });
+  }
+  return rows;
+}
+
 function featuredRows(playlists: Playlist[]): FeedShelf[] {
   const rows: FeedShelf[] = [];
   for (let i = 0; i < playlists.length; i += FEATURED_PER_ROW) {
@@ -196,11 +233,22 @@ export function useHomeFeed(enabled: boolean): FeedState {
        * The library and the home feed are fetched together: they are independent, and the "Featured"
        * group is the one the user actually relies on, so it must not wait behind the home feed.
        */
-      const [feed, library] = await Promise.all([service.homeFeed(), service.libraryPlaylists()]);
+      /*
+       * The pinned playlist is fetched first and on its own merit.
+       *
+       * It is the one thing on this screen the user asked for by name, and it works signed out, so it
+       * must not be able to fail because the account-side calls are unauthorised or slow.
+       */
+      const [pinned, feed, library] = await Promise.all([
+        service.playlistTracksAll(PINNED_PLAYLIST_ID),
+        service.homeFeed(),
+        service.libraryPlaylists(),
+      ]);
       if (id !== requestId.current) return;
 
+      const pinnedGroup = pinnedRows(pinned, 'Your playlist');
       const featured = featuredRows(library);
-      const yt = [...featured, ...normalize(feed)];
+      const yt = [...pinnedGroup, ...featured, ...normalize(feed)];
       if (yt.length) {
         setState({ shelves: yt, loading: false, origin: 'ytmusic' });
         // Only worth the extra requests when the page is still thin.
@@ -236,18 +284,24 @@ export function useHomeFeed(enabled: boolean): FeedState {
    */
   const refresh = useCallback(() => {
     if (!enabled) return;
-    void service.libraryPlaylists().then((library) => {
-      if (!library.length) return;
-      setState((prev) => {
-        if (!prev.shelves.length) return prev;
-        /*
-         * Replace only the Featured group, in place. Re-running the whole feed would re-order the
-         * user's page under them while they are scrolling it.
-         */
-        const rest = prev.shelves.filter((s) => !s.featured);
-        return { ...prev, shelves: [...featuredRows(library), ...rest] };
-      });
-    });
+    /*
+     * Re-read both the pinned playlist and the library, then replace only the groups they own.
+     *
+     * The requirement is that Home follows edits made in YouTube. For the pinned playlist that means a
+     * song added or removed there shows up here without a restart — which needs the playlist re-read,
+     * not just the library list.
+     */
+    void Promise.all([service.playlistTracksAll(PINNED_PLAYLIST_ID), service.libraryPlaylists()]).then(
+      ([pinned, library]) => {
+        setState((prev) => {
+          if (!prev.shelves.length) return prev;
+          const rest = prev.shelves.filter((s) => !s.featured);
+          const pinnedGroup = pinnedRows(pinned, 'Your playlist');
+          const next = [...pinnedGroup, ...featuredRows(library), ...rest];
+          return { ...prev, shelves: next.slice(0, MAX_SHELVES) };
+        });
+      },
+    );
   }, [enabled]);
 
   useEffect(() => {

@@ -24,6 +24,7 @@ import {
   parseLibraryPlaylists,
   parsePlayer,
   parsePlaylistBrowse,
+  parsePlaylistBrowseDeep,
   parseRadioQueue,
   parseSearch,
   pickAudioUrl,
@@ -433,6 +434,67 @@ export class MusicService {
       /* fall through */
     }
     return [];
+  }
+
+  /**
+   * Every track in a playlist, following continuations to the end.
+   *
+   * The user pointed at one specific public playlist and said "4 songs per row, as many rows as the
+   * playlist needs" — which means the whole playlist, not the first page. YouTube serves ~25 tracks
+   * per response and hides the rest behind a continuation token, so a single request would have
+   * silently truncated it. That is exactly the kind of "it did not pull the playlist" this has to
+   * survive.
+   *
+   * Works for a public playlist with no sign-in at all: a playlist id is public addressing, which is
+   * why this does not gate on `hasAccount()`.
+   */
+  async playlistTracksAll(playlistId: string): Promise<Track[]> {
+    const browseId = playlistId.startsWith('VL') ? playlistId : `VL${playlistId}`;
+    const cached = this.playlistCache.get(browseId);
+    if (cached && Date.now() - cached.at < PLAYLIST_CACHE_MS) return cached.tracks;
+
+    const out: Track[] = [];
+    const seen = new Set<string>();
+    try {
+      const first = await this.innertube.browse(browseId);
+      const deep = parsePlaylistBrowseDeep(first.json);
+      for (const track of deep.tracks) {
+        if (seen.has(track.id)) continue;
+        seen.add(track.id);
+        out.push(track);
+      }
+
+      /*
+       * Follow the token, bounded.
+       *
+       * Ten pages is 250+ songs — far beyond what a home row should hold, and a hard stop keeps a
+       * pathological playlist from turning into an unbounded request loop. Each page is a browse with
+       * the token in the body, which is what InnerTube expects for a continuation.
+       */
+      let token = deep.continuation;
+      for (let page = 0; token && page < 10; page++) {
+        const next = await this.innertube.browse(browseId, { continuation: token });
+        const more = parsePlaylistBrowseDeep(next.json);
+        let added = 0;
+        for (const track of more.tracks) {
+          if (seen.has(track.id)) continue;
+          seen.add(track.id);
+          out.push(track);
+          added++;
+        }
+        // No progress means the token looped; stop rather than spin.
+        if (added === 0) break;
+        token = more.continuation;
+      }
+    } catch {
+      /* fall through: a partial list is better than none */
+    }
+
+    if (out.length) {
+      this.lastRoute = 'InnerTube · playlist';
+      this.playlistCache.set(browseId, { tracks: out, at: Date.now() });
+    }
+    return out;
   }
 
   /**

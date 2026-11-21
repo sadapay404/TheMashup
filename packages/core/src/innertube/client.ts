@@ -28,6 +28,54 @@ export interface InnerTubeRequest {
 
 export const INNERTUBE_HOST = 'https://music.youtube.com/youtubei/v1';
 
+/**
+ * Read one cookie's value out of a raw `Cookie:` header string.
+ *
+ * The captured header is `A=1; SAPISID=xyz; B=2`, not a map, so it has to be parsed here.
+ */
+function cookieValue(cookieHeader: string, name: string): string | undefined {
+  for (const part of cookieHeader.split(';')) {
+    const at = part.indexOf('=');
+    if (at < 0) continue;
+    if (part.slice(0, at).trim() === name) return part.slice(at + 1).trim();
+  }
+  return undefined;
+}
+
+/**
+ * `Authorization: SAPISIDHASH <ts>_<sha1(ts + " " + SAPISID + " " + origin)>`
+ *
+ * ## Why this file was the whole problem
+ *
+ * Every InnerTube request was sent with a `Cookie` header and **no `Authorization` header at all**.
+ * YouTube does not authenticate on the cookie alone for the web client: without this hash the request
+ * is served as an anonymous visitor. That is why the account-cookie plumbing appeared to work — sign
+ * in succeeded, the cookie was captured and stored — while every "personalised" thing came back
+ * generic or empty: the home feed, the library playlists, the liked songs. Nothing downstream could
+ * fix it, because the server never knew who was asking.
+ *
+ * `SAPISIDHASH` is SHA-1 over `\`${ts} ${sapisid} https://music.youtube.com\`` and the documented
+ * scheme for this origin. `SAPISID` is the `__Secure-3PAPISID` sibling only for the secure origin;
+ * plain `SAPISID` is correct for `music.youtube.com`.
+ *
+ * Uses `crypto.subtle` — present in browsers, in the Android WebView, and in Node 18+, which is every
+ * runtime this file runs in. It is async for that reason, which is why `call()` became async.
+ */
+export async function sapisidhash(
+  cookieHeader: string,
+  origin = 'https://music.youtube.com',
+  timestampSeconds = Math.floor(Date.now() / 1000),
+): Promise<string | null> {
+  const sapisid = cookieValue(cookieHeader, 'SAPISID') ?? cookieValue(cookieHeader, '__Secure-3PAPISID');
+  if (!sapisid) return null;
+  const input = `${timestampSeconds} ${sapisid} ${origin}`;
+  const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(input));
+  const hex = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `SAPISIDHASH ${timestampSeconds}_${hex}`;
+}
+
 /** Build the exact envelope InnerTube expects. Pure function — trivially testable. */
 export function buildRequest(
   profile: ClientProfile,
@@ -106,8 +154,29 @@ export class InnerTube {
     private readonly profileOf: (name: ProfileName) => ClientProfile = (n) => PROFILES[n],
   ) {}
 
-  private call(profileName: ProfileName, endpoint: string, body: Record<string, unknown>, signal?: AbortSignal) {
-    return this.transport(buildRequest(this.profileOf(profileName), endpoint, body, this.ctx), signal);
+  private async call(
+    profileName: ProfileName,
+    endpoint: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) {
+    const request = buildRequest(this.profileOf(profileName), endpoint, body, this.ctx);
+    /*
+     * Sign the request when there is a session.
+     *
+     * Without this the server ignores the cookie and answers as an anonymous visitor. A failure to
+     * hash is not an error worth throwing: an anonymous request is better than no request, and the
+     * caller already handles "empty result" everywhere.
+     */
+    if (this.ctx.cookie) {
+      try {
+        const auth = await sapisidhash(this.ctx.cookie);
+        if (auth) request.headers['Authorization'] = auth;
+      } catch {
+        /* WebCrypto unavailable — proceed anonymously rather than failing the call */
+      }
+    }
+    return this.transport(request, signal);
   }
 
   search(query: string, filter: SearchFilter = 'all', continuation?: string, signal?: AbortSignal) {
