@@ -42,9 +42,20 @@ android {
          * properly-secret key can be dropped in without touching this file.
          */
         create("release") {
-            val envPath = System.getenv("MASHUP_KEYSTORE_PATH")
+            /*
+             * The committed key wins.
+             *
+             * Deliberately the reverse of the usual precedence. A leftover CI secret would otherwise
+             * silently sign with a key nobody can reproduce locally, and the whole point of committing
+             * one is that every build — CI, a laptop, a fork — is signed identically. The environment
+             * still applies when the committed key is absent, so a project that must keep its key
+             * secret can drop it in and delete the committed one.
+             */
             val committed = rootProject.file("../keys/themashup.p12")
-            val storePath = if (envPath != null && file(envPath).exists()) envPath else committed.absolutePath
+            val envPath = System.getenv("MASHUP_KEYSTORE_PATH")
+            val storePath = if (committed.exists()) committed.absolutePath
+                            else if (envPath != null && file(envPath).exists()) envPath
+                            else committed.absolutePath
             if (file(storePath).exists()) {
                 storeFile = file(storePath)
                 storePassword = System.getenv("MASHUP_KEYSTORE_PASSWORD") ?: "themashup123"
@@ -69,8 +80,8 @@ android {
              * debug fallback only applies when no key exists at all — which is a broken checkout, not
              * a normal state.
              */
-            val hasKey = System.getenv("MASHUP_KEYSTORE_PATH") != null ||
-                rootProject.file("../keys/themashup.p12").exists()
+            val hasKey = rootProject.file("../keys/themashup.p12").exists() ||
+                System.getenv("MASHUP_KEYSTORE_PATH") != null
             signingConfig = if (hasKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
         debug {

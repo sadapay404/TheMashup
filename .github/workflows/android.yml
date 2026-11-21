@@ -121,6 +121,15 @@ jobs:
             exit 1
           fi
           echo "✓ committed signing key present ($(wc -c < "$KEY") bytes)"
+          # Prove Java can actually load it BEFORE spending a build on it. A PKCS#12 written with
+          # modern OpenSSL defaults (AES-256 + PBKDF2-SHA256) is rejected by the JDK keystore reader,
+          # and the resulting failure surfaces only as "Assemble failed" with no useful cause.
+          if ! keytool -list -keystore "$KEY" -storetype PKCS12 -storepass themashup123 -alias themashup > /dev/null 2>&1; then
+            echo "::error title=Signing key unreadable::$KEY cannot be opened by keytool with the committed password. Regenerate it with -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1."
+            keytool -list -keystore "$KEY" -storetype PKCS12 -storepass themashup123 2>&1 | tail -5 || true
+            exit 1
+          fi
+          echo "✓ keytool can read the keystore and the 'themashup' alias"
 
       - name: Decode signing keystore (optional)
         env:
