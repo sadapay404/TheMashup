@@ -413,9 +413,45 @@ changed. Everything else keeps YouTube's ranking.
 
 ---
 
+## 5h. The apk.56 request
+
+**"I create a playlist called Favorites in my YouTube; the app pulls it and shows a Featured group,
+4 songs per row. And the home screen updates according to changes in the playlist."** This is the
+OuterTune behaviour the user pointed at, and there was **no route to it at all**: a playlist created
+on music.youtube.com is not on the home feed, not on the liked list, and has no local record.
+
+Worse — `playlistTracks()` had **never worked**. It called `parseRadioQueue`, a *`next`* parser that
+looks for `singleColumnMusicWatchNextResultsRenderer`, against a *`browse`* response. That returns
+`[]` for every playlist, always. Pasting a playlist link and "download this playlist" were both
+silently dead.
+
+Two parsers added, shapes verified against ytmusicapi's `parse_audio_playlist` and
+`get_library_contents`:
+
+- `parseLibraryPlaylists` — `browse(FEmusic_liked_playlists)`. Walks every library tab and
+  de-duplicates by id, because the wrapper depth genuinely differs between premium and non-premium
+  accounts (ytmusicapi carries three branches for the same reason).
+- `parsePlaylistBrowse` — `browse(VL<id>)` from
+  `twoColumnBrowseResultsRenderer.secondaryContents`, single-column fallback included.
+
+Home renders the library as a **Featured** group: every playlist chunked four to a row, the heading on
+the first row only so it reads as one block, placed above the home-feed shelves.
+
+It follows edits: re-read every minute and on every `visibilitychange`, replacing **only** the
+Featured group — a full refetch would re-order the page under someone scrolling it.
+
+`parsePlaylistBrowse` deliberately does not follow continuations: a card opens on tap, and crawling
+full pagination first would make that feel slow.
+
+---
+
 ## 6. Verification
 
-`tsc` clean · **401 tests / 40 files** green · `npm run build` OK.
+`tsc` clean · **415 tests / 41 files** green · `npm run build` OK.
+Android run `44863810367` (build) + `44863810434` (e2e) **success** (apk.56).
+Assets 3,670,034 B and 4,364,833 B.
+
+apk.55: **401 tests / 40 files**, runs `44859626616` + `44859626687` **success**.
 Android run `44859626616` (build) + `44859626687` (e2e) **success** (apk.55).
 Assets 3,669,358 B and 4,364,157 B.
 
@@ -432,6 +468,7 @@ apk.52: **352 tests / 36 files**, run `43182800620` **success**. Assets 3,664,25
 apk.51: **342 tests / 35 files**, run `43176761724` **success**.
 Every CI step green, including "Verify APK integrity".
 
+New in apk.56: `library-playlists.test.ts` (14).
 New in apk.55: `download-speed-and-rows.test.ts` (13); `home-feed.test.ts` 8 → 10.
 New in apk.54: `downloads-persist.test.ts` (11), `lag-and-feed.test.ts` (9);
 `home-feed.test.ts` grown 6 → 8.
