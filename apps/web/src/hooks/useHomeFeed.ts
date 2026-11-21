@@ -27,8 +27,8 @@
  *   - a brand-new account whose home feed is empty.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FeedShelf, Track } from '@themashup/core';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FeedShelf, Playlist, Track } from '@themashup/core';
 import { useApp } from '@/state/store';
 import { service } from '@/lib/service';
 
@@ -43,6 +43,18 @@ const TRACKS_PER_SHELF = 12;
  * images lazily but still costs layout.
  */
 const MAX_SHELVES = 12;
+
+/**
+ * How many playlist cards per "Featured" row.
+ *
+ * The user asked for four: they keep 15–20 songs across their YouTube playlists (a "Favorites" list
+ * plus a few others), so four per row fills the home screen in a few rows instead of one cramped
+ * strip or a single row of twenty.
+ */
+const FEATURED_PER_ROW = 4;
+
+/** How often the home page re-reads the library, so an edit in YouTube shows up on its own. */
+const LIBRARY_REFRESH_MS = 60_000;
 
 export type FeedState = {
   shelves: FeedShelf[];
@@ -88,6 +100,35 @@ function pinOrder(shelves: FeedShelf[]): FeedShelf[] {
     .map((entry) => entry.shelf);
 }
 
+/**
+ * The "Featured" group: the account's own YT Music playlists, four to a row.
+ *
+ * This is the part that makes the home screen follow a playlist the user maintains in YouTube. A
+ * playlist created on music.youtube.com is on neither the home feed nor the liked-songs list, so
+ * before this there was no route from "I made a Favorites playlist" to "it shows in TheMashup" —
+ * which is exactly what the user reported and what OuterTune does differently.
+ *
+ * Every playlist goes into one flat, ordered list and is then chunked, so the group reads as one
+ * block of rows rather than a row per playlist. Ordering is the library's own, which puts the
+ * user's most recently touched playlists first.
+ */
+function featuredRows(playlists: Playlist[]): FeedShelf[] {
+  const rows: FeedShelf[] = [];
+  for (let i = 0; i < playlists.length; i += FEATURED_PER_ROW) {
+    const slice = playlists.slice(i, i + FEATURED_PER_ROW);
+    rows.push({
+      // Named once, on the first row, so the group reads as one section with a heading rather than
+      // four rows each claiming to be "Featured".
+      title: i === 0 ? 'Featured' : '',
+      tracks: [],
+      playlists: slice,
+      // Marks the row as part of the library group, so the refresh can replace it in place.
+      featured: true,
+    });
+  }
+  return rows;
+}
+
 /** Trim each shelf and drop the ones that ended up empty. */
 function normalize(shelves: FeedShelf[]): FeedShelf[] {
   return pinOrder(
@@ -97,8 +138,12 @@ function normalize(shelves: FeedShelf[]): FeedShelf[] {
         tracks: s.tracks.slice(0, TRACKS_PER_SHELF),
         ...(s.playlists?.length ? { playlists: s.playlists.slice(0, TRACKS_PER_SHELF) } : {}),
       }))
-      // A playlist-only row is a real row. Requiring tracks is what deleted the three the user asked for.
-      .filter((s) => s.title.length > 0 && (s.tracks.length > 0 || (s.playlists?.length ?? 0) > 0)),
+      /*
+       * A playlist-only row is a real row, and a row with an *empty* title is a valid continuation of
+       * the group above it ("Featured" chunked across several rows). Both were being filtered out,
+       * which is why playlist rows kept vanishing.
+       */
+      .filter((s) => s.tracks.length > 0 || (s.playlists?.length ?? 0) > 0),
   ).slice(0, MAX_SHELVES);
 }
 
@@ -147,10 +192,15 @@ export function useHomeFeed(enabled: boolean): FeedState {
        * The screen paints as soon as YouTube answers, and the local row is appended afterwards if it
        * turns out to be needed. So the page fills twice rather than loading once, slowly.
        */
-      const feed = await service.homeFeed();
+      /*
+       * The library and the home feed are fetched together: they are independent, and the "Featured"
+       * group is the one the user actually relies on, so it must not wait behind the home feed.
+       */
+      const [feed, library] = await Promise.all([service.homeFeed(), service.libraryPlaylists()]);
       if (id !== requestId.current) return;
 
-      const yt = normalize(feed);
+      const featured = featuredRows(library);
+      const yt = [...featured, ...normalize(feed)];
       if (yt.length) {
         setState({ shelves: yt, loading: false, origin: 'ytmusic' });
         // Only worth the extra requests when the page is still thin.
@@ -173,6 +223,45 @@ export function useHomeFeed(enabled: boolean): FeedState {
       requestId.current += 1;
     };
   }, [enabled, localKey, history, affinity]);
+
+  /*
+   * Re-read the library on an interval while Home is on screen.
+   *
+   * "The home screen would update according to the changes in the playlist" is the requirement, and it
+   * cannot be met by a one-shot fetch: the edit happens in another app. Polling sounds crude, but the
+   * request is small, it is cached upstream for five minutes, and it only runs while the hook is
+   * mounted. Refreshing on `visibilitychange` covers the far more common case — the user edits a
+   * playlist in YouTube and comes back to this app, which is exactly when a refresh must happen
+   * immediately.
+   */
+  const refresh = useCallback(() => {
+    if (!enabled) return;
+    void service.libraryPlaylists().then((library) => {
+      if (!library.length) return;
+      setState((prev) => {
+        if (!prev.shelves.length) return prev;
+        /*
+         * Replace only the Featured group, in place. Re-running the whole feed would re-order the
+         * user's page under them while they are scrolling it.
+         */
+        const rest = prev.shelves.filter((s) => !s.featured);
+        return { ...prev, shelves: [...featuredRows(library), ...rest] };
+      });
+    });
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = window.setInterval(refresh, LIBRARY_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [enabled, refresh]);
 
   return state;
 }

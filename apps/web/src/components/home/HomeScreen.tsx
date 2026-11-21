@@ -237,12 +237,21 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
   );
 }
 
+/**
+ * A titled row.
+ *
+ * An empty `title` means "this row continues the group above" — the Featured group is chunked into
+ * rows of four, and repeating the heading on each would make one section read as several. The
+ * spacing tightens for a continuation so the chunks look like one block rather than scattered rows.
+ */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-7">
-      <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-3)]">
-        {title}
-      </h2>
+    <section className={title ? 'mt-7' : 'mt-2'}>
+      {title ? (
+        <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-3)]">
+          {title}
+        </h2>
+      ) : null}
       {children}
     </section>
   );

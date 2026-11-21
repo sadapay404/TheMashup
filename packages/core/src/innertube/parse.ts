@@ -136,6 +136,109 @@ export function parseTrackRow(raw: unknown, source = 'search'): Track | null {
   };
 }
 
+/**
+ * Parse `browse(VL<playlistId>)` into its tracks, in order.
+ *
+ * This did not exist, which made `service.playlistTracks()` silently useless: it was calling
+ * `parseRadioQueue` — a *`next`* parser that looks for a `singleColumnMusicWatchNextResultsRenderer`
+ * — against a *`browse`* response. That returns an empty list for every playlist, always, so pasting a
+ * playlist link and "download this playlist" both appeared to do nothing.
+ *
+ * Shape (verified against ytmusicapi's `parse_audio_playlist`): the tracks live under
+ * `twoColumnBrowseResultsRenderer.secondaryContents.sectionListRenderer.contents[].
+ * musicPlaylistShelfRenderer.contents`, with each item a `musicResponsiveListItemRenderer`.
+ *
+ * Continuations are deliberately not followed: the home screen wants the first N songs of a playlist
+ * and a full pagination crawl per card would make opening a playlist feel slow. A caller that needs
+ * everything can page later.
+ */
+export function parsePlaylistBrowse(json: unknown): Track[] {
+  const root = obj(json);
+  const twoCol = obj(obj(root['contents'])['twoColumnBrowseResultsRenderer']);
+
+  const out: Track[] = [];
+
+  const collect = (sections: unknown[]) => {
+    for (const section of sections) {
+      const s = obj(section);
+      const shelf = obj(s['musicPlaylistShelfRenderer']);
+      if (Object.keys(shelf).length) {
+        for (const item of arr(shelf['contents'])) {
+          const track = parseTrackRow(item, 'playlist');
+          if (track) out.push(track);
+        }
+        continue;
+      }
+      // Some accounts get the shelf one wrapper deeper.
+      const inner = arr(obj(s['itemSectionRenderer'])['contents']);
+      if (inner.length) collect(inner);
+    }
+  };
+
+  const secondary = obj(obj(twoCol['secondaryContents'])['sectionListRenderer']);
+  collect(arr(secondary['contents']));
+
+  // A single-column fallback: albums and some account types are not two-column.
+  if (!out.length) {
+    const tabs = arr(obj(obj(root['contents'])['singleColumnBrowseResultsRenderer'])['tabs']);
+    const tabContent = obj(obj(tabs[0])['tabRenderer'])['content'];
+    collect(arr(obj(obj(tabContent)['sectionListRenderer'])['contents']));
+  }
+  return out;
+}
+
+/**
+ * Parse `browse(FEmusic_liked_playlists)` into the account's own playlists.
+ *
+ * This is how OuterTune gets a user's YouTube Music playlists, and it is the only way to do it: a
+ * playlist the user creates on music.youtube.com is **not** on the home feed, is not a like, and has
+ * no local record. Without this there is no route from "I made a playlist in YouTube" to "it appears
+ * in TheMashup".
+ *
+ * Shape (verified against ytmusicapi's `get_library_contents`): the items are `musicTwoRowItemRenderer`
+ * cards, either directly in a `musicShelfRenderer` under the section list, or nested in an
+ * `itemSectionRenderer`. Each card's `browseEndpoint.browseId` is `VL` + playlistId.
+ */
+export function parseLibraryPlaylists(json: unknown): Playlist[] {
+  const root = obj(json);
+  const single = obj(obj(root['contents'])['singleColumnBrowseResultsRenderer']);
+  const out: Playlist[] = [];
+  const seen = new Set<string>();
+
+  const collect = (sections: unknown[]) => {
+    for (const section of sections) {
+      const s = obj(section);
+      for (const key of ['musicShelfRenderer', 'musicCarouselShelfRenderer', 'gridRenderer']) {
+        const node = obj(s[key]);
+        if (!Object.keys(node).length) continue;
+        for (const item of arr(node['contents'] ?? node['items'])) {
+          const card = obj(obj(item)['musicTwoRowItemRenderer']);
+          if (!Object.keys(card).length) continue;
+          const list = parsePlaylistCard(card);
+          if (!list || seen.has(list.id)) continue;
+          seen.add(list.id);
+          out.push(list);
+        }
+      }
+      // A section that wraps more sections.
+      const inner = arr(obj(s['itemSectionRenderer'])['contents']);
+      if (inner.length) collect(inner);
+    }
+  };
+
+  // The library page is tabbed; the playlists tab is the one carrying shelf renderers. Walking every
+  // tab and de-duplicating by id is simpler than guessing the index, and the index does differ
+  // between premium and non-premium accounts (that is why ytmusicapi has three branches for it).
+  for (const tab of arr(single['tabs'])) {
+    const content = obj(obj(tab)['tabRenderer'])['content'];
+    collect(arr(obj(obj(content)['sectionListRenderer'])['contents']));
+  }
+  // Newer responses put the list straight at the top level.
+  collect(arr(obj(single['sectionListRenderer'])['contents']));
+
+  return out;
+}
+
 export function parseAlbumRow(raw: unknown): Album | null {
   const outer = obj(raw);
   const r = outer['musicResponsiveListItemRenderer'] ? obj(outer['musicResponsiveListItemRenderer']) : outer;
@@ -575,6 +678,13 @@ export interface FeedShelf {
   title: string;
   tracks: Track[];
   playlists?: Playlist[];
+  /**
+   * True when this row came from the user's own library rather than the home feed.
+   *
+   * Set by the app, not the parser — it is what lets the library group be refreshed and replaced in
+   * place without disturbing the rows around it.
+   */
+  featured?: boolean;
 }
 
 /** Which named shelves the app asks for by default, in the order it wants them shown. */

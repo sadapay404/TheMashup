@@ -21,12 +21,15 @@ import {
   getLyrics,
   ok,
   parseHomeFeed,
+  parseLibraryPlaylists,
   parsePlayer,
+  parsePlaylistBrowse,
   parseRadioQueue,
   parseSearch,
   pickAudioUrl,
   type AudioFormat,
   type FeedShelf,
+  type Playlist,
   type Lyrics,
   type LyricDoc,
   type ProfileName,
@@ -64,6 +67,18 @@ import type { RawResponse } from '@themashup/core';
 
 const LS_VISITOR = 'mashup.visitorData';
 const LS_COOKIE = 'mashup.cookie';
+
+/**
+ * How long a resolved playlist stays usable.
+ *
+ * Short on purpose: the Favorites row exists to mirror a playlist the user edits in YouTube, so a
+ * long cache would show a stale list and read as broken. Three minutes is longer than any
+ * play/pause/replay cycle and short enough that an edit feels reflected.
+ */
+const PLAYLIST_CACHE_MS = 3 * 60 * 1000;
+
+/** The library list changes rarely; five minutes still feels responsive to adding a playlist. */
+const LIBRARY_CACHE_MS = 5 * 60 * 1000;
 
 function readLocal(key: string): string | null {
   try {
@@ -246,6 +261,12 @@ export class MusicService {
 
   private static readonly SEARCH_CACHE_MAX = 60;
 
+  /** Resolved playlist tracks, keyed by `VL`-prefixed browse id. */
+  private readonly playlistCache = new Map<string, { tracks: Track[]; at: number }>();
+
+  /** The library playlist list. Refreshed more often than a playlist's contents, since it is a list. */
+  private libraryCache: { playlists: Playlist[]; at: number } | null = null;
+
   /** Search. Never returns an error for "no network" — returns an empty result plus a route note. */
   async search(
     query: string,
@@ -384,17 +405,59 @@ export class MusicService {
    * disagree about what the playlist contains.
    */
   async playlistTracks(playlistId: string): Promise<Track[]> {
+    // InnerTube addresses playlists as `VL` + id, and rejects the bare id.
+    const browseId = playlistId.startsWith('VL') ? playlistId : `VL${playlistId}`;
+
+    /*
+     * Cache per playlist for a few minutes.
+     *
+     * The home screen resolves a playlist when its card is tapped, and people tap the same card more
+     * than once (play, back, play again). The TTL is short because the whole point of the Favorites
+     * row is that it follows edits made in YouTube — a stale hour-old copy would be wrong, a
+     * few-minutes-old copy is indistinguishable from live.
+     */
+    const cached = this.playlistCache.get(browseId);
+    if (cached && Date.now() - cached.at < PLAYLIST_CACHE_MS) return cached.tracks;
+
     try {
-      const res = await this.innertube.browse(playlistId);
-      const tracks = parseRadioQueue(res.json);
+      const res = await this.innertube.browse(browseId);
+      // A `browse` response is not a `next` response: parseRadioQueue looks for a renderer that is
+      // never present here, so it returned [] for every playlist ever opened.
+      const tracks = parsePlaylistBrowse(res.json);
       if (tracks.length) {
         this.lastRoute = 'InnerTube · playlist';
+        this.playlistCache.set(browseId, { tracks, at: Date.now() });
         return tracks;
       }
     } catch {
       /* fall through */
     }
     return [];
+  }
+
+  /**
+   * The signed-in account's own YT Music playlists.
+   *
+   * `FEmusic_liked_playlists` is the library page's playlist shelf. This is the only way to reach a
+   * playlist the user created on music.youtube.com: it is not on the home feed, it is not a like, and
+   * there is no local record. Verified against ytmusicapi's `get_library_playlists`, which uses this
+   * exact browse id.
+   */
+  async libraryPlaylists(): Promise<Playlist[]> {
+    if (!this.hasAccount()) return [];
+    const cached = this.libraryCache;
+    if (cached && Date.now() - cached.at < LIBRARY_CACHE_MS) return cached.playlists;
+    try {
+      const res = await this.innertube.browse('FEmusic_liked_playlists');
+      const playlists = parseLibraryPlaylists(res.json);
+      if (playlists.length) {
+        this.libraryCache = { playlists, at: Date.now() };
+        this.lastRoute = 'InnerTube · library';
+      }
+      return playlists;
+    } catch {
+      return [];
+    }
   }
 
   /**

@@ -38,11 +38,14 @@ describe('home renders a full page', () => {
     expect(card).toContain('active:scale');
   });
 
-  it('asks YouTube first and only fetches local radio when the page is still thin', () => {
-    // The fallback costs three radio round trips; paying it on every load slowed the page down for
-    // no benefit whenever YouTube answered properly.
-    expect(hook).not.toMatch(/Promise\.all\(\[\s*service\.homeFeed/);
+  it('still only fetches local radio when the page is thin', () => {
+    /*
+     * The fallback costs three radio round trips. The library fetch is in a Promise.all with the home
+     * feed — both are single requests and the Featured group must not wait behind the feed — but the
+     * *radio* cost is still deferred until the page is known to be short.
+     */
     expect(hook).toMatch(/if \(yt\.length >= 3\) return;/);
+    expect(hook).toContain('localShelf(history, affinity)');
   });
 
   it('keeps YouTube order and appends the local row underneath', () => {

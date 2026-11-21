@@ -87,9 +87,11 @@ describe('the three requested rows come first, in order', () => {
   });
 
   it('does not invent a pinned row YouTube did not send', () => {
-    // pinOrder only sorts; it must never add a shelf.
+    // pinOrder only reorders; it must never add a shelf. (featuredRows does add rows, which is a
+    // different job — those come from the user's own library, not from a guess.)
+    // Extract just the pinOrder body, up to the next top-level function.
     const fn = hook.slice(hook.indexOf('function pinOrder'));
-    const body = fn.slice(0, fn.indexOf('/** Trim each shelf'));
+    const body = fn.slice(0, fn.indexOf('function featuredRows'));
     expect(body).not.toContain('push');
     expect(body).toContain('sort');
   });
