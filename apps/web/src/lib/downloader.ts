@@ -11,6 +11,7 @@
  *    the job ends as `UNSUPPORTED` with the exact reason.
  */
 
+import { saveNow } from '@/lib/persist';
 import { store, type DownloadJob } from '@/state/store';
 import type { StreamInfo, Track } from '@themashup/core';
 import { nativeCancelDownload, nativeDownload, isNative, onNativeEvent } from './native';
@@ -374,10 +375,29 @@ export function bindNativeDownloadEvents(): void {
   });
 
   onNativeEvent('downloadComplete', (data) => {
-    const d = data as { id?: string; name?: string };
+    const d = data as { id?: string; name?: string; path?: string };
     if (!d?.id) return;
     clearWatchdog(d.id);
-    update(d.id, { state: 'done', progress: 1 });
+    /*
+     * Record the real path.
+     *
+     * The job knew the *intended* destination but the service is what actually wrote the file, and
+     * the path it reports is the one that exists. Persisting that is what lets the next launch find
+     * the download instead of showing an empty list under a "Downloaded" notification.
+     */
+    update(d.id, { state: 'done', progress: 1, ...(d.path ? { path: d.path } : {}) });
+    /*
+     * Write through immediately.
+     *
+     * Autosave throttles to ~1 s, and Android is free to kill a backgrounded WebView at any moment.
+     * The gap between "the service finished" and "the record exists" is exactly where a download
+     * disappears, so this one write does not wait.
+     */
+    try {
+      saveNow(() => store.getState());
+    } catch {
+      /* storage unavailable; autosave will still try */
+    }
     syncProgressNotification();
     // 'always': a completed download is the canonical case for a shade entry — the user asked for the
     // file and has almost certainly left the app by the time it lands.

@@ -11,6 +11,9 @@ import { usePlayer } from '@/hooks/usePlayer';
 import { service } from '@/lib/service';
 import { isDesktop, onDesktopAction, onWindowHidden } from '@/lib/desktop';
 import { loadPersisted, startAutosave } from '@/lib/persist';
+import { reconcileFromDisk } from '@/lib/folders';
+import { bindNativeDownloadEvents } from '@/lib/downloader';
+import { nativeTree } from '@/lib/native';
 import { dismissTopOverlay } from '@/lib/overlays';
 import { applyPalette, extractPalette } from '@/lib/palette';
 import { applyTheme } from '@/lib/theme';
@@ -65,6 +68,16 @@ function restoreOnce(): void {
     likes: saved.likes,
     amoled: saved.amoled,
     theme: saved.theme,
+    /*
+     * Downloads and their folders.
+     *
+     * These were never restored, and never saved either — see persist.ts. The visible effect was the
+     * reported bug: the shade says "Downloaded", the file is on disk, and the Downloads section is
+     * empty because the job list it renders was rebuilt from an empty literal on every launch.
+     */
+    downloads: saved.downloads,
+    // A save written before folders existed has none; the two system buckets are not optional.
+    folders: saved.folders.length ? saved.folders : store.getState().folders,
   });
 
   // Apply immediately after restore so the first paint is already correct. Previously `amoled` was
@@ -75,6 +88,23 @@ function restoreOnce(): void {
   setHapticSettings(saved.hapticEvents as never);
 }
 restoreOnce();
+
+/*
+ * Adopt anything already on disk, once per launch.
+ *
+ * Two things happen here that never happened before. `bindNativeDownloadEvents()` was only ever
+ * called from inside `startDownload`, so a download whose service finished while the app was closed
+ * had no listener to hear it — and the boot-time reconcile below is what recovers a file written by
+ * an earlier build, whose job record was never persisted. Together they close the "says Downloaded,
+ * Downloads is empty" hole from both ends.
+ *
+ * Fire-and-forget: this must never delay the first paint, and a browser has no disk to read.
+ */
+void (async () => {
+  bindNativeDownloadEvents();
+  const sections = await nativeTree();
+  if (sections) reconcileFromDisk(sections);
+})();
 
 /**
  * Route swap.

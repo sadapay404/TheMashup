@@ -214,6 +214,8 @@ export class MusicService {
   }
 
   setCookie(cookie: string | null): void {
+    // Personalised results must not survive an account change.
+    this.searchCache.clear();
     this.cookie = cookie && cookie.trim() ? cookie.trim() : null;
     if (this.cookie) writeLocal(LS_COOKIE, this.cookie);
     else {
@@ -228,6 +230,21 @@ export class MusicService {
   hasAccount(): boolean {
     return Boolean(this.cookie);
   }
+
+  /**
+   * Search results for this session, keyed by filter + query.
+   *
+   * Small and deliberately simple. Two things make it worth having: backspacing in the search box
+   * re-runs queries the user has already seen (typing is not monotonic — people correct themselves),
+   * and tapping a result then returning to the list re-mounts the screen. Both were a full network
+   * round trip for an answer already in memory.
+   *
+   * Bounded so a long session cannot grow it without limit, and cleared on sign-out because results
+   * are personalised.
+   */
+  private readonly searchCache = new Map<string, { result: SearchResult; route: string }>();
+
+  private static readonly SEARCH_CACHE_MAX = 60;
 
   /** Search. Never returns an error for "no network" — returns an empty result plus a route note. */
   async search(
@@ -249,6 +266,16 @@ export class MusicService {
      * strategy running. Whichever loses is abandoned via its own AbortSignal, so it stops costing
      * bandwidth instead of running to completion for nobody.
      */
+    /*
+     * A cache hit returns synchronously-ish: no ladder, no rate-limit token, no spinner.
+     *
+     * Only successful, non-empty results are cached — caching a failure would pin an outage in place
+     * for the rest of the session, and the retry is exactly what the user will do anyway.
+     */
+    const cacheKey = `${filter}\u0000${query.trim().toLowerCase()}`;
+    const cached = this.searchCache.get(cacheKey);
+    if (cached) return { ok: true, result: cached.result, route: cached.route };
+
     const native = this.native;
     // InnerTube direct is the better route on native (no CORS, real PoTokens). In a browser the
     // public mirrors are, because InnerTube has no CORS headers. Racing makes the order a hint.
@@ -305,6 +332,12 @@ export class MusicService {
 
     if (outcome && outcome.ok) {
       this.lastRoute = outcome.route;
+      this.searchCache.set(cacheKey, { result: outcome.result, route: outcome.route });
+      // Oldest out first; Map preserves insertion order.
+      if (this.searchCache.size > MusicService.SEARCH_CACHE_MAX) {
+        const oldest = this.searchCache.keys().next().value;
+        if (oldest !== undefined) this.searchCache.delete(oldest);
+      }
       return { ok: true, result: outcome.result, route: outcome.route };
     }
 

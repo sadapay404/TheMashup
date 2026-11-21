@@ -34,8 +34,15 @@ import { service } from '@/lib/service';
 
 /** Enough rows to feel full; few enough that Home still scrolls smoothly on a mid-range phone. */
 const TRACKS_PER_SHELF = 12;
-/** Ceiling on shelves. YouTube can return a dozen; more is a scroll marathon, not a home screen. */
-const MAX_SHELVES = 6;
+/**
+ * Ceiling on shelves.
+ *
+ * The user's complaint was the opposite of too many: "at least fill the home page so it does not look
+ * weird". YouTube's front page is a long scroll and that is the expectation we are matching. Twelve
+ * rows of twelve is ~144 items — a real home page — while still bounded, because each row mounts
+ * images lazily but still costs layout.
+ */
+const MAX_SHELVES = 12;
 
 export type FeedState = {
   shelves: FeedShelf[];
@@ -79,47 +86,45 @@ export function useHomeFeed(enabled: boolean): FeedState {
     setState((prev) => ({ ...prev, loading: true }));
 
     void (async () => {
-      // 1) The real thing: the account's own YT Music home page.
+      /*
+       * Both sources are asked for, not one-then-the-other.
+       *
+       * The previous logic *replaced* the page: shelves if YouTube answered, else a single local row.
+       * That is why the home screen could not fill itself — and when YouTube returned one usable shelf
+       * the result was one row and a lot of empty space. A home screen should be full; where the rows
+       * come from matters less than that none are invented.
+       *
+       * Order is preserved: YouTube's own shelves first, in YouTube's order, because its ranking knows
+       * this account better than anything computed locally. The local row is appended underneath it.
+       */
+      /*
+       * YouTube first, alone.
+       *
+       * The local row is *not* fetched in parallel: it costs three radio round trips, and issuing them
+       * on every home load competes with the very request that was supposed to make Home correct. It
+       * also made the page slower for no benefit whenever YouTube answered — which is the normal case.
+       *
+       * The screen paints as soon as YouTube answers, and the local row is appended afterwards if it
+       * turns out to be needed. So the page fills twice rather than loading once, slowly.
+       */
       const feed = await service.homeFeed();
       if (id !== requestId.current) return;
 
-      const normalized = normalize(feed);
-      if (normalized.length > 0) {
-        setState({ shelves: normalized, loading: false, origin: 'ytmusic' });
-        return;
+      const yt = normalize(feed);
+      if (yt.length) {
+        setState({ shelves: yt, loading: false, origin: 'ytmusic' });
+        // Only worth the extra requests when the page is still thin.
+        if (yt.length >= 3) return;
       }
 
-      /*
-       * 2) Fallback: the local engine.
-       *
-       * Deliberately one shelf with a plain name rather than inventing YouTube-sounding labels. A
-       * made-up "Mixed for you" that is really three radios merged locally would be a lie about where
-       * the music came from, and the user is specifically asking for YouTube's taste, not a
-       * simulation of it.
-       */
-      const seeds = pickSeeds(history, affinity);
-      if (!seeds.length) {
-        setState({ shelves: [], loading: false, origin: 'none' });
-        return;
-      }
-
-      const lists: Track[][] = [];
-      for (const seed of seeds) {
-        try {
-          const found = await service.radio(seed);
-          if (found.length) lists.push(found);
-        } catch {
-          // One seed failing is not the shelf failing.
-        }
-      }
+      const local = await localShelf(history, affinity);
       if (id !== requestId.current) return;
 
-      const excluded = new Set(history.map((t) => t.id));
-      const merged = interleave(lists, excluded).slice(0, TRACKS_PER_SHELF);
+      const shelves = yt.length ? [...yt, ...local] : local;
       setState({
-        shelves: merged.length ? [{ title: 'Picked for you', tracks: merged }] : [],
-        loading: false,
-        origin: merged.length ? 'local' : 'none',
+        shelves,
+        loading: !yt.length && shelves.length === 0,
+        origin: yt.length ? 'ytmusic' : shelves.length ? 'local' : 'none',
       });
     })();
 
@@ -130,6 +135,35 @@ export function useHomeFeed(enabled: boolean): FeedState {
   }, [enabled, localKey, history, affinity]);
 
   return state;
+}
+
+/**
+ * The local row, as a shelf, or nothing.
+ *
+ * Deliberately *one* row, titled "Picked for you" rather than dressed up as a YouTube shelf name.
+ * Inventing "Mixed for you" for a row that is really three radios merged locally would misrepresent
+ * where the music came from, and the user's whole complaint was about provenance.
+ */
+async function localShelf(
+  history: Track[],
+  affinity: { artists: Record<string, number> },
+): Promise<FeedShelf[]> {
+  const seeds = pickSeeds(history, affinity);
+  if (!seeds.length) return [];
+
+  const lists: Track[][] = [];
+  for (const seed of seeds) {
+    try {
+      const found = await service.radio(seed);
+      if (found.length) lists.push(found);
+    } catch {
+      // One seed failing is not the shelf failing.
+    }
+  }
+
+  const excluded = new Set(history.map((t) => t.id));
+  const merged = interleave(lists, excluded).slice(0, TRACKS_PER_SHELF);
+  return merged.length ? [{ title: 'Picked for you', tracks: merged }] : [];
 }
 
 /** Most-loved artist first, one seed per artist. Same rule the local ranker used. */

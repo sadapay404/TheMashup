@@ -3,7 +3,7 @@
  * selector-based subscriptions so a playing track never re-renders the whole library).
  */
 
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { AffinityState, Lyrics, StreamInfo, Track } from '@themashup/core';
 import { emptyAffinity } from '@themashup/core';
 import { DEFAULT_HAPTIC_SETTINGS, haptic, type HapticEvent } from '@/lib/haptics';
@@ -310,8 +310,22 @@ export function goBack(): boolean {
 }
 
 /** Selector hook. `useApp(s => s.queue)` re-renders only when that slice changes. */
+/**
+ * Subscribe to a slice of the store.
+ *
+ * The selector is almost always an inline arrow (`useApp((s) => s.queue)`), so its identity changes on
+ * every render. Keeping it in a ref means `getSnapshot` is stable for the life of the component, so
+ * `useSyncExternalStore` does not tear down and re-add a subscription each time — which it otherwise
+ * did several times a second while playback was updating the store.
+ *
+ * The ref is written during render rather than in an effect on purpose: `getSnapshot` must never
+ * return a value computed from a *previous* render's selector, or React sees the snapshot change
+ * outside its own update cycle.
+ */
 export function useApp<T>(selector: (s: AppState) => T): T {
-  const getSnapshot = useCallback(() => selector(store.getState()), [selector]);
+  const selectorRef = useRef(selector);
+  selectorRef.current = selector;
+  const getSnapshot = useCallback(() => selectorRef.current(store.getState()), []);
   return useSyncExternalStore(store.subscribe, getSnapshot, getSnapshot);
 }
 

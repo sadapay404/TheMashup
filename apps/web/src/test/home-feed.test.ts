@@ -113,6 +113,39 @@ describe('parseHomeFeed', () => {
     expect(shelves).toEqual([]);
   });
 
+  it('descends into a carousel whose contents are themselves shelves', () => {
+    /*
+     * The "only one row" report. Some home sections wrap a `musicShelfRenderer` — a vertical list
+     * with its own header — inside the carousel wrapper. Reading only the carousel's direct contents
+     * found no tracks and dropped the section entirely, so the page kept whatever single shelf
+     * happened to be flat and looked empty.
+     */
+    const nested = {
+      musicCarouselShelfRenderer: {
+        header: { musicCarouselShelfBasicHeaderRenderer: { title: { runs: [{ text: 'Wrap' }] } } },
+        contents: [
+          { musicShelfRenderer: { title: { runs: [{ text: 'Because you liked A' }] }, contents: [row('n1', 'N1', 'Ar')] } },
+          { musicShelfRenderer: { title: { runs: [{ text: 'Because you liked B' }] }, contents: [row('n2', 'N2', 'Ar')] } },
+        ],
+      },
+    };
+    const { shelves } = parseHomeFeed(feedOf([nested]));
+    expect(shelves.map((s) => s.title)).toEqual(['Because you liked A', 'Because you liked B']);
+    expect(shelves).toHaveLength(2);
+  });
+
+  it('parses a grid section, which holds two-row cards instead of rows', () => {
+    const grid = {
+      musicGridRenderer: {
+        title: { runs: [{ text: 'New releases' }] },
+        items: [twoRow('g1', 'Grid Song', 'Artist G • 3:00')],
+      },
+    };
+    const { shelves } = parseHomeFeed(feedOf([grid]));
+    expect(shelves).toHaveLength(1);
+    expect(shelves[0]!.tracks[0]!.title).toBe('Grid Song');
+  });
+
   it('never throws, whatever it is handed', () => {
     // The zero-crash contract: a bad payload loses a screen, never the app.
     for (const bad of [null, undefined, {}, [], 'nonsense', 42, { contents: {} }]) {

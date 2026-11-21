@@ -687,7 +687,17 @@ export function parseHomeFeed(json: unknown): { shelves: FeedShelf[] } {
         if (tracks.length) {
           const title = shelfTitle(carousel);
           if (title) shelves.push({ title, tracks });
+          continue;
         }
+        /*
+         * A carousel whose own `contents` are shelves rather than items.
+         *
+         * This is the shape behind "it only has a single row": on the personalized home page some
+         * sections nest a `musicShelfRenderer` (a fixed vertical list, with its own header) inside
+         * the carousel wrapper. Reading only the carousel's direct contents found zero *tracks*,
+         * dropped the section, and left the page with whatever one shelf happened to be flat.
+         */
+        visit(arr(carousel['contents']));
         continue;
       }
 
@@ -697,9 +707,30 @@ export function parseHomeFeed(json: unknown): { shelves: FeedShelf[] } {
         if (tracks.length) {
           const title = shelfTitle(shelf);
           if (title) shelves.push({ title, tracks });
+          continue;
         }
+        // Same nesting rule for a shelf that holds a grid instead of rows.
+        visit(arr(shelf['contents']));
         continue;
       }
+
+      /*
+       * A grid section ("New releases", a mood board) — `musicGridRenderer` / `gridRenderer` hold
+       * two-row items directly. Ignoring these cost whole sections of the home page.
+       */
+      for (const key of ['musicGridRenderer', 'gridRenderer']) {
+        const grid = obj(s[key]);
+        if (!Object.keys(grid).length) continue;
+        const tracks = tracksFromShelf({ contents: arr(grid['items']) });
+        if (tracks.length) {
+          // A grid puts its title on the renderer itself, unlike a carousel/shelf which wraps it in
+          // a header — so look in both places before giving up.
+          const title = shelfTitle(grid) || shelfTitle(s);
+          if (title) shelves.push({ title, tracks });
+        }
+        break;
+      }
+      if (Object.keys(obj(s['musicGridRenderer'])).length || Object.keys(obj(s['gridRenderer'])).length) continue;
 
       // A section that only wraps more sections.
       const inner = arr(obj(s['itemSectionRenderer'])['contents']);

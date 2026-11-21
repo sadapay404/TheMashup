@@ -103,15 +103,20 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
             <Section key={`${shelf.title}-${si}`} title={shelf.title}>
               <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
                 {shelf.tracks.map((t, i) => (
-                  <motion.button
+                  /*
+                   * A plain button, not a `motion.button`.
+                   *
+                   * With twelve rows of twelve this is 144 nodes; giving each one an entrance
+                   * animation meant 144 concurrent springs on mount, plus a `whileTap` gesture
+                   * listener each. That is the "app lags" report — the cards were the most expensive
+                   * thing on the page and the animation was the expensive part of them. A CSS
+                   * transition on press costs nothing while idle and reads identically.
+                   */
+                  <button
                     key={`${t.id}-s${si}-${i}`}
                     type="button"
                     onClick={() => onPlay(t, shelf.tracks)}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ ...snap, delay: Math.min(i, 5) * 0.018 }}
-                    whileTap={{ scale: 0.96 }}
-                    className="w-[136px] shrink-0 text-left"
+                    className="w-[136px] shrink-0 text-left transition-transform duration-150 active:scale-[0.96]"
                   >
                     <div className="relative aspect-square overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
                       {t.thumbs[0] ? (
@@ -125,7 +130,7 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
                     </div>
                     <div className="mt-2 truncate text-[12.5px] font-medium">{t.title}</div>
                     <div className="truncate text-[11px] text-[var(--color-text-3)]">{t.artist}</div>
-                  </motion.button>
+                  </button>
                 ))}
               </div>
             </Section>

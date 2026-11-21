@@ -9,7 +9,7 @@
  * separate section. Everything else is a folder the user or a playlist created.
  */
 
-import { store, type DownloadFolder, type MediaKind } from '@/state/store';
+import { store, type DownloadFolder, type DownloadJob, type MediaKind } from '@/state/store';
 import { isNative, nativeMoveFile } from './native';
 
 export const SYSTEM_FOLDER: Record<MediaKind, string> = {
@@ -85,6 +85,68 @@ export function filesIn(folderId: string): ReturnType<typeof store.getState>['do
       (j) => j.state === 'done' && (j.folderId ?? SYSTEM_FOLDER[j.kind ?? 'music']) === folderId,
     )
     .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/**
+ * Adopt files that are on disk but have no job record.
+ *
+ * This is the second half of "it says Downloaded but Downloads is empty". Persisting the job list
+ * fixes it going forward, but it cannot rescue a file that was already written by an earlier build,
+ * nor one whose record was lost to a cleared WebView. `nativeTree` existed for exactly this and was
+ * never called from anywhere — dead code, so the only source of truth was a list that had nothing in
+ * it.
+ *
+ * Reconciliation is deliberately *additive*: a job record is richer than a filename (it knows the
+ * artist and the thumbnail), so an existing record always wins. Only files whose path is unknown to
+ * the store are adopted, and they are adopted as already-`done`, because the file existing on disk
+ * with its final name is the definition of a finished download.
+ *
+ * Returns how many it adopted, so the caller can tell "nothing new" from "repaired".
+ */
+export function reconcileFromDisk(
+  sections: { kind: 'music' | 'video'; files: { name: string; path: string; size: number }[]; folders: { path: string; files: { name: string; path: string }[] }[] }[],
+): number {
+  const state = store.getState();
+  const known = new Set(state.downloads.map((d) => d.path).filter((p): p is string => Boolean(p)));
+
+  const adopted: DownloadJob[] = [];
+  for (const section of sections) {
+    const kind: MediaKind = section.kind === 'video' ? 'video' : 'music';
+    // Loose files at the section root plus everything inside a real directory.
+    const entries = [
+      ...section.files.map((f) => ({ file: f, inFolder: false })),
+      ...section.folders.flatMap((folder) => folder.files.map((f) => ({ file: f, inFolder: true }))),
+    ];
+    for (const { file } of entries) {
+      if (known.has(file.path)) continue;
+      // A half-written scratch file is not a download.
+      if (file.name.endsWith('.part')) continue;
+      known.add(file.path);
+      const title = file.name.replace(/\.[a-z0-9]{1,5}$/i, '').replace(/_/g, ' ').trim() || file.name;
+      adopted.push({
+        id: `disk:${file.path}`,
+        track: {
+          id: `disk:${file.path}`,
+          title,
+          artist: 'On this device',
+          durationSec: 0,
+          thumbs: [],
+          source: 'download',
+        } as DownloadJob['track'],
+        target: 'On device',
+        progress: 1,
+        state: 'done',
+        createdAt: 0,
+        kind,
+        folderId: null,
+        path: file.path,
+      } as DownloadJob);
+    }
+  }
+
+  if (!adopted.length) return 0;
+  store.set((s) => ({ downloads: [...s.downloads, ...adopted] }));
+  return adopted.length;
 }
 
 /** How many completed files a folder holds — a system bucket stays even when empty. */

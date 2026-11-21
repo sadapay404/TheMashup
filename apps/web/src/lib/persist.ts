@@ -17,13 +17,33 @@
  */
 
 import { emptyAffinity, type AffinityState, type Track } from '@themashup/core';
-import type { AppState, RepeatMode, Route, ThemeId } from '@/state/store';
+import type {
+  AppState,
+  DownloadFolder,
+  DownloadJob,
+  RepeatMode,
+  Route,
+  ThemeId,
+} from '@/state/store';
 import { DEFAULT_HAPTIC_SETTINGS } from '@/lib/haptics';
 
 const KEY = 'mashup.state.v1';
 const MAX_QUEUE = 200;
 const MAX_HISTORY = 120;
 const MAX_LIKES = 500;
+/**
+ * Kept generous: a downloaded file is a thing the user owns, and silently forgetting one because a
+ * cap was hit would be worse than a large settings blob. The list is a few hundred bytes per entry.
+ */
+const MAX_DOWNLOADS = 500;
+
+/** The two fixed buckets the Downloads screen always needs. */
+function defaultFolders(): DownloadFolder[] {
+  return [
+    { id: 'all-songs', name: 'All songs', kind: 'music', system: true, createdAt: 0 },
+    { id: 'all-videos', name: 'Videos', kind: 'video', system: true, createdAt: 0 },
+  ];
+}
 /** Throttle: persisting on every 250 ms position tick would be a write per tick. */
 const WRITE_INTERVAL_MS = 4000;
 
@@ -51,6 +71,16 @@ export interface PersistedState {
    * read as an empty list) — non-optional so restoring state can never write `undefined`.
    */
   likes: Track[];
+  /**
+   * Finished and in-flight downloads, and the folders they are filed in.
+   *
+   * These were **absent from the persisted shape entirely**, which is the whole "it says Downloaded
+   * but the Downloads section is empty" bug: the job list lived only in memory and was rebuilt empty
+   * on every launch, while the file sat in `filesDir/Music` with nothing referencing it. The
+   * notification was the only place the outcome was ever visible, and only for a moment.
+   */
+  downloads: DownloadJob[];
+  folders: DownloadFolder[];
 }
 
 const ROUTES: readonly Route[] = ['home', 'search', 'library', 'settings'];
@@ -109,6 +139,62 @@ function tracks(value: unknown, limit: number): Track[] {
   return value.filter(isTrack).slice(0, limit);
 }
 
+/**
+ * Downloads and folders are validated field by field like everything else here, because
+ * `localStorage` is user-editable and a malformed job would otherwise be fed straight into the
+ * Downloads screen. A job that cannot be understood is dropped, not repaired into something wrong.
+ */
+function downloadJobs(value: unknown, limit: number): DownloadJob[] {
+  if (!Array.isArray(value)) return [];
+  const out: DownloadJob[] = [];
+  for (const raw of value.slice(0, limit)) {
+    if (!isRecord(raw)) continue;
+    if (typeof raw['id'] !== 'string' || !isTrack(raw['track'])) continue;
+    const state = raw['state'];
+    const valid =
+      state === 'queued' || state === 'resolving' || state === 'downloading' ||
+      state === 'muxing' || state === 'done' || state === 'failed' || state === 'partial';
+    if (!valid) continue;
+    const job: DownloadJob = {
+      id: raw['id'],
+      track: raw['track'],
+      target: typeof raw['target'] === 'string' ? raw['target'] : '',
+      progress: num(raw['progress'], 0, 0, 1),
+      state,
+      createdAt: num(raw['createdAt'], Date.now(), 0, Number.MAX_SAFE_INTEGER),
+    };
+    if (typeof raw['bytes'] === 'number') job.bytes = raw['bytes'];
+    if (typeof raw['totalBytes'] === 'number') job.totalBytes = raw['totalBytes'];
+    if (typeof raw['error'] === 'string') job.error = raw['error'];
+    if (raw['kind'] === 'video') job.kind = 'video';
+    else if (raw['kind'] === 'music') job.kind = 'music';
+    if (raw['folderId'] === null || typeof raw['folderId'] === 'string') {
+      job.folderId = raw['folderId'] as string | null;
+    }
+    if (typeof raw['path'] === 'string') job.path = raw['path'];
+    out.push(job);
+  }
+  return out;
+}
+
+function downloadFolders(value: unknown, limit: number): DownloadFolder[] {
+  if (!Array.isArray(value)) return [];
+  const out: DownloadFolder[] = [];
+  for (const raw of value.slice(0, limit)) {
+    if (!isRecord(raw)) continue;
+    if (typeof raw['id'] !== 'string' || typeof raw['name'] !== 'string') continue;
+    if (raw['kind'] !== 'music' && raw['kind'] !== 'video') continue;
+    out.push({
+      id: raw['id'],
+      name: raw['name'].slice(0, 120),
+      kind: raw['kind'],
+      ...(raw['system'] === true ? { system: true } : {}),
+      createdAt: num(raw['createdAt'], 0, 0, Number.MAX_SAFE_INTEGER),
+    });
+  }
+  return out;
+}
+
 /** Read and validate. Returns `null` for "nothing usable", never throws. */
 export function loadPersisted(): PersistedState | null {
   let raw: string | null = null;
@@ -154,6 +240,15 @@ export function loadPersisted(): PersistedState | null {
     history: tracks(parsed['history'], MAX_HISTORY),
     likes: tracks(parsed['likes'], MAX_LIKES),
     affinity: isRecord(parsed['affinity']) ? (parsed['affinity'] as unknown as AffinityState) : emptyAffinitySafe(),
+    downloads: downloadJobs(parsed['downloads'], MAX_DOWNLOADS),
+    /*
+     * A file written before folders were persisted has none. The two system folders are the floor —
+     * without them the Downloads screen has no buckets and a restored job has nowhere to appear.
+     */
+    folders: (() => {
+      const restored = downloadFolders(parsed['folders'], 200);
+      return restored.length ? restored : defaultFolders();
+    })(),
   };
 }
 
@@ -188,6 +283,18 @@ function toPersisted(s: AppState): PersistedState {
     history: s.history.slice(0, MAX_HISTORY),
     likes: s.likes.slice(0, MAX_LIKES),
     affinity: s.affinity,
+    /*
+     * Only jobs that still mean something on disk.
+     *
+     * `resolving`/`queued`/`muxing` were tied to an in-flight native service; across a process death
+     * there is no service and no stream URL, so restoring them would resurrect a spinner that can
+     * never finish. `downloading` is also dropped for the same reason — the `.part` file resumes only
+     * when the user retries, which is an explicit act. Done and failed are real outcomes and survive.
+     */
+    downloads: s.downloads
+      .filter((d) => d.state === 'done' || d.state === 'failed' || d.state === 'partial')
+      .slice(0, MAX_DOWNLOADS),
+    folders: s.folders.slice(0, 200),
   };
 }
 
@@ -216,6 +323,17 @@ function save(s: AppState): void {
  * Saves are throttled because the position updates several times a second; a save on every tick
  * would be a synchronous write on the main thread, which is exactly how audio stutters.
  */
+/**
+ * Write the current state immediately.
+ *
+ * Exported for tests and for the handful of moments where waiting for the throttle is wrong — a
+ * finished download being the important one. Autosave's 1 s window is fine for position ticks; it is
+ * not fine if the process is killed by the OS between the notification and the write.
+ */
+export function saveNow(getState: () => AppState): void {
+  save(getState());
+}
+
 export function startAutosave(
   getState: () => AppState,
   subscribe: (listener: () => void) => () => void,
