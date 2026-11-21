@@ -559,10 +559,22 @@ export function inspectRungs(json: unknown, profile: ProfileName, videoId: strin
  * a browse endpoint and no video id are dropped rather than guessed at.
  */
 
-/** A named row on the home page. `title` is YouTube's own label, passed through verbatim. */
+/**
+ * A named row on the home page. `title` is YouTube's own label, passed through verbatim.
+ *
+ * Two kinds, because the home page has two and they are not interchangeable:
+ *
+ *  - `tracks` — songs, ready to play.
+ *  - `playlists` — *collections*. "Featured playlists for you", "Forgotten favorites", "Desi hip-hop"
+ *    are carousels of playlist cards whose items have a browse endpoint and **no video id**. They were
+ *    being thrown away wholesale, which is why the home page kept collapsing to whatever single
+ *    song-row happened to survive. A playlist card must stay a playlist: expanding it into a guessed
+ *    first song would make the queue disagree with what the user tapped.
+ */
 export interface FeedShelf {
   title: string;
   tracks: Track[];
+  playlists?: Playlist[];
 }
 
 /** Which named shelves the app asks for by default, in the order it wants them shown. */
@@ -609,23 +621,30 @@ function shelfTitle(shelf: Json): string {
  * and anything that yields no video id is skipped — a "shelf" full of playlist links is not a list of
  * songs you can play from here.
  */
-function tracksFromShelf(shelf: Json): Track[] {
-  const out: Track[] = [];
+function tracksFromShelf(shelf: Json): { tracks: Track[]; playlists: Playlist[] } {
+  const tracks: Track[] = [];
+  const playlists: Playlist[] = [];
   for (const item of arr(shelf['contents'])) {
     const wrapper = obj(item);
     // Two-row items sit inside their own wrapper; responsive rows are passed straight through.
     const twoRow = obj(wrapper['musicTwoRowItemRenderer']);
     if (Object.keys(twoRow).length) {
       const card = parseTwoRowItem(twoRow);
-      if (card) out.push(card);
+      if (card) {
+        tracks.push(card);
+      } else {
+        // Not a song — it is a playlist/album card, which is what the playlist rows are made of.
+        const list = parsePlaylistCard(twoRow);
+        if (list) playlists.push(list);
+      }
       continue;
     }
     const responsive = obj(wrapper['musicResponsiveListItemRenderer']);
     if (!Object.keys(responsive).length) continue;
     const track = parseTrackRow(responsive, 'home');
-    if (track) out.push(track);
+    if (track) tracks.push(track);
   }
-  return out;
+  return { tracks, playlists };
 }
 
 /**
@@ -640,6 +659,31 @@ function tracksFromShelf(shelf: Json): Track[] {
  * nothing when tapped. The alternative — guessing the first song of a playlist — would make the queue
  * disagree with what the user tapped.
  */
+/**
+ * A `musicTwoRowItemRenderer` that is a *playlist* rather than a song.
+ *
+ * The distinction is the endpoint: songs carry `watchEndpoint.videoId`, collections carry a
+ * `browseEndpoint.browseId`. A card with neither is something this app cannot open and is skipped.
+ */
+function parsePlaylistCard(r: Json): Playlist | null {
+  const nav = obj(r['navigationEndpoint']);
+  const browse = obj(nav['browseEndpoint']);
+  const raw = typeof browse['browseId'] === 'string' ? (browse['browseId'] as string) : '';
+  if (!raw) return null;
+  // YouTube prefixes playlists with VL; the rest of the app addresses them without it.
+  const id = raw.startsWith('VL') ? raw.slice(2) : raw;
+  const title = textOf(r['title']).trim();
+  if (!title) return null;
+  const subtitle = textOf(r['subtitle']);
+  const author = subtitle.split(BULLET).map((x) => x.trim()).filter(Boolean)[0] ?? '';
+  return {
+    id,
+    title,
+    ...(author ? { author } : {}),
+    thumbs: parseThumbs(obj(r['thumbnail'])['musicThumbnailRenderer']),
+  };
+}
+
 function parseTwoRowItem(r: Json): Track | null {
   const id = videoIdFromListItem(r);
   if (!id) return null;
@@ -683,10 +727,23 @@ export function parseHomeFeed(json: unknown): { shelves: FeedShelf[] } {
        */
       const carousel = obj(s['musicCarouselShelfRenderer']);
       if (Object.keys(carousel).length) {
-        const tracks = tracksFromShelf(carousel);
-        if (tracks.length) {
+        const found = tracksFromShelf(carousel);
+        /*
+         * A shelf survives if it has *either* songs or playlists.
+         *
+         * Requiring tracks is what deleted the three rows the user actually asked for: "Featured
+         * playlists for you", "Forgotten favorites" and "Desi hip-hop" are carousels of playlist
+         * cards, so their track count is zero by construction.
+         */
+        if (found.tracks.length || found.playlists.length) {
           const title = shelfTitle(carousel);
-          if (title) shelves.push({ title, tracks });
+          if (title) {
+            shelves.push({
+              title,
+              tracks: found.tracks,
+              ...(found.playlists.length ? { playlists: found.playlists } : {}),
+            });
+          }
           continue;
         }
         /*
@@ -703,10 +760,16 @@ export function parseHomeFeed(json: unknown): { shelves: FeedShelf[] } {
 
       const shelf = obj(s['musicShelfRenderer']);
       if (Object.keys(shelf).length) {
-        const tracks = tracksFromShelf(shelf);
-        if (tracks.length) {
+        const found = tracksFromShelf(shelf);
+        if (found.tracks.length || found.playlists.length) {
           const title = shelfTitle(shelf);
-          if (title) shelves.push({ title, tracks });
+          if (title) {
+            shelves.push({
+              title,
+              tracks: found.tracks,
+              ...(found.playlists.length ? { playlists: found.playlists } : {}),
+            });
+          }
           continue;
         }
         // Same nesting rule for a shelf that holds a grid instead of rows.
@@ -721,12 +784,18 @@ export function parseHomeFeed(json: unknown): { shelves: FeedShelf[] } {
       for (const key of ['musicGridRenderer', 'gridRenderer']) {
         const grid = obj(s[key]);
         if (!Object.keys(grid).length) continue;
-        const tracks = tracksFromShelf({ contents: arr(grid['items']) });
-        if (tracks.length) {
+        const found = tracksFromShelf({ contents: arr(grid['items']) });
+        if (found.tracks.length || found.playlists.length) {
           // A grid puts its title on the renderer itself, unlike a carousel/shelf which wraps it in
           // a header — so look in both places before giving up.
           const title = shelfTitle(grid) || shelfTitle(s);
-          if (title) shelves.push({ title, tracks });
+          if (title) {
+            shelves.push({
+              title,
+              tracks: found.tracks,
+              ...(found.playlists.length ? { playlists: found.playlists } : {}),
+            });
+          }
         }
         break;
       }

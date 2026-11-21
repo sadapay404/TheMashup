@@ -56,8 +56,13 @@ describe('responsiveness', () => {
   });
 
   it('seeds are derived from history without re-sorting it per render', () => {
-    // `pickSeeds` runs inside the async branch, not in the component body.
-    const body = feed.slice(0, feed.indexOf('export function useHomeFeed'));
-    expect(body).not.toContain('sort(');
+    /*
+     * The rule is about the component body: `pickSeeds` sorts the whole history, and running that on
+     * every render was the original cost. Module-level helpers (pinned row ordering) legitimately
+     * sort, so the assertion is scoped to the hook function itself.
+     */
+    const body = feed.slice(feed.indexOf('export function useHomeFeed'));
+    const hookBody = body.slice(0, body.indexOf('return state;'));
+    expect(hookBody).not.toContain('sort(');
   });
 });

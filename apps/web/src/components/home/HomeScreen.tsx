@@ -15,8 +15,8 @@
 
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import type { Track } from '@themashup/core';
-import { useApp } from '@/state/store';
+import type { Playlist, Track } from '@themashup/core';
+import { store, useApp } from '@/state/store';
 import { EmptyState, glide, snap } from '@/components/ui/primitives';
 import { MicIcon, PlayIcon, SearchIcon, SparkIcon } from '@/components/ui/icons';
 import { useContentBottom } from '@/hooks/useContentBottom';
@@ -31,6 +31,30 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
   // `hasAccount` reads an in-memory cookie, so it has to be sampled after mount; on the native
   // build the sign-in sheet can also finish long after Home first rendered.
   const [signedIn, setSignedIn] = useState(false);
+  /** Which playlist card is resolving; a card that silently does nothing reads as broken. */
+  const [openingId, setOpeningId] = useState<string | null>(null);
+
+  /**
+   * Open a playlist shelf card.
+   *
+   * A playlist card carries a browse id, not songs, so this is a second request. It is deliberately
+   * user-initiated rather than prefetched: the home page shows a dozen of these, and resolving all of
+   * them would be a dozen requests for cards the user may never touch.
+   */
+  const openPlaylist = async (pl: Playlist) => {
+    if (openingId) return;
+    setOpeningId(pl.id);
+    try {
+      const tracks = await service.playlistTracks(pl.id);
+      if (tracks.length) {
+        onPlay(tracks[0]!, tracks);
+      } else {
+        store.notify('That playlist is empty or unavailable', 'error');
+      }
+    } finally {
+      setOpeningId(null);
+    }
+  };
   useEffect(() => {
     setSignedIn(service.hasAccount());
     const onFocus = () => setSignedIn(service.hasAccount());
@@ -130,6 +154,46 @@ export function HomeScreen({ onPlay, onGoSearch }: { onPlay: (t: Track, list: Tr
                     </div>
                     <div className="mt-2 truncate text-[12.5px] font-medium">{t.title}</div>
                     <div className="truncate text-[11px] text-[var(--color-text-3)]">{t.artist}</div>
+                  </button>
+                ))}
+
+                {/*
+                  Playlist cards.
+
+                  "Featured playlists for you", "Forgotten favorites" and "Desi hip-hop" are rows of
+                  *collections*, not songs — so they have no video id and were dropped by the parser
+                  entirely. That is why the page kept collapsing to one row of songs.
+
+                  Tapping one resolves it to its tracks and plays it. That is a network round trip, so
+                  the card shows a spinner while it resolves rather than appearing to do nothing.
+                */}
+                {(shelf.playlists ?? []).map((pl) => (
+                  <button
+                    key={`${pl.id}-s${si}`}
+                    type="button"
+                    onClick={() => void openPlaylist(pl)}
+                    className="w-[136px] shrink-0 text-left transition-transform duration-150 active:scale-[0.96]"
+                  >
+                    <div className="relative aspect-square overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--wash)_7%,transparent)]">
+                      {pl.thumbs[0] ? (
+                        <img src={pl.thumbs[0].url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center text-2xl text-[var(--color-text-3)]">♪</div>
+                      )}
+                      <span className="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 backdrop-blur">
+                        {openingId === pl.id ? (
+                          // A CSS ring rather than an icon: no new asset, and `animate-spin` is
+                          // compositor-only, so a resolving card costs nothing while it waits.
+                          <span className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+                        ) : (
+                          <PlayIcon width={14} height={14} />
+                        )}
+                      </span>
+                    </div>
+                    <div className="mt-2 truncate text-[12.5px] font-medium">{pl.title}</div>
+                    <div className="truncate text-[11px] text-[var(--color-text-3)]">
+                      {pl.author ? `Playlist · ${pl.author}` : 'Playlist'}
+                    </div>
                   </button>
                 ))}
               </div>

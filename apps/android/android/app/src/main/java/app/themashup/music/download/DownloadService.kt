@@ -190,7 +190,15 @@ class DownloadService : Service() {
                 dest.parentFile?.mkdirs()
                 var downloaded = if (part.exists()) part.length() else 0L
 
-                val request = Request.Builder()
+                /*
+                 * Probe first, then decide how to fetch.
+                 *
+                 * The probe is a `Range: bytes=N-` GET. A 206 with a `Content-Range` header means the
+                 * server will serve arbitrary ranges, which is the precondition for splitting the file
+                 * across connections. A 200 means it ignored the range (or there was nothing to
+                 * resume) and the whole body is on its way.
+                 */
+                val probe = Request.Builder()
                     .url(url)
                     .apply {
                         // The resolver's headers first; a Range header below must not overwrite them.
@@ -200,51 +208,52 @@ class DownloadService : Service() {
                     .build()
 
                 var expectedTotal = -1L
-                http.newCall(request).execute().use { response ->
+
+                http.newCall(probe).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw IllegalStateException("HTTP ${response.code}")
                     }
-                    // Server may ignore the Range and send the whole body; handle both.
-                    if (downloaded > 0 && response.code != 206) downloaded = 0L
-                    val total = (response.body?.contentLength() ?: -1L).let {
-                        if (it > 0) it + downloaded else -1L
+
+                    val contentRange = response.header("Content-Range")
+                    var rangeCapable = false
+                    var total = -1L
+
+                    if (response.code == 206 && contentRange != null) {
+                        rangeCapable = true
+                        val size = contentRange.substringAfter('/', "").trim().toLongOrNull()
+                        if (size != null && size > 0) total = size
+                    } else {
+                        /*
+                         * 200: the whole body is coming.
+                         *
+                         * If a partial file was on disk the server ignored our Range, so the bytes
+                         * about to arrive start at zero — the existing prefix must be discarded or the
+                         * resumed file would be corrupt.
+                         */
+                        if (downloaded > 0) downloaded = 0L
+                        val len = response.body?.contentLength() ?: -1L
+                        if (len > 0) total = len
                     }
                     expectedTotal = total
 
-                    // Progress is reported every PROGRESS_STEP bytes rather than on a timer.
-                    //
-                    // A captured `var` here is flagged as a dead assignment: Kotlin's data-flow
-                    // analysis does not track a local that is mutated inside nested lambdas, so it
-                    // concludes the write is never read. A single-element array is the idiomatic fix
-                    // and keeps the intent obvious.
-                    val reported = longArrayOf(0L)
-                    response.body?.byteStream()?.use { input ->
-                        RandomAccessFile(part, "rw").use { raf ->
-                            raf.seek(downloaded)
-                            val buffer = ByteArray(64 * 1024)
-                            while (true) {
-                                if (cancelled.get()) return@launch
-                                val read = input.read(buffer)
-                                if (read <= 0) break
-                                raf.write(buffer, 0, read)
-                                downloaded += read
-                                if (downloaded - reported[0] >= PROGRESS_STEP) {
-                                    reported[0] = downloaded
-                                    DownloadEvents.progress(id, downloaded, total)
-                                    val pct = if (total > 0) ((downloaded * 100) / total).toInt() else 0
-                                    updateNotification(
-                                        displayName,
-                                        if (total > 0) "$pct% · ${downloaded / 1024 / 1024} MB of ${total / 1024 / 1024} MB"
-                                        else "${downloaded / 1024 / 1024} MB",
-                                        pct,
-                                    )
-                                }
-                            }
-                            raf.fd.sync()
-                        }
+                    /*
+                     * Split when the file is worth splitting and the server cooperates.
+                     *
+                     * A single TCP connection to a YouTube CDN edge is throttled per connection long
+                     * before it fills the phone's link, so a 4 MB track crawled regardless of network
+                     * quality — the reported "super slow". Four concurrent ranged requests is the same
+                     * approach the browser path already used; the native path, which is the one that
+                     * actually runs on the phone, never got it.
+                     */
+                    if (rangeCapable && total > MIN_SPLIT_BYTES) {
+                        response.body?.close()
+                        val finished = fetchParallel(url, headers, part, total, downloaded, cancelled, id, displayName)
+                        if (finished < 0) return@launch
+                        downloaded = finished
+                    } else {
+                        downloaded = copySequential(response.body, part, downloaded, total, cancelled, id, displayName)
+                        DownloadEvents.progress(id, downloaded, total)
                     }
-                    // Always emit a final value so the UI lands on 100% rather than 97%.
-                    DownloadEvents.progress(id, downloaded, total)
                 }
 
                 // A server that closes the connection early leaves a short .part file. Publishing it
@@ -283,6 +292,164 @@ class DownloadService : Service() {
         jobs[id] = job
     }
 
+    /**
+     * Straight copy of one response body into the `.part` file, resuming at [startAt].
+     *
+     * Returns the new length. Used when the server will not serve ranges, which is also the path for
+     * a server that answered 200 to a ranged request.
+     */
+    private fun copySequential(
+        body: okhttp3.ResponseBody?,
+        part: File,
+        startAt: Long,
+        total: Long,
+        cancelled: java.util.concurrent.atomic.AtomicBoolean,
+        id: String,
+        displayName: String,
+    ): Long {
+        var downloaded = startAt
+        /*
+         * Progress is reported every PROGRESS_STEP bytes rather than on a timer.
+         *
+         * A captured `var` here is flagged as a dead assignment: Kotlin's data-flow analysis does not
+         * track a local mutated inside nested lambdas, so it concludes the write is never read. A
+         * single-element array is the idiomatic fix and keeps the intent obvious.
+         */
+        val reported = longArrayOf(downloaded)
+        body?.byteStream()?.use { input ->
+            RandomAccessFile(part, "rw").use { raf ->
+                raf.seek(downloaded)
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    if (cancelled.get()) return downloaded
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    raf.write(buffer, 0, read)
+                    downloaded += read
+                    if (downloaded - reported[0] >= PROGRESS_STEP) {
+                        reported[0] = downloaded
+                        DownloadEvents.progress(id, downloaded, total)
+                        val pct = if (total > 0) ((downloaded * 100) / total).toInt() else 0
+                        updateNotification(
+                            displayName,
+                            if (total > 0) "$pct% \u00b7 ${downloaded / 1024 / 1024} MB of ${total / 1024 / 1024} MB"
+                            else "${downloaded / 1024 / 1024} MB",
+                            pct,
+                        )
+                    }
+                }
+                raf.fd.sync()
+            }
+        }
+        return part.length().coerceAtLeast(downloaded)
+    }
+
+    /**
+     * Fetch the remainder of the file as N concurrent ranged requests.
+     *
+     * Each worker owns a disjoint byte range and writes it at the matching offset, so the file is
+     * complete when all workers finish — no reassembly step, no extra copy. Returns the final length,
+     * or -1 when the transfer was cancelled.
+     *
+     * Resumption is handled by simply starting the ranges after [already]: a partial `.part` file is
+     * already correct up to that point because every byte was written at its final offset.
+     */
+    private fun fetchParallel(
+        url: String,
+        headers: Map<String, String>,
+        part: File,
+        total: Long,
+        already: Long,
+        cancelled: java.util.concurrent.atomic.AtomicBoolean,
+        id: String,
+        displayName: String,
+    ): Long {
+        val remaining = total - already
+        if (remaining <= 0) return part.length()
+
+        // Small remainders are not worth the handshake per connection.
+        val workers = if (remaining < MIN_SPLIT_BYTES) 1 else PARALLEL_CHUNKS
+        val chunk = (remaining + workers - 1) / workers
+
+        val done = java.util.concurrent.atomic.AtomicLong(already.coerceAtLeast(0))
+        val reported = java.util.concurrent.atomic.AtomicLong(already)
+        val lock = Any()
+
+        /*
+         * A worker that throws must not take the process with it.
+         *
+         * An uncaught exception on a bare Thread reaches the default handler, and this app installs one
+         * (LogPlugin) that records a boot-log crash — so a single 403 on one range would look like the
+         * whole app crashing, not like one download failing. Each worker records its own error and the
+         * caller rethrows after joining.
+         */
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+
+        val threads = (0 until workers).mapNotNull { index ->
+            val from = already + index * chunk
+            val to = minOf(from + chunk - 1, total - 1)
+            if (from > to) {
+                null
+            } else {
+                Thread(
+                    Runnable {
+                        try {
+                            RandomAccessFile(part, "rw").use { raf ->
+                                val request = Request.Builder()
+                                    .url(url)
+                                    .apply {
+                                        for ((name, value) in headers) header(name, value)
+                                        header("Range", "bytes=$from-$to")
+                                    }
+                                    .build()
+                                http.newCall(request).execute().use { response ->
+                                    // A worker that does not get a 206 would write the wrong bytes here.
+                                    if (response.code != 206) {
+                                        throw IllegalStateException("range ${response.code}")
+                                    }
+                                    response.body?.byteStream()?.use { input ->
+                                        raf.seek(from)
+                                        val buffer = ByteArray(64 * 1024)
+                                        while (true) {
+                                            if (cancelled.get()) return@Runnable
+                                            val read = input.read(buffer)
+                                            if (read <= 0) break
+                                            raf.write(buffer, 0, read)
+                                            val now = done.addAndGet(read.toLong())
+                                            val previous = reported.get()
+                                            if (now - previous >= PROGRESS_STEP && reported.compareAndSet(previous, now)) {
+                                                DownloadEvents.progress(id, now, total)
+                                                val pct = if (total > 0) ((now * 100) / total).toInt() else 0
+                                                synchronized(lock) {
+                                                    updateNotification(
+                                                        displayName,
+                                                        "$pct% \u00b7 ${now / 1024 / 1024} MB of ${total / 1024 / 1024} MB",
+                                                        pct,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (t: Throwable) {
+                            failure.compareAndSet(null, t)
+                        }
+                    },
+                    "mashup-dl-$index",
+                )
+            }
+        }
+
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+
+        if (cancelled.get()) return -1
+        failure.get()?.let { throw it }
+        RandomAccessFile(part, "rwd").use { it.fd.sync() }
+        return part.length()
+    }
+
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
@@ -296,6 +463,21 @@ class DownloadService : Service() {
         private const val NOTIF_ID = 4211
         /** Survives `stopForeground(STOP_FOREGROUND_REMOVE)`, so the outcome stays in the shade. */
         private const val NOTIF_ID_RESULT = 4212
+
+        /**
+         * Files below this are fetched on one connection: the per-connection setup cost of four
+         * ranged requests outweighs the throughput gain on anything this small.
+         */
+        private const val MIN_SPLIT_BYTES = 1L * 1024L * 1024L
+
+        /**
+         * Concurrent ranged requests per download.
+         *
+         * Four is the point where per-connection throttling stops dominating without annoying a CDN
+         * that is already serving playback. The browser path settled on the same number for the same
+         * reason.
+         */
+        private const val PARALLEL_CHUNKS = 4
 
         /** Progress granularity. 256 KiB keeps the UI smooth without flooding the JS bridge. */
         private const val PROGRESS_STEP = 256L * 1024L

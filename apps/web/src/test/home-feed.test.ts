@@ -108,9 +108,22 @@ describe('parseHomeFeed', () => {
     expect(shelves[0]!.tracks.map((t) => t.id)).toEqual(['r1']);
   });
 
-  it('skips a shelf whose tracks are all unplayable rather than showing an empty row', () => {
+  it('keeps a shelf of only playlists, since that is a real kind of row', () => {
+    // Superseded: this used to assert such a shelf was dropped, which is precisely what deleted
+    // "Featured playlists for you". A row of collections is a row.
     const { shelves } = parseHomeFeed(feedOf([carousel('Just playlists', [playlistCard('A'), playlistCard('B')])]));
-    expect(shelves).toEqual([]);
+    expect(shelves).toHaveLength(1);
+    expect(shelves[0]!.playlists).toHaveLength(2);
+    expect(shelves[0]!.tracks).toEqual([]);
+  });
+
+  it('still drops a card that is neither a song nor a collection', () => {
+    // An album card has a browse id but the home screen cannot open one yet; it must not become a
+    // song with a made-up id either.
+    const nothing = { musicTwoRowItemRenderer: { title: { runs: [{ text: 'Mystery' }] } } };
+    const { shelves } = parseHomeFeed(feedOf([carousel('Odd row', [nothing, row('ok1', 'Real', 'Song')])]));
+    expect(shelves[0]!.tracks.map((t) => t.id)).toEqual(['ok1']);
+    expect(shelves[0]!.playlists).toBeUndefined();
   });
 
   it('descends into a carousel whose contents are themselves shelves', () => {
@@ -144,6 +157,31 @@ describe('parseHomeFeed', () => {
     const { shelves } = parseHomeFeed(feedOf([grid]));
     expect(shelves).toHaveLength(1);
     expect(shelves[0]!.tracks[0]!.title).toBe('Grid Song');
+  });
+
+  it('keeps a playlist row instead of dropping it', () => {
+    /*
+     * The three rows the user asked for by name — "Featured playlists for you", "Forgotten
+     * favorites", "Desi hip-hop" — are carousels of *playlist* cards. A playlist card has a browse
+     * endpoint and no video id, so it parsed as "not a song" and the whole shelf was discarded.
+     * That is why Home kept collapsing to whatever single song row survived.
+     */
+    const playlist = (id: string, title: string) => ({
+      musicTwoRowItemRenderer: {
+        title: { runs: [{ text: title }] },
+        subtitle: { runs: [{ text: 'Playlist' }] },
+        navigationEndpoint: { browseEndpoint: { browseId: `VL${id}` } },
+      },
+    });
+    const { shelves } = parseHomeFeed(
+      feedOf([carousel('Featured playlists for you', [playlist('PL1', 'Coke Studio'), playlist('PL2', 'Ghazals')])]),
+    );
+    expect(shelves).toHaveLength(1);
+    expect(shelves[0]!.title).toBe('Featured playlists for you');
+    expect(shelves[0]!.playlists?.map((p) => p.title)).toEqual(['Coke Studio', 'Ghazals']);
+    // The VL prefix is YouTube's addressing convention, not part of the id the rest of the app uses.
+    expect(shelves[0]!.playlists?.[0]?.id).toBe('PL1');
+    expect(shelves[0]!.tracks).toEqual([]);
   });
 
   it('never throws, whatever it is handed', () => {

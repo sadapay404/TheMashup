@@ -54,12 +54,52 @@ export type FeedState = {
 
 const empty: FeedState = { shelves: [], loading: false, origin: 'none' };
 
+/**
+ * The rows the user asked to see named explicitly, and the order they asked for.
+ *
+ * These are matched loosely against YouTube's own labels rather than assumed to be exact: YouTube
+ * localises and renames ("Forgotten favourites" / "Forgotten favorites", "Desi hip-hop" / "Desi Hip
+ * Hop"), and a strict match would fail silently the first time it changed spelling.
+ *
+ * Ordering is the user's, not YouTube's, for these three rows specifically — they said which order
+ * they want. Everything else keeps YouTube's ranking, because its order is the reason its own home
+ * page reads well.
+ */
+const PINNED = [
+  { match: /forgotten\s*favou?rites?/i, rank: 0 },
+  { match: /desi\s*hip[-\s]?hop/i, rank: 1 },
+  { match: /featured\s*playlists?/i, rank: 2 },
+] as const;
+
+/**
+ * Sort shelves so the pinned three lead, in the requested order.
+ *
+ * Deliberately stable and non-destructive: a pinned row that YouTube did not send is simply absent,
+ * not invented, and shelves that match nothing keep their relative order behind these.
+ */
+function pinOrder(shelves: FeedShelf[]): FeedShelf[] {
+  const rankOf = (title: string): number => {
+    for (const pin of PINNED) if (pin.match.test(title)) return pin.rank;
+    return PINNED.length;
+  };
+  return [...shelves]
+    .map((shelf, index) => ({ shelf, index, rank: rankOf(shelf.title) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.shelf);
+}
+
 /** Trim each shelf and drop the ones that ended up empty. */
 function normalize(shelves: FeedShelf[]): FeedShelf[] {
-  return shelves
-    .map((s) => ({ title: s.title.trim(), tracks: s.tracks.slice(0, TRACKS_PER_SHELF) }))
-    .filter((s) => s.title.length > 0 && s.tracks.length > 0)
-    .slice(0, MAX_SHELVES);
+  return pinOrder(
+    shelves
+      .map((s) => ({
+        title: s.title.trim(),
+        tracks: s.tracks.slice(0, TRACKS_PER_SHELF),
+        ...(s.playlists?.length ? { playlists: s.playlists.slice(0, TRACKS_PER_SHELF) } : {}),
+      }))
+      // A playlist-only row is a real row. Requiring tracks is what deleted the three the user asked for.
+      .filter((s) => s.title.length > 0 && (s.tracks.length > 0 || (s.playlists?.length ?? 0) > 0)),
+  ).slice(0, MAX_SHELVES);
 }
 
 export function useHomeFeed(enabled: boolean): FeedState {
