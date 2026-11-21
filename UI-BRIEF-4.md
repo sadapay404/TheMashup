@@ -383,9 +383,43 @@ backspacing and returning from a track both re-ran queries that had already been
 
 ---
 
+## 5g. The apk.55 reports
+
+**"Downloads are super slow."** The native path was a **single sequential stream**. One TCP connection
+to a YouTube CDN edge is throttled per-connection long before it fills the phone's link, so a 4 MB
+track crawled regardless of connection quality. The browser path already split files four ways
+(`MAX_PARALLEL`); the path that actually runs on the phone never did.
+
+Now a probe checks for `206` + `Content-Range`, then four workers fetch disjoint ranges concurrently,
+each writing at its own file offset — no reassembly. Under 1 MB stays on one connection. A server that
+ignores `Range` falls back to the sequential copy, so the change cannot break a working download.
+Workers capture their own exception and the caller rethrows after joining, because an uncaught throw
+on a bare `Thread` reaches this app's default handler and would read as an app crash.
+
+**"The home still has one row."** Root cause found, and it explains the whole history of this bug:
+**playlist carousels were deleted.** "Featured playlists for you", "Forgotten favorites" and "Desi
+hip-hop" are rows of *playlist cards* — collections with a `browseEndpoint.browseId` and no video id.
+`parseTwoRowItem` returned null for them, so each shelf failed its `tracks.length > 0` test and was
+discarded whole. Only song shelves survived, and often just one did.
+
+`FeedShelf` now carries `playlists` alongside `tracks`, a shelf survives on either, and Home renders
+playlist cards that resolve on tap with a spinner. Resolution is user-initiated — a dozen playlist
+rows would otherwise be a dozen requests for cards nobody touched.
+
+The three requested rows are **pinned first, in the order asked for**: Forgotten favourites, then Desi
+hip-hop, then Featured playlists. Matching is loose (`favou?rites?`, `hip[-\s]?hop`) because YouTube
+localises and renames, and a strict match would silently unpin a row the first time a spelling
+changed. Everything else keeps YouTube's ranking.
+
+---
+
 ## 6. Verification
 
-`tsc` clean · **386 tests / 39 files** green · `npm run build` OK.
+`tsc` clean · **401 tests / 40 files** green · `npm run build` OK.
+Android run `44859626616` (build) + `44859626687` (e2e) **success** (apk.55).
+Assets 3,669,358 B and 4,364,157 B.
+
+apk.54: **386 tests / 39 files**, runs `44857024779` + `44857024764` **success**.
 Android run `44857024779` (build) + `44857024764` (e2e) **success** (apk.54).
 Assets 3,666,446 B and 4,362,061 B.
 
@@ -398,6 +432,7 @@ apk.52: **352 tests / 36 files**, run `43182800620` **success**. Assets 3,664,25
 apk.51: **342 tests / 35 files**, run `43176761724` **success**.
 Every CI step green, including "Verify APK integrity".
 
+New in apk.55: `download-speed-and-rows.test.ts` (13); `home-feed.test.ts` 8 → 10.
 New in apk.54: `downloads-persist.test.ts` (11), `lag-and-feed.test.ts` (9);
 `home-feed.test.ts` grown 6 → 8.
 New in apk.53: `signin-and-search.test.ts` (12).
