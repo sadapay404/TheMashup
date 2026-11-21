@@ -465,14 +465,16 @@ export class MusicService {
       }
 
       /*
-       * Follow the token, bounded.
+       * Follow the token to the end of the playlist.
        *
-       * Ten pages is 250+ songs — far beyond what a home row should hold, and a hard stop keeps a
-       * pathological playlist from turning into an unbounded request loop. Each page is a browse with
-       * the token in the body, which is what InnerTube expects for a continuation.
+       * The row count is meant to be driven by the song count, so there is deliberately no page cap:
+       * a cap here would silently truncate the user's playlist at some arbitrary number of songs and
+       * present it as if the playlist were that short. Termination is guaranteed by two other things —
+       * a page that yields no new songs stops the loop, and a page that returns no token ends it.
+       * Each page is a browse with the token in the body, which is what InnerTube expects.
        */
       let token = deep.continuation;
-      for (let page = 0; token && page < 10; page++) {
+      for (let page = 0; token; page++) {
         const next = await this.innertube.browse(browseId, { continuation: token });
         const more = parsePlaylistBrowseDeep(next.json);
         let added = 0;

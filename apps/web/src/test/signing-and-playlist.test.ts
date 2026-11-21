@@ -192,6 +192,21 @@ describe('one signing key for every build', () => {
     expect(gradle).not.toMatch(/getenv\("MASHUP_KEYSTORE_PASSWORD"\) \?:/);
   });
 
+
+  it('never truncates the playlist at a page cap', () => {
+    /*
+     * "no limits of how many rows it creates depending upon the number of songs in the playlist."
+     * A page cap silently shortens the playlist and then presents the shortened list as the whole
+     * thing, which is indistinguishable from the playlist actually being that short. Termination is
+     * carried by the no-progress break and by the token running out.
+     */
+    expect(service).not.toMatch(/page < \d+/);
+    expect(service).toContain('for (let page = 0; token; page++)');
+    // The two real terminators must still be there.
+    expect(service).toContain('added === 0');
+    expect(service).toMatch(/token = more\.continuation/);
+  });
+
   it('writes the keystore in a form the JDK can read', () => {
     /*
      * OpenSSL 3 defaults to AES-256 + PBKDF2-SHA256 in PKCS#12, which the JDK keystore reader
