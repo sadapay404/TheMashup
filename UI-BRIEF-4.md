@@ -347,9 +347,49 @@ typing quickly cannot open the breakers and mark every mirror dead.
 
 ---
 
+## 5f. The apk.54 reports
+
+**"Songs say Downloaded in the notification but are not actually in the Downloads section."** Two
+independent causes, either sufficient:
+
+1. `downloads` and `folders` were **absent from `PersistedState`**, so the job list was rebuilt from an
+   empty literal on every launch. The file sat in `filesDir/Music` with nothing referencing it. The
+   notification was the only place the outcome ever appeared — hence the report's precision.
+2. **`nativeTree()` was dead code.** It read the real directory, was correct, and was called from
+   nowhere. Even a file already on disk had no route back into the list.
+
+Fixed by persisting jobs and folders (validated field by field; in-flight jobs dropped, since a
+restored `downloading` row is a spinner that can never finish), restoring them in `restoreOnce`, adding
+`reconcileFromDisk()` to adopt files whose record was never written, and calling both at startup.
+`bindNativeDownloadEvents()` also ran *only* from inside `startDownload`, so a download that finished
+while the app was closed had no listener. Completion now flushes the save rather than waiting out the
+1 s throttle.
+
+**"The feed is only a single row."** Two causes: a carousel whose `contents` are themselves
+`musicShelfRenderer`s (a real shape on the personalized page) parsed to zero tracks and was dropped
+whole, and grids were unhandled; and the hook *replaced* the page rather than extending it. YouTube's
+rows now render in YouTube's order with the local row appended underneath, fetched only when the page
+is still thin. Ceiling 6 → 12 rows.
+
+**"The app lags."** Every card was a `motion.button` with an entrance spring and a `whileTap` gesture —
+at twelve rows of twelve, 144 concurrent animations on mount. Now plain buttons with a CSS press
+transition. Separately, `useApp` derived its snapshot getter from the selector, and the selector is
+almost always an inline arrow, so its identity changed every render and `useSyncExternalStore` tore
+down and re-added a subscription each time — several times a second while playback ticked. The
+selector now lives in a ref.
+
+**"Search is slow."** Session cache for successful results (bounded, cleared on account change):
+backspacing and returning from a track both re-ran queries that had already been answered.
+
+---
+
 ## 6. Verification
 
-`tsc` clean · **364 tests / 37 files** green · `npm run build` OK.
+`tsc` clean · **386 tests / 39 files** green · `npm run build` OK.
+Android run `44857024779` (build) + `44857024764` (e2e) **success** (apk.54).
+Assets 3,666,446 B and 4,362,061 B.
+
+apk.53: **364 tests / 37 files**, runs `43191883833` + `43191883740` **success**.
 Android run `43191883833` (build) + `43191883740` (e2e) **success** (apk.53).
 Assets 3,665,574 B and 4,361,185 B.
 
@@ -358,6 +398,8 @@ apk.52: **352 tests / 36 files**, run `43182800620` **success**. Assets 3,664,25
 apk.51: **342 tests / 35 files**, run `43176761724` **success**.
 Every CI step green, including "Verify APK integrity".
 
+New in apk.54: `downloads-persist.test.ts` (11), `lag-and-feed.test.ts` (9);
+`home-feed.test.ts` grown 6 → 8.
 New in apk.53: `signin-and-search.test.ts` (12).
 New in apk.52: `home-feed.test.ts` (6); `seek-arbitration.test.ts` grown 5 → 8.
 New in apk.51: `account-picker.test.ts` (6), `responsiveness.test.ts` (5).
