@@ -509,5 +509,67 @@ and always bind a catch variable in Kotlin.**
 - **The responsiveness work is measurable but unmeasured here** — this sandbox has no Android device and
   no Playwright browser binary, so the numbers quoted are structural (removed per-frame work, halved
   transition latency), not profiled frame times.
-- Install over an older TheMashup will fail with "App not installed" (per-runner debug key). Uninstall
-  first, or add `MASHUP_KEYSTORE_BASE64`.
+- **Superseded by §5i.** Earlier builds were signed with a per-runner debug key, so installing over one
+  fails with "App not installed". One uninstall is still needed to get onto §5i; after that, every build
+  is signed by the committed key and installs over the last.
+
+## 5i. The playlist that would not pull, and the key that would not stay
+
+Two things the user asked for were broken, and one of them had been broken the whole time.
+
+### The playlist never pulled because no request was ever authenticated
+
+`TransportContext.cookie` existed, was populated, and was never used to sign anything. A YouTube Music
+request carrying a cookie but no `Authorization` header is an **anonymous** request: the cookie is not
+read, and the response is the generic logged-out feed. That is why a public playlist stayed empty —
+"public" governs whether *a stranger* can read the playlist, and the app really was a stranger.
+
+`packages/core/src/innertube/client.ts` now computes `SAPISIDHASH`:
+
+```
+Authorization: SAPISIDHASH <ts>_<sha1("<ts> <sapisid> https://music.youtube.com")>
+```
+
+with `SAPISID` falling back to `__Secure-3PAPISID`, and returns `null` rather than throwing when no
+cookie is present, so anonymous use still works. A hash failure degrades to anonymous instead of
+failing the request.
+
+Second, independent bug: `playlistTracks()` had always run a `next`-response parser over a `browse`
+response, which yields `[]` every time. `parsePlaylistBrowseDeep()` reads the real shape —
+`twoColumnBrowseResultsRenderer.secondaryContents.sectionListRenderer.contents[].musicPlaylistShelfRenderer.contents`
+— and finds the continuation token.
+
+`playlistTracksAll()` follows that token **to the end**, deduping by video id. There is deliberately no
+page cap: a cap would truncate the playlist and present the truncated list as if the playlist were
+that short, which is exactly the "no limits on rows" the round asked for. It terminates when a page
+adds no new songs, or when the token runs out.
+
+`useHomeFeed` renders it first, four to a row, `PINNED_PER_ROW = 4`, one shelf per four songs, and
+re-reads it every 60 s and on `visibilitychange` so a song added on a phone shows up without a restart.
+
+### One key, and the two bugs that hid behind "Assemble failed"
+
+The build failed twice for reasons that never mentioned signing in their output.
+
+1. **OpenSSL 3 writes PKCS#12 that the JDK will not read.** The default MAC is PBKDF2-SHA256 and the
+   default encryption AES-256-CBC; `KeyStore` cannot open that. The key is regenerated with
+   `-macalg sha1 -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES`. CI now runs `keytool -list` against it
+   **before** assembling, so an unreadable keystore is a five-second, correctly-worded failure.
+2. **GitHub Actions defines every `env:` key it declares, and a missing secret is an empty string.**
+   `System.getenv("MASHUP_KEYSTORE_PASSWORD") ?: "themashup123"` therefore returned `""`, and Gradle
+   opened the keystore with an empty password. `envOr()` treats blank as absent now, and `hasKey` is
+   `isNullOrBlank()`.
+
+The committed key also takes priority over `MASHUP_KEYSTORE_PATH`. A leftover secret would otherwise
+sign with a key nobody can reproduce, which defeats the point of committing one.
+
+Certificate: `CN=TheMashup`, valid to 2054, SHA-256 `89:6A:A1:48:…:5A:82:D5`. CI fails the build if
+`apksigner` reports any other DN, so a wrong key cannot reach a release again.
+
+**Still true:** the *first* install of §5i requires one uninstall, because the build the user has now
+was signed with a per-runner debug key. From §5i onward installs go over the top. That is worth saying
+plainly rather than letting them discover it as "App not installed".
+
+**Not verified in this sandbox:** no Android device, so the playlist rows are verified structurally
+(parser, continuation loop, chunk size, ordering tests) and by the fact that the authenticated request
+now matches what ytmusicapi sends — not by watching the grid fill. Search speed remains unmeasured.
