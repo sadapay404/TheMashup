@@ -573,3 +573,68 @@ plainly rather than letting them discover it as "App not installed".
 **Not verified in this sandbox:** no Android device, so the playlist rows are verified structurally
 (parser, continuation loop, chunk size, ordering tests) and by the fact that the authenticated request
 now matches what ytmusicapi sends — not by watching the grid fill. Search speed remains unmeasured.
+
+## 5j. Autoplay that survives a black screen
+
+"Everything's working fine, I use it daily. BUT the autoplay stops when running in BG. I have to manually
+open the app for the next song to play automatically. I have even removed the battery restrictions."
+
+The battery exemption was never going to help, and that is the useful part of this diagnosis: the
+service was not being throttled. It was **waiting**.
+
+ExoPlayer held exactly one media item at a time. Track order lived in the WebView. When a song ended
+the service posted `ended` to the page and the page called `next()` — and a backgrounded WebView is
+suspended, so nothing ran. The service sat on a finished track forever waiting for an instruction that
+only a foregrounded page could send. Reopening the app resumed the page, the queued event fired, and
+the next song started: exactly the symptom described.
+
+The detail that confirms it: the user volunteered that a **30-minute** track also plays to the end and
+then stops. If duration had anything to do with it, 30 minutes would have failed differently from 30
+seconds. Both failed at the same boundary — the track boundary — which is where the page was supposed to
+speak and could not.
+
+### The fix
+
+The service keeps its own lookahead. It resolves the next tracks itself — through the native extractor,
+or straight to a file that is already on disk — with no page, no bridge and no JS timer, and appends
+them to the player. With `setPauseAtEndOfMediaItems(false)` already set, Media3 rolls into the next
+track on its own, so on the normal path there is no `ENDED` state to react to at all.
+
+- The page still owns shuffle, repeat, radio and the downloads rules, and pushes the next ten tracks
+  whenever the queue changes.
+- Ten tracks is roughly half an hour of screen-off listening and keeps resolved URLs well inside their
+  lifetime. When the page is awake the window refills on every transition, so the width only matters
+  for a genuinely suspended app.
+- A downloaded track is handed over as a local path, so a background queue keeps working with no signal.
+- Repeat-one is enforced natively; a replay that silently advances is the same bug in the other
+  direction.
+- A resolve that fails puts the track back on the list rather than consuming it. Consuming it would
+  silently *skip* that song, which is worse than stopping.
+- Failure stops rather than retries. A background loop retrying a dead id is how a music app drains the
+  battery the user was told to exempt.
+
+### The desync this would otherwise have introduced
+
+With a lookahead, an ordinary track change now happens *inside Media3* and never passes through
+`ended`, so the page would have kept showing the previous song while the new one played. The service
+now announces each transition by **track id** (`mediaId`), and the page moves its index without calling
+`load()` — loading would re-resolve the song and restart it from zero, which is the classic "it goes to
+the next track and then plays it from the beginning".
+
+### What each flavour can do
+
+| build | background autoplay |
+| --- | --- |
+| `withNativeExtractor` (GPL) | everything — streaming and downloads |
+| `standard` | downloaded songs only; says so once, in plain words |
+
+The standard APK ships no GPL extractor, so once the page is suspended there is nothing that can turn
+the next track's id into a URL. That is a real limitation of that build, not a bug, and it is announced
+rather than left as a silent stop.
+
+### Not verified here
+
+No Android device in this sandbox, so this is verified structurally (29 tests in
+`background-autoplay.test.ts` pin the mechanism, including that the lookahead refills on every
+transition rather than once) and by compilation. The actual screen-off behaviour needs the user's
+phone.
