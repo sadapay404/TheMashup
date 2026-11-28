@@ -44,6 +44,14 @@ async function invoke(name: PluginName, method: string, args: Record<string, unk
 }
 
 export interface NativePlayPayload {
+  /**
+   * The track's video id.
+   *
+   * Carried so the service can name the track when playback moves on by itself: with a native
+   * lookahead an ordinary track change happens inside Media3 and never passes through `ended`, and
+   * without an id the page cannot tell which song is now playing.
+   */
+  id?: string;
   url: string;
   title: string;
   artist: string;
@@ -294,6 +302,61 @@ export async function nativeResolveStream(
   }
 }
 
+/** A track the native service may play without the page being awake. */
+export interface NextUp {
+  id: string;
+  title: string;
+  artist: string;
+  artUrl?: string;
+  durationMs: number;
+  /** Absolute on-device path when the song is downloaded. */
+  localPath?: string;
+}
+
+/**
+ * Hand the service the tracks that follow the current one.
+ *
+ * This is what makes autoplay survive backgrounding. The page still decides *what* comes next —
+ * shuffle, repeat, radio and the downloads rules all stay here, where the state lives — it just
+ * tells the service the answer before it stops being able to.
+ *
+ * An empty list is a real instruction: "this is the end of the queue".
+ */
+export async function nativeSetUpcoming(tracks: NextUp[], index = 0): Promise<void> {
+  if (!hasNativePlayback()) return;
+  try {
+    await invoke('MashupPlayer', 'setUpcoming', { tracks, index });
+  } catch {
+    /* the service may be restarting; the page will push again on the next queue change */
+  }
+}
+
+/** Mirror repeat-one to the service: it is the one that decides replay-vs-advance at track end. */
+export async function nativeSetRepeat(mode: 'off' | 'one' | 'all'): Promise<void> {
+  if (!hasNativePlayback()) return;
+  try {
+    await invoke('MashupPlayer', 'setRepeat', { mode });
+  } catch {
+    /* non-fatal: worst case the service advances instead of replaying */
+  }
+}
+
+/**
+ * Track ids the service played by itself while the page was suspended.
+ *
+ * Drained rather than peeked: the answer is applied once to move the page's index forward, and a
+ * second application would skip songs.
+ */
+export async function nativeDrainAppended(): Promise<string[]> {
+  if (!hasNativePlayback()) return [];
+  try {
+    const res = (await invoke('MashupPlayer', 'drainAppended')) as { ids?: string[] };
+    return Array.isArray(res?.ids) ? res.ids : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Subscribe to native playback/download events. Returns an unsubscribe function. */
 export function onNativeEvent(
   event:
@@ -301,6 +364,9 @@ export function onNativeEvent(
     | 'ended'
     | 'error'
     | 'stopped'
+    | 'trackChanged'
+    | 'nowPlaying'
+    | 'autoplayUnavailable'
     | 'downloadProgress'
     | 'downloadComplete'
     | 'downloadFailed'

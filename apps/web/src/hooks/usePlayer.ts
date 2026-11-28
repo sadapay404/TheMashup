@@ -20,12 +20,15 @@ import { service } from '@/lib/service';
 import {
   hasNativePlayback,
   nativeBootMark,
+  nativeDrainAppended,
   nativePause,
   nativePlay,
   nativeResume,
   nativeSeek,
+  nativeSetRepeat,
   nativeSetRate,
   nativeSetVolume,
+  nativeSetUpcoming,
   nativeState,
   nativeStop,
   onNativeEvent,
@@ -75,6 +78,14 @@ let nativePositionWarned = false;
  */
 const SEEK_SETTLE_MS = 1200;
 
+/**
+ * How many tracks ahead are handed to the native service.
+ *
+ * See the note where it is used: this is the length of a background session that can survive with no
+ * page at all, traded against resolving URLs that may go stale before they are reached.
+ */
+const NEXT_WINDOW = 10;
+
 function elementOwnsPlayback(el: HTMLAudioElement | null, nativeAvailable: boolean): boolean {
   return Boolean(el && !el.hasAttribute('src') && nativeAvailable);
 }
@@ -93,6 +104,13 @@ export function usePlayer() {
    * render when it changes.
    */
   const prefetchedUrl = useRef<string | null>(null);
+  /**
+   * The last upcoming list handed to the native service, as a comparable signature.
+   *
+   * The push is idempotent but not free: it crosses the Capacitor bridge, and the effect that owns
+   * it also reacts to download progress, which changes several times a second.
+   */
+  const lastUpcomingKey = useRef<string>('');
   /**
    * When the user last asked to move the playhead, and where to.
    *
@@ -117,6 +135,7 @@ export function usePlayer() {
   const rate = useApp((s) => s.rate);
   const repeat = useApp((s) => s.repeat);
   const shuffle = useApp((s) => s.shuffle);
+  const downloads = useApp((s) => s.downloads);
 
   const track: Track | null = queue[index] ?? null;
 
@@ -204,6 +223,7 @@ export function usePlayer() {
         store.set({ stream: null });
         signalPlay(t);
         if (!nativeDisabled && (await nativePlay({
+          id: t.id,
           url: localUrl,
           title: t.title,
           artist: t.artist,
@@ -276,6 +296,7 @@ export function usePlayer() {
       // playback itself. Passing the flag keeps the contract explicit rather than relying on the
       // service's default, and it is what makes recovery-after-error audible again.
       const handedToNative = !nativeDisabled && (await nativePlay({
+        id: t.id,
         url: playable.url,
         title: t.title,
         artist: t.artist,
@@ -513,6 +534,98 @@ export function usePlayer() {
       void setPlaying(true);
     }
   }, [load, setPlaying]);
+
+  /*
+   * Keep the native service supplied with what comes next.
+   *
+   * WHY THIS EXISTS, in the user's words: "the autoplay stops when running in BG; I have to manually
+   * open the app for the next song to play automatically." The old design had ExoPlayer holding a
+   * single item while the page's queue decided what followed, so at the end of a track the service
+   * posted `ended` to a suspended WebView and waited forever. Backgrounding therefore ended playback
+   * at the first track boundary — after 30 seconds, or after 30 minutes, no different.
+   *
+   * The page still owns queue semantics; this just hands over the *answer* early. Every input that
+   * can change what plays next sends a fresh list: the queue itself, the index, shuffle, repeat, and
+   * the downloads list (a downloaded track is handed over as a local path, so a background session
+   * keeps working with no network).
+   *
+   * The window is deliberately short — the next few tracks only. A long queue materialised natively
+   * would be a second copy of the queue that can drift, and it would resolve URLs for songs that may
+   * never play. Three is enough to cross any single track boundary, and each advance refills it.
+   */
+  useEffect(() => {
+    if (!hasNativePlayback()) return;
+    void nativeSetRepeat(repeat);
+    const s = store.getState();
+    const from = s.index + 1;
+    if (from >= s.queue.length) {
+      // End of queue, expressed as an instruction rather than as silence.
+      void nativeSetUpcoming([], 0);
+      lastUpcomingKey.current = '';
+      return;
+    }
+    /*
+     * `NEXT_WINDOW`, not "the next one".
+     *
+     * The width is a trade-off with two ends. Too small and a background session stops every few
+     * songs, because the page is exactly the thing that is not awake to refill it. Too large and we
+     * resolve signed URLs for songs that may not play for hours, and hold a second copy of the
+     * queue that can drift out of step with the real one.
+     *
+     * Ten is roughly half an hour of listening and keeps the resolved-URL age well inside the
+     * lifetime of the tokens the resolver hands out. When the page *is* awake the window is refilled
+     * on every transition anyway, so ten only matters for a genuinely suspended app.
+     */
+    const upcoming = s.queue.slice(from, from + NEXT_WINDOW).map((t) => {
+      const onDisk = s.downloads.find((d) => d.state === 'done' && d.track.id === t.id && d.path);
+      return {
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        ...(t.thumbs[t.thumbs.length - 1]?.url ? { artUrl: t.thumbs[t.thumbs.length - 1]!.url } : {}),
+        durationMs: Math.round((t.durationSec || 0) * 1000),
+        ...(onDisk?.path ? { localPath: onDisk.path } : {}),
+      };
+    });
+    /*
+     * Push only when the answer actually changes.
+     *
+     * `downloads` is in the dependency list so a finished download turns into a local path, but a
+     * download in flight updates its progress many times a second — and every one of those would
+     * otherwise cross the bridge with an identical payload.
+     */
+    const key = upcoming.map((u) => `${u.id}:${u.localPath ?? ''}`).join(',');
+    if (key === lastUpcomingKey.current) return;
+    lastUpcomingKey.current = key;
+    void nativeSetUpcoming(upcoming, 0);
+  }, [queue, index, repeat, shuffle, downloads]);
+
+  /*
+   * Catch up after the service played on without us.
+   *
+   * While suspended, the service advanced through tracks the page never saw. On resume the page would
+   * otherwise still believe the old track is current and, on the next render, show — or worse, start —
+   * a song that has already finished. Drained once per wake, and only used to move the index.
+   */
+  useEffect(() => {
+    if (!hasNativePlayback()) return;
+    const sync = () => {
+      if (document.visibilityState !== 'visible') return;
+      void nativeDrainAppended().then((ids) => {
+        if (!ids.length) return;
+        const s = store.getState();
+        let idx = s.index;
+        for (const id of ids) {
+          const found = s.queue.findIndex((t, i) => i > idx && t.id === id);
+          if (found >= 0) idx = found;
+        }
+        if (idx !== s.index) store.set({ index: idx, positionSec: 0 });
+      });
+    };
+    document.addEventListener('visibilitychange', sync);
+    sync();
+    return () => document.removeEventListener('visibilitychange', sync);
+  }, []);
 
   const next = useCallback(
     (auto = false) => {
@@ -779,6 +892,42 @@ export function usePlayer() {
     };
     const id = window.setInterval(() => void tick(), 1000);
     const offEnded = onNativeEvent('ended', () => next(true));
+    /*
+     * The player moved to another track by itself.
+     *
+     * Now that the service holds a lookahead, an ordinary track change happens *inside Media3* and
+     * never passes through `ended`. That is the fix working, and it would otherwise be invisible to
+     * the UI: the store would still name the previous song while the new one plays.
+     *
+     * Critically this must NOT call `load()`. The audio is already playing; loading would re-resolve
+     * the same track and restart it from zero, which is the classic "it skips to the next song and
+     * then plays it from the beginning" bug. Only the index moves.
+     */
+    /*
+     * Background autoplay cannot continue by itself in this build.
+     *
+     * The `standard` APK ships no native extractor, so once the page is suspended there is no way to
+     * turn the next track's id into a playable URL. Say so once — a session that quietly stops at the
+     * end of a song is the "silent dead end" the app is not allowed to have.
+     */
+    let warnedNoExtractor = false;
+    const offAutoplayUnavailable = onNativeEvent('autoplayUnavailable', () => {
+      if (warnedNoExtractor) return;
+      warnedNoExtractor = true;
+      store.notify(
+        'Background autoplay needs the withNativeExtractor APK — downloaded songs still continue.',
+        'info',
+      );
+    });
+
+    const offNowPlaying = onNativeEvent('nowPlaying', (data) => {
+      const id = (data as { id?: string } | null)?.id;
+      if (!id) return;
+      const s = store.getState();
+      const at = s.queue.findIndex((t) => t.id === id);
+      if (at < 0 || at === s.index) return;
+      store.set({ index: at, positionSec: 0, loading: false, playing: true });
+    });
     const offError = onNativeEvent('error', (data) => {
       const d = data as {
         code?: string;
@@ -861,6 +1010,8 @@ export function usePlayer() {
       alive = false;
       window.clearInterval(id);
       offEnded();
+      offNowPlaying();
+      offAutoplayUnavailable();
       offError();
       offStopped();
       offToggleShuffle();

@@ -38,6 +38,13 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import app.themashup.music.MainActivity
 import app.themashup.music.R
+import app.themashup.music.extractor.Extractor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Background playback.
@@ -53,10 +60,43 @@ import app.themashup.music.R
  *  - audio focus handled by Media3, so a phone call ducks/pauses correctly
  *  - every public entry point is defensive: a bad URI must not crash the service
  */
+/**
+ * A track the service may play without the page being awake.
+ *
+ * Top-level rather than nested: it is referenced from the companion object, from the service, and
+ * from the plugin that receives it over the bridge, and a class nested inside a companion object
+ * cannot be named from outside (`PlaybackService.Companion.UpcomingTrack` is what it actually is).
+ */
+data class UpcomingTrack(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val artUrl: String?,
+    val durationMs: Long,
+    /** Absolute path when the track is downloaded; null means "resolve it when it is needed". */
+    val localPath: String?,
+)
+
+/** A resolved source, ready to hand to the player. */
+data class Playable(
+    val uri: android.net.Uri,
+    val durationMs: Long,
+    val headers: Map<String, String>,
+)
+
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+
+    /**
+     * For background resolution only.
+     *
+     * The extractor is a suspending call that talks to the network; it must not run on the main
+     * thread, and it must not outlive the service. `SupervisorJob` so one failed resolve cannot cancel
+     * the scope and silently disable auto-advance for the rest of the session.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Force a notification refresh.
@@ -136,8 +176,15 @@ class PlaybackService : MediaSessionService() {
 
         player.setPauseAtEndOfMediaItems(false)
 
-        // Auto-advance is driven by the JS queue, which owns shuffle/repeat semantics. When ExoPlayer
-        // reaches the end it simply stops; the UI decides what is next. Single source of truth.
+        /*
+         * Play through the queue without pausing between items.
+         *
+         * The comment that used to stand here said auto-advance was "driven by the JS queue" and that
+         * ExoPlayer "simply stops" at the end of a track, with the UI deciding what came next. That
+         * was the background-autoplay bug written down as if it were a design: a suspended WebView
+         * cannot decide what comes next, so playback ended at the first track boundary whenever the
+         * app was not on screen. The service now keeps a lookahead of its own; see [prefetchNext].
+         */
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
@@ -257,6 +304,75 @@ class PlaybackService : MediaSessionService() {
          * Registering here is idempotent (the service checks for an existing id) and it is what makes
          * Media3 attach its own internal controller, which in turn is what makes the shade entry real.
          */
+        /*
+         * Native auto-advance.
+         *
+         * THE BUG THIS FIXES, stated plainly because it is an architectural mistake, not a missing
+         * flag: the player held exactly ONE media item at a time and the JS queue owned track order.
+         * When a song ended, `ended` was posted to the WebView and the page called `next()`. With the
+         * app in the background the WebView is suspended, so nothing ran, nothing advanced, and the
+         * user had to reopen the app to make the next song start. Measured symptom: a 30-minute track
+         * plays to completion and then the music simply stops.
+         *
+         * "No battery restrictions" could never have helped: the service was never throttled. It was
+         * waiting for an instruction that only a foregrounded page could send.
+         *
+         * The fix is to stop making playback depend on a live WebView. The service keeps its own
+         * queue of upcoming tracks and, when one ends, resolves and appends the next itself. The JS
+         * layer still owns queue *semantics* (shuffle, repeat, radio), and keeps telling us what is
+         * next whenever it is alive to do so; this is the fallback for when it is not.
+         */
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    /*
+                     * Get ahead of the music as soon as the current track is ready.
+                     *
+                     * Doing this here rather than at the end is the difference between gapless and a
+                     * gap: the next track is already in the player's timeline, so ExoPlayer rolls
+                     * into it by itself with no wake-up, no resolve and no involvement from the page.
+                     */
+                    prefetchNext()
+                    return
+                }
+                if (playbackState != Player.STATE_ENDED) return
+                onEndedWithNothingQueued()
+            }
+
+            /*
+             * Tell the page which track the player moved to.
+             *
+             * Two cases, one event, because the page needs the same thing from both: the *id* of what
+             * is now playing.
+             *
+             *  - A user-initiated transition (the notification's next/previous, a Bluetooth button)
+             *    moves the player without the page knowing. Before this, the page's index stayed
+             *    where it was and the UI showed the previous song while the new one played.
+             *  - An *automatic* transition is the background auto-advance working: the page may be
+             *    suspended, and if it is awake it must follow along without calling `load()` — the
+             *    audio is already playing, and reloading would restart the song from zero.
+             *
+             * The id, not an index: the player's item list is not the page's queue once items have
+             * been trimmed from the front, so an index would point at the wrong song.
+             */
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val id = mediaItem?.mediaId?.takeIf { it.isNotBlank() }
+                if (id != null) {
+                    NativeEvents.post("nowPlaying", mapOf("id" to id))
+                    NativeEvents.post("trackChanged", mapOf("id" to id))
+                }
+                /*
+                 * Refill the lookahead.
+                 *
+                 * The transition means the previous track has been consumed, so the timeline now ends
+                 * at the item that just started. Without this the queue would be exactly one track
+                 * deep and the *next* end of track would find nothing behind it — a fix that works
+                 * for one song and then fails, which is worse than not shipping.
+                 */
+                prefetchNext()
+            }
+        })
+
         mediaSession?.let { addSession(it) }
 
         PlaybackBridge.attach(player)
@@ -284,6 +400,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         if (current === this) current = null
+        scope.cancel()
         PlaybackBridge.detach()
         mediaSession?.run {
             player.release()
@@ -295,6 +412,73 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val TAG = "MashupPlayback"
+
+        /**
+         * Repeat-one, as told to us by the page.
+         *
+         * The service cannot decide this for itself: whether the end of a track means "again", "next"
+         * or "stop" is queue semantics, and those live in the store. When the page is alive it updates
+         * this on every change; when it is not, the last value it sent is still the truth.
+         */
+        @Volatile
+        var soloRepeat: Boolean = false
+
+        /**
+         * The upcoming tracks, as last described by the page.
+         *
+         * Deliberately a plain snapshot of *what to play next*, not a copy of the UI queue: the
+         * service only needs ids and titles to keep audio running, and duplicating the whole queue
+         * would give two sources of truth for shuffle and repeat. `setUpcoming()` replaces it
+         * wholesale, so the page stays authoritative whenever it is running.
+         */
+        @Volatile
+        private var upcoming: List<UpcomingTrack> = emptyList()
+
+        /** Which entry of [upcoming] is the next one to play. */
+        @Volatile
+        private var upcomingIndex: Int = 0
+
+        /** Guards [pendingResolve] so a slow extractor call cannot be started twice for one track. */
+        @Volatile
+        private var resolvingNext = false
+
+        /**
+         * Ids the service already appended by itself.
+         *
+         * When the page wakes up it needs to know to skip these instead of repeating them, otherwise
+         * reopening the app replays a song the user already heard in the background.
+         */
+        private val appendedIds = ConcurrentHashMap.newKeySet<String>()
+
+        /**
+         * Replace the upcoming list. Called by the page whenever its queue changes.
+         *
+         * `index` is the position *in this list* that should play next, not the queue index — the page
+         * slices the list down to what comes after the current track, which keeps the arithmetic here
+         * trivial and avoids an off-by-one that would only show up at the end of a queue.
+         */
+        fun setUpcoming(tracks: List<UpcomingTrack>, index: Int) {
+            upcoming = tracks
+            upcomingIndex = index.coerceIn(0, maxOf(0, tracks.size - 1))
+        }
+
+        /**
+         * Restart the cursor into [upcoming].
+         *
+         * Called when the page loads a track itself: the list it is about to send describes what
+         * follows *that* track, so the old position into the old list is meaningless.
+         */
+        fun nextUpcomingIndexReset() {
+            upcomingIndex = 0
+        }
+
+        /** What the page should consider already-played when it comes back. */
+        fun drainAppended(): List<String> {
+            val out = appendedIds.toList()
+            appendedIds.clear()
+            return out
+        }
+
 
         /**
          * The live service, if one exists.
@@ -335,6 +519,175 @@ class PlaybackService : MediaSessionService() {
                 PlaybackBridge.detach()
             }
         }
+    }
+
+    /**
+     * Keep the player at least one track ahead of the one that is playing.
+     *
+     * THIS is the fix for "autoplay stops in the background", and the mechanism matters. The service
+     * used to hold a single media item while the WebView's queue decided what followed: at the end of
+     * a track the service posted `ended` to a page that was suspended and then waited, forever. A
+     * 30-second song and a 30-minute song failed identically, which is what ruled out anything to do
+     * with track length, decoding or the screen.
+     *
+     * The fix is to stop depending on a waking WebView. The page hands down the next few tracks
+     * (`setUpcoming`); the service resolves them itself through [Extractor] — no page, no bridge, no
+     * JS timer — and *appends* them, so ExoPlayer has somewhere to go when the current track ends.
+     * With `setPauseAtEndOfMediaItems(false)` the hand-off is gapless: there is no ENDED state to
+     * react to on the normal path, which is why pre-appending is preferred over reacting to the end.
+     *
+     * Three deliberate decisions:
+     *
+     *  - **Append, never replace.** `setMediaItem` would drop the finished item and break "previous";
+     *    `addMediaItem` keeps the history the notification's back button walks.
+     *  - **One item of lookahead.** Refilled after each transition. A long queue materialised up
+     *    front would be a second copy of the queue that can drift, and would resolve signed URLs for
+     *    songs that may never play.
+     *  - **Failure stops, it does not spin.** If the extractor cannot answer, `ended` is emitted and
+     *    the service waits for the page. A background loop that retries a dead id forever is how a
+     *    music app drains a battery.
+     */
+    private fun prefetchNext() {
+        if (resolvingNext) return
+        /*
+         * Read the player from the session rather than from the bridge.
+         *
+         * `PlaybackBridge.attach()` is the last thing `startSession()` does, so during the very first
+         * READY transition the bridge still holds null — the prefetch would be skipped exactly once,
+         * at the start of every session, which is the hardest kind of bug to notice.
+         */
+        val p = mediaSession?.player ?: return
+        // Already has something to play next — nothing to do.
+        if (p.mediaItemCount > 0 && p.currentMediaItemIndex < p.mediaItemCount - 1) return
+        val next = nextUpcoming()
+        if (next == null) {
+            // Genuinely the end of the queue. Nothing to pre-append; the ENDED handler emits `ended`.
+            return
+        }
+        resolvingNext = true
+        scope.launch {
+            try {
+                val playable = resolveForBackground(next)
+                if (playable == null) {
+                    Log.w(TAG, "no background source for ${next.id}; will stop at end of track")
+                    return@launch
+                }
+                PlaybackBridge.append(playable, next)
+                appendedIds.add(next.id)
+            } finally {
+                resolvingNext = false
+            }
+        }
+    }
+
+    /**
+     * A track ended with nothing behind it.
+     *
+     * Only reached when [prefetchNext] could not get ahead of the music — a slow extractor, a queue
+     * that ran dry, or repeat-one. Repeat is handled here because the service is the only participant
+     * still awake when the screen is off, and "repeat one" that silently advances is indistinguishable
+     * from autoplay being broken in the other direction.
+     */
+    private fun onEndedWithNothingQueued() {
+        if (soloRepeat) {
+            PlaybackBridge.replayCurrent()
+            return
+        }
+        // One last attempt: the page may have refilled the list while we were resolving.
+        if (nextUpcoming() != null) {
+            prefetchNext()
+            return
+        }
+        PlaybackBridge.emitEnded()
+    }
+
+    /** Resolve [next] to something ExoPlayer can start, or null. */
+    private suspend fun resolveForBackground(next: UpcomingTrack): Playable? {
+        // A downloaded file needs no network and cannot be truncated mid-song, so it is always the
+        // first choice — this is also what makes a background queue work with no signal at all.
+        next.localPath?.let { path ->
+            val file = java.io.File(path)
+            if (file.exists() && file.canRead()) {
+                return Playable(android.net.Uri.fromFile(file), next.durationMs, emptyMap())
+            }
+        }
+
+        // The native extractor, when this APK ships one. A `standard` APK has none, and then the
+        // page's own resolver ladder is the only route — which needs the page. Reported honestly
+        // rather than retried: this is why the GPL flavour is the one that auto-advances in the
+        // background, and it is stated in the release notes rather than left as a mystery.
+        /*
+         * No native extractor in this APK.
+         *
+         * Reported as its own event rather than as a generic failure, because the fix is different
+         * and the user cannot guess it: the `standard` flavour ships no GPL code and therefore has
+         * no way to turn a video id into a playable URL on its own. Its background queue still works
+         * for *downloaded* songs (handled above, no network needed); streaming needs the
+         * `withNativeExtractor` build. Saying so once is the difference between a limitation and a
+         * silent dead end.
+         */
+        if (!Extractor.available) {
+            Log.w(TAG, "no native extractor; cannot continue to ${next.id} without the page")
+            NativeEvents.post("autoplayUnavailable", mapOf("reason" to "no_extractor"))
+            return null
+        }
+
+        val result = Extractor.resolveStream(next.id, 0)
+        val json = result.getOrNull() ?: run {
+            Log.w(TAG, "background resolve failed for ${next.id}: ${result.exceptionOrNull()?.message}")
+            return null
+        }
+        return parseExtractorJson(json)
+    }
+
+    /**
+     * Turn the extractor's JSON into a media item.
+     *
+     * Parsed with `org.json` rather than a data class because the payload crosses a JSON seam by
+     * design (see [Extractor]); a shared class would couple the two halves of the app for no gain.
+     */
+    private fun parseExtractorJson(json: String): Playable? {
+        return try {
+            val o = org.json.JSONObject(json)
+            val url = o.optString("url")
+            if (url.isBlank()) {
+                null
+            } else {
+                val headers = HashMap<String, String>()
+                o.optJSONObject("headers")?.let { h ->
+                    for (key in h.keys()) {
+                        val v = h.optString(key, "")
+                        if (key.isNotBlank() && v.isNotBlank()) headers[key] = v
+                    }
+                }
+                Playable(
+                    uri = android.net.Uri.parse(url),
+                    durationMs = o.optLong("durationSec", 0L) * 1000L,
+                    headers = headers,
+                )
+            }
+        } catch (t: Throwable) {
+            // A malformed payload is a bug in the extractor, not a reason to kill a background
+            // session. Reported, and treated as "no source".
+            Log.w(TAG, "unreadable extractor payload", t)
+            null
+        }
+    }
+
+    /**
+     * The next track the service knows how to play, or null when it has run out.
+     *
+     * `@Synchronized` because it is called from the main thread (the ENDED handler) and from a
+     * resolve coroutine, and it *mutates* the cursor. Two unsynchronised callers could take the same
+     * entry and append the same song twice.
+     */
+    @Synchronized
+    private fun nextUpcoming(): UpcomingTrack? {
+        val list = upcoming
+        val i = upcomingIndex
+        if (i < 0 || i >= list.size) return null
+        upcomingIndex = i + 1
+        return list[i]
     }
 
     /**
@@ -712,6 +1065,13 @@ internal object PlaybackBridge {
          * them; a header registered afterwards would arrive after the 403 it was meant to prevent.
          */
         headers: Map<String, String> = emptyMap(),
+        /**
+         * The track's video id.
+         *
+         * Stored as the media item's `mediaId` so a transition can be announced by identity. Absent
+         * for a local file with no known id, which simply means no transition event.
+         */
+        videoId: String? = null,
     ) {
         // CRITICAL: `player ?: return` used to fail silently when the service was not bound yet,
         // which made the first play of every session a no-op with no error anywhere. Report it so
@@ -741,12 +1101,28 @@ internal object PlaybackBridge {
 
         val item = MediaItem.Builder()
             .setUri(url)
+            /*
+             * `mediaId` carries the track id purely so transitions can be announced.
+             *
+             * Without it Media3 hands us a null id at the transition and there is no way to say
+             * *which* track started — only its position in a list that is being trimmed.
+             */
+            .setMediaId(videoId.orEmpty())
             .setMediaMetadata(metadata)
             .build()
 
         // The MediaItem and its metadata are built here, off the player's thread, because building
         // them touches nothing the player owns. Only the three calls below have to be on main.
         onMain { p ->
+            /*
+             * A page-driven load wins the queue.
+             *
+             * `setMediaItem` drops the pre-appended items, which is right when the user picked a
+             * different song — the background lookahead belongs to the old queue and playing it now
+             * would be playing the wrong thing. The page pushes a fresh `setUpcoming` immediately
+             * after `play()`, so the cursor restarts here rather than pointing into a stale list.
+             */
+            nextUpcomingIndexReset()
             p.setMediaItem(item)
             p.prepare()
             // Honouring the flag matters: loading a track to reproduce a paused session must not
@@ -784,6 +1160,73 @@ internal object PlaybackBridge {
             snapshot(p)
         }
     }
+
+    /**
+     * Append a resolved track to the player and keep playing through it.
+     *
+     * Called from the service's background coroutine, so it hops to main like every other mutator.
+     *
+     * `setPauseAtEndOfMediaItems(false)` on the player plus a real item list is what makes this
+     * gapless: ExoPlayer moves to the next item itself, with no JS, no broadcast and no wake-up of a
+     * suspended WebView. The previous behaviour — one item at a time, re-set from JS — is why a
+     * backgrounded app went quiet at the end of every song.
+     *
+     * Trimming is on the *finished* end only, and only beyond [TRIM_AT]: `removeMediaItem(0)` while
+     * the user can still meaningfully press "previous" would break that button, so history is kept
+     * for a reasonable window and then dropped to bound memory.
+     */
+    /**
+     * Replay the current track from the start.
+     *
+     * Repeat-one, done natively. The page implements it too, but the page is exactly what is not
+     * running when this matters.
+     */
+    fun replayCurrent() = onMain { p ->
+        if (p.mediaItemCount == 0) return@onMain
+        p.seekTo(p.currentMediaItemIndex, 0L)
+        p.play()
+        snapshot(p)
+    }
+
+    fun append(playable: Playable, next: UpcomingTrack) {
+        if (playable.headers.isNotEmpty()) MediaItemHeaders.put(playable.uri.toString(), playable.headers)
+        val metadata = MediaMetadata.Builder()
+            .setTitle(next.title)
+            .setArtist(next.artist)
+            .setArtworkUri(next.artUrl?.let { Uri.parse(it) })
+            .build()
+        val item = MediaItem.Builder()
+            .setUri(playable.uri)
+            // The video id, so a transition can be reported as an identity the page can look up.
+            .setMediaId(next.id)
+            .setMediaMetadata(metadata)
+            .build()
+
+        onMain { p ->
+            val atEnd = p.playbackState == Player.STATE_ENDED
+            val addAt = p.mediaItemCount
+            p.addMediaItem(item)
+            if (atEnd) {
+                /*
+                 * The track already ended, so appending is not enough: the player is parked past the
+                 * last item and will not move on its own. Seek onto the new item explicitly and
+                 * start it. Without this the queue grows while nothing plays — a fix that looks
+                 * right in the logs and is silent in the speaker.
+                 */
+                p.seekTo(addAt, 0L)
+                p.prepare()
+                p.play()
+            }
+            while (p.mediaItemCount > TRIM_AT && p.currentMediaItemIndex > 1) {
+                p.removeMediaItem(0)
+            }
+            snapshot(p)
+        }
+        PlaybackService.current?.refreshNotification(startInForeground = true)
+    }
+
+    /** How many player items to keep before dropping the oldest. */
+    private const val TRIM_AT = 8
 
     fun pause() = onMain { it.pause() }
     /**

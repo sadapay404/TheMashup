@@ -90,6 +90,7 @@ class MashupPlayerPlugin : Plugin() {
             // Defaults to true: a play() call has always meant "start playing".
             shouldPlay = call.getBoolean("shouldPlay") ?: true,
             headers = headers,
+            videoId = call.getString("id"),
         )
         call.resolve()
     }
@@ -120,6 +121,67 @@ class MashupPlayerPlugin : Plugin() {
         // that depends on it could never run.
         val resumed = PlaybackBridge.resume()
         call.resolve(JSObject().put("resumed", resumed))
+    }
+
+    /**
+     * Tell the service what to play after the current track.
+     *
+     * The page remains the source of truth for queue order, shuffle and repeat; it simply hands the
+     * already-computed "next few tracks" down so the service can continue without it. Sending an empty
+     * list is meaningful — it means "this is the end", and the service stops rather than guessing.
+     *
+     * `tracks` is a list of `{id, title, artist, artUrl, durationMs, localPath}`. Only what the
+     * service needs to build a media item and resolve a stream; nothing here duplicates shuffle or
+     * repeat logic.
+     */
+    @PluginMethod
+    fun setUpcoming(call: PluginCall) {
+        val arr = call.getArray("tracks")
+        val tracks = ArrayList<UpcomingTrack>()
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id").takeIf { it.isNotBlank() } ?: continue
+                tracks.add(
+                    UpcomingTrack(
+                        id = id,
+                        title = o.optString("title", ""),
+                        artist = o.optString("artist", ""),
+                        artUrl = o.optString("artUrl").takeIf { it.isNotBlank() },
+                        durationMs = o.optLong("durationMs", 0L),
+                        localPath = o.optString("localPath").takeIf { it.isNotBlank() },
+                    ),
+                )
+            }
+        }
+        PlaybackService.setUpcoming(tracks, call.getInt("index") ?: 0)
+        call.resolve()
+    }
+
+    /**
+     * Repeat-one, mirrored from the page.
+     *
+     * The service has to know this, because at the end of a track it is the service that decides
+     * whether to replay or advance — and it is the only participant still running when the screen is
+     * off.
+     */
+    @PluginMethod
+    fun setRepeat(call: PluginCall) {
+        PlaybackService.soloRepeat = call.getString("mode") == "one"
+        call.resolve()
+    }
+
+    /**
+     * Tracks the service played on its own while the page was suspended.
+     *
+     * Without this the app would resume showing the pre-background queue and, on the next render,
+     * quietly replay songs the user already heard. The page uses the ids to catch up its index.
+     */
+    @PluginMethod
+    fun drainAppended(call: PluginCall) {
+        val js = JSObject()
+        js.put("ids", com.getcapacitor.JSArray(PlaybackService.drainAppended()))
+        call.resolve(js)
     }
 
     @PluginMethod
