@@ -468,8 +468,18 @@ class PlaybackService : MediaSessionService() {
          * Called when the page loads a track itself: the list it is about to send describes what
          * follows *that* track, so the old position into the old list is meaningless.
          */
-        fun nextUpcomingIndexReset() {
+        fun resetUpcomingCursor() {
             upcomingIndex = 0
+        }
+
+        /**
+         * Give back the entry [nextUpcoming] just took.
+         *
+         * Bounded to the entry that was consumed, so a resolve that fails *after* the page replaced
+         * the list cannot rewind into an unrelated one.
+         */
+        fun rewindUpcoming() {
+            if (upcomingIndex > 0) upcomingIndex -= 1
         }
 
         /** What the page should consider already-played when it comes back. */
@@ -570,6 +580,15 @@ class PlaybackService : MediaSessionService() {
                 val playable = resolveForBackground(next)
                 if (playable == null) {
                     Log.w(TAG, "no background source for ${next.id}; will stop at end of track")
+                    /*
+                     * Put the entry back.
+                     *
+                     * Taking it off the list and then failing would silently *skip* this song: the
+                     * next prefetch would start from the track after it, and the user would never
+                     * hear either. Restoring it means a later attempt — after the page wakes and
+                     * refreshes the list — still has the right next track.
+                     */
+                    PlaybackService.rewindUpcoming()
                     return@launch
                 }
                 PlaybackBridge.append(playable, next)
@@ -1122,7 +1141,7 @@ internal object PlaybackBridge {
              * would be playing the wrong thing. The page pushes a fresh `setUpcoming` immediately
              * after `play()`, so the cursor restarts here rather than pointing into a stale list.
              */
-            nextUpcomingIndexReset()
+            PlaybackService.resetUpcomingCursor()
             p.setMediaItem(item)
             p.prepare()
             // Honouring the flag matters: loading a track to reproduce a paused session must not

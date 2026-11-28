@@ -79,7 +79,16 @@ describe('the native service advances without the page', () => {
      * A background loop that retries a dead id forever drains the battery the user was told to
      * exempt. One attempt, then it stops and reports.
      */
-    expect(service).toMatch(/playable == null[\s\S]{0,400}return@launch/);
+    expect(service).toMatch(/playable == null[\s\S]{0,900}return@launch/);
+  });
+
+  it('puts the track back when it could not be resolved', () => {
+    /*
+     * Taking an entry off the list and then failing on it silently *skips* that song: the next
+     * prefetch starts from the one after it and neither is ever heard. The entry has to go back.
+     */
+    expect(service).toMatch(/playable == null[\s\S]{0,900}PlaybackService\.rewindUpcoming\(\)/);
+    expect(service).toContain('fun rewindUpcoming()');
   });
 
   it('honours repeat-one natively', () => {
@@ -99,8 +108,8 @@ describe('the native service advances without the page', () => {
      * Otherwise the addressable list belongs to the previous queue and the service can pre-append a
      * song from a playlist the user has navigated away from.
      */
-    expect(service).toContain('nextUpcomingIndexReset()');
-    expect(service).toMatch(/nextUpcomingIndexReset\(\)[\s\S]{0,300}p\.setMediaItem\(item\)/);
+    expect(service).toContain('resetUpcomingCursor()');
+    expect(service).toMatch(/resetUpcomingCursor\(\)[\s\S]{0,300}p\.setMediaItem\(item\)/);
   });
 });
 
@@ -228,5 +237,51 @@ describe('a limitation is never a silent dead end', () => {
     const extractor = body.indexOf('Extractor.available');
     expect(extractor).toBeGreaterThan(-1);
     expect(local).toBeLessThan(extractor);
+  });
+});
+
+describe('the Kotlin actually links', () => {
+  /*
+   * There is no JVM in the development sandbox, so the compiler is CI — and a single unresolved
+   * reference costs a full build cycle to discover. These are the two mistakes that were actually
+   * made while writing this: calling a companion member unqualified from the top-level bridge object,
+   * and naming a symbol after it had been renamed.
+   */
+  it('qualifies companion members used from the bridge object', () => {
+    const bridgeAt = service.indexOf('internal object PlaybackBridge');
+    expect(bridgeAt).toBeGreaterThan(-1);
+    const bridge = service.slice(bridgeAt);
+    // Anything the companion owns must be reached through the class name.
+    expect(bridge).toContain('PlaybackService.resetUpcomingCursor()');
+    expect(bridge).not.toMatch(/[^.]\bresetUpcomingCursor\(\)/);
+  });
+
+  it('has no reference to a renamed symbol', () => {
+    expect(service).not.toContain('nextUpcomingIndexReset');
+    // Called from a coroutine inside the service, so it needs the same qualification.
+    expect(service).toContain('PlaybackService.rewindUpcoming()');
+    expect(service).toContain('resetUpcomingCursor');
+  });
+
+  it('declares the shared types at top level, not inside the companion', () => {
+    /*
+     * A class nested in a companion object is reachable only as `Outer.Companion.Inner`, so
+     * `PlaybackService.Playable` in a signature would not resolve. Top-level is the only spelling
+     * that works from the service, the companion and the plugin alike.
+     */
+    const companionAt = service.indexOf('companion object {');
+    const companionEnd = service.indexOf('internal object PlaybackBridge');
+    const companion = service.slice(companionAt, companionEnd);
+    expect(companion).not.toContain('data class UpcomingTrack');
+    expect(companion).not.toContain('data class Playable');
+    // ...and they are declared before the service class that uses them.
+    expect(service.indexOf('data class Playable')).toBeLessThan(service.indexOf('class PlaybackService'));
+  });
+
+  it('does not reference the nested spelling anywhere', () => {
+    expect(service).not.toContain('PlaybackService.Playable');
+    expect(service).not.toContain('PlaybackService.UpcomingTrack');
+    expect(plugin).not.toContain('PlaybackService.UpcomingTrack');
+    expect(plugin).not.toContain('PlaybackService.Playable');
   });
 });
